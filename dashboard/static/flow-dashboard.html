@@ -1443,7 +1443,7 @@ const NAV_CONFIG = {
   agent:     { tab: 'agent',     sidebar: null,         showSidebar: false },
   // Sidebar-only nav items (no tab change, just switch sidebar panel)
   signals:   { tab: null,        sidebar: 'signals',    showSidebar: true  },
-  journal:   { tab: null,        sidebar: 'journal',    showSidebar: true  },
+  journal:   { tab: 'combined',  sidebar: 'journal',    showSidebar: true  },
   settings:  { tab: null,        sidebar: 'settings',   showSidebar: true  },
 };
 
@@ -2451,6 +2451,14 @@ function setSym(sym){
     // Load persisted ticks for this symbol (session continuity)
     _loadPersistedTicks(S.sym);
   }
+
+  // Clear stale sidebar order flow data before reloading
+  ['imbFeed','lgPrintFeed','absorbFeed'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el){ el.innerHTML = ''; if(el._pool) el._pool = []; }
+  });
+  const _lgEmpty = document.getElementById('lgPrintEmpty');
+  if(_lgEmpty) _lgEmpty.style.display = '';
 
   // Reload everything for new symbol
   loadHistory();
