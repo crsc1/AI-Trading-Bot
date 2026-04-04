@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Order Flow Bubble Upgrade Plan — AI Trading Bot</title>
+<style>
+:root {
+  --bg: #0a0a14;
+  --bg2: #12121e;
+  --bg3: #1a1a2e;
+  --brd: #2a2a3e;
+  --txt: #d0d0da;
+  --dim: #707088;
+  --grn: #00e676;
+  --red: #ff1744;
+  --acc: #7c4dff;
+  --warn: #ffa726;
+  --cyan: #00bcd4;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.6;
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+h1 { color: #fff; font-size: 24px; margin-bottom: 6px; }
+h2 { color: var(--acc); font-size: 18px; margin: 30px 0 12px; border-bottom: 1px solid var(--brd); padding-bottom: 6px; }
+h3 { color: var(--cyan); font-size: 14px; margin: 16px 0 8px; }
+.subtitle { color: var(--dim); font-size: 13px; margin-bottom: 30px; }
+p, li { font-size: 13px; color: var(--txt); }
+p { margin-bottom: 10px; }
+ul { padding-left: 20px; margin-bottom: 12px; }
+li { margin-bottom: 4px; }
+
+.phase-tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
+.phase-tab {
+  padding: 8px 16px; font-size: 12px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--brd); border-radius: 6px; background: var(--bg2);
+  color: var(--dim); transition: all 0.2s; letter-spacing: 0.3px;
+}
+.phase-tab:hover { border-color: var(--acc); color: var(--txt); }
+.phase-tab.active { background: var(--acc); color: #fff; border-color: var(--acc); }
+.phase-content { display: none; }
+.phase-content.active { display: block; }
+
+.mockup-area {
+  background: var(--bg2); border: 1px solid var(--brd); border-radius: 8px;
+  overflow: hidden; margin: 16px 0;
+}
+.mockup-header {
+  padding: 8px 12px; background: var(--bg3); border-bottom: 1px solid var(--brd);
+  font-size: 10px; font-weight: 700; color: var(--dim); letter-spacing: 0.5px;
+  text-transform: uppercase; display: flex; justify-content: space-between; align-items: center;
+}
+.mockup-label { font-size: 9px; padding: 2px 6px; border-radius: 3px; font-weight: 700; }
+.label-current { background: rgba(255,23,68,0.15); color: var(--red); }
+.label-upgraded { background: rgba(0,230,118,0.15); color: var(--grn); }
+.label-new { background: rgba(124,77,255,0.15); color: var(--acc); }
+canvas { display: block; width: 100%; }
+
+.comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+@media (max-width: 900px) { .comparison { grid-template-columns: 1fr; } }
+
+.pattern-card {
+  background: var(--bg2); border: 1px solid var(--brd); border-radius: 6px; padding: 12px;
+  margin-bottom: 10px;
+}
+.pattern-card h4 { font-size: 12px; color: #fff; margin-bottom: 4px; }
+.pattern-card .desc { font-size: 11px; color: var(--dim); }
+.pattern-card .impact { font-size: 11px; margin-top: 6px; }
+.tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 9px; font-weight: 700; margin-right: 4px; }
+.tag-easy { background: rgba(0,230,118,0.15); color: var(--grn); }
+.tag-medium { background: rgba(255,167,38,0.15); color: var(--warn); }
+.tag-hard { background: rgba(255,23,68,0.15); color: var(--red); }
+.tag-phase1 { background: rgba(0,188,212,0.15); color: var(--cyan); }
+.tag-phase2 { background: rgba(124,77,255,0.15); color: var(--acc); }
+.tag-phase3 { background: rgba(255,167,38,0.15); color: var(--warn); }
+
+.matrix-table {
+  width: 100%; border-collapse: collapse; font-size: 11px; margin: 12px 0;
+}
+.matrix-table th {
+  background: var(--bg3); color: var(--dim); padding: 6px 8px; text-align: left;
+  border: 1px solid var(--brd); font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px;
+}
+.matrix-table td {
+  padding: 6px 8px; border: 1px solid var(--brd); vertical-align: top;
+}
+.matrix-table tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+.check { color: var(--grn); font-weight: bold; }
+.cross { color: var(--red); }
+.partial { color: var(--warn); }
+
+.effort-bar {
+  height: 6px; border-radius: 3px; margin-top: 4px;
+}
+.effort-low { background: var(--grn); width: 25%; }
+.effort-med { background: var(--warn); width: 55%; }
+.effort-high { background: var(--red); width: 85%; }
+
+.summary-box {
+  background: var(--bg3); border: 1px solid var(--brd); border-radius: 6px; padding: 14px;
+  margin: 16px 0;
+}
+.summary-box h4 { color: #fff; font-size: 13px; margin-bottom: 6px; }
+
+.toggle-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.toggle-btn {
+  padding: 4px 10px; font-size: 10px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--brd); border-radius: 4px; background: var(--bg3);
+  color: var(--dim); transition: all 0.15s;
+}
+.toggle-btn.on { background: var(--acc); color: #fff; border-color: var(--acc); }
+</style>
+</head>
+<body>
+
+<h1>Order Flow Bubble Upgrade Plan</h1>
+<p class="subtitle">Interactive mockups and implementation roadmap for pro-grade order flow visualization</p>
+
+<!-- PHASE TABS -->
+<div class="phase-tabs">
+  <div class="phase-tab active" onclick="showPhase('overview')">Overview</div>
+  <div class="phase-tab" onclick="showPhase('current')">Current Bubbles</div>
+  <div class="phase-tab" onclick="showPhase('phase1')">Phase 1: Quick Wins</div>
+  <div class="phase-tab" onclick="showPhase('phase2')">Phase 2: Per-Price Bubbles</div>
+  <div class="phase-tab" onclick="showPhase('phase3')">Phase 3: Footprint View</div>
+  <div class="phase-tab" onclick="showPhase('matrix')">Pattern Matrix</div>
+  <div class="phase-tab" onclick="showPhase('effort')">Effort &amp; Timeline</div>
+</div>
+
+<!-- ═══════════════════════════ OVERVIEW ═══════════════════════════ -->
+<div id="phase-overview" class="phase-content active">
+  <h2>The Problem</h2>
+  <p>Our bubbles aggregate all trades in a 250ms window into one VWAP-averaged point. This answers <strong>"is the market buying or selling?"</strong> but can't answer the questions that actually drive trading decisions:</p>
+  <ul>
+    <li><strong>Where</strong> exactly is buying/selling concentrated? (per-price-level volume)</li>
+    <li><strong>How aggressively?</strong> (bid vs ask imbalance at each level)</li>
+    <li><strong>Is it working?</strong> (absorption — big volume but no price movement)</li>
+    <li><strong>Is it institutional?</strong> (stacked imbalances, large prints, icebergs)</li>
+  </ul>
+
+  <h2>The Three-Phase Upgrade</h2>
+  <div class="summary-box">
+    <h4><span class="tag tag-phase1">PHASE 1</span> Overlay Markers on Current Bubbles</h4>
+    <p>Keep the flowing trail. Add absorption markers, large print highlights, delta divergence arrows, and volume-at-price clusters as visual overlays. <strong>No data model change.</strong></p>
+    <p style="color:var(--dim);font-size:11px;">Effort: ~2-3 hours &nbsp;|&nbsp; Patterns enabled: 3 of 6</p>
+  </div>
+  <div class="summary-box">
+    <h4><span class="tag tag-phase2">PHASE 2</span> Per-Price-Level Bubble Aggregation</h4>
+    <p>Change aggregation from "one VWAP bubble per time slice" to "one bubble per price level per time slice." Each bubble sits at its exact traded price. Unlocks imbalance detection and proper volume profiling.</p>
+    <p style="color:var(--dim);font-size:11px;">Effort: ~4-6 hours &nbsp;|&nbsp; Patterns enabled: 5 of 6</p>
+  </div>
+  <div class="summary-box">
+    <h4><span class="tag tag-phase3">PHASE 3</span> Footprint Chart View (Optional)</h4>
+    <p>Add a dedicated footprint chart panel showing bid×ask numbers at each price level within each time bar. Stacked imbalances highlighted. The gold standard for institutional flow reading.</p>
+    <p style="color:var(--dim);font-size:11px;">Effort: ~6-8 hours &nbsp;|&nbsp; Patterns enabled: 6 of 6</p>
+  </div>
+
+  <h2>Data We Have (Alpaca SIP + ThetaData)</h2>
+  <p>Our Alpaca Algo Trader Plus subscription gives us everything needed:</p>
+  <ul>
+    <li><strong>Every trade tick:</strong> price, size, exchange, conditions, timestamp</li>
+    <li><strong>NBBO quotes:</strong> best bid/ask with sizes — lets us classify trades as aggressive buy (at/above ask) vs aggressive sell (at/below bid)</li>
+    <li><strong>What we DON'T have:</strong> Full Level 2 order book depth — so no Bookmap-style resting liquidity heatmap. But we have enough for everything else.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════ CURRENT ═══════════════════════════ -->
+<div id="phase-current" class="phase-content">
+  <h2>Current Bubble System</h2>
+  <div class="mockup-area">
+    <div class="mockup-header">
+      <span>CURRENT: VWAP-Averaged Flowing Bubbles</span>
+      <span class="mockup-label label-current">CURRENT</span>
+    </div>
+    <canvas id="canvasCurrent" height="280"></canvas>
+  </div>
+
+  <h3>How It Works Now</h3>
+  <p>Every 250ms, all trades in that window are VWAP-averaged into a single point. The bubble's Y = volume-weighted average price, size = total volume (percentile-scaled), color = net delta ratio (green=buy, red=sell).</p>
+
+  <h3>What a Pro Trader Sees</h3>
+  <div class="pattern-card">
+    <h4>Momentum Direction ✓</h4>
+    <p class="desc">Green trail flowing right = buyers in control. Red = sellers. This works.</p>
+  </div>
+  <div class="pattern-card">
+    <h4>Volume Spikes ✓</h4>
+    <p class="desc">Bigger bubbles = more volume. Relative sizing via percentiles works across market conditions.</p>
+  </div>
+  <div class="pattern-card">
+    <h4>Price Level Detail ✗</h4>
+    <p class="desc">All trades averaged into one point. Can't see WHERE volume concentrated. A 10,000 share trade at $570.25 mixed with 500 shares at $570.50 appears as one bubble at ~$570.26.</p>
+  </div>
+  <div class="pattern-card">
+    <h4>Imbalance Detection ✗</h4>
+    <p class="desc">Can't compare buy volume at price X vs sell volume at price X-1. The diagonal imbalance — the #1 institutional signature — is invisible.</p>
+  </div>
+  <div class="pattern-card">
+    <h4>Absorption ✗ (visual)</h4>
+    <p class="desc">Detected server-side in confluence engine but not shown on chart. Trader can't see it.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ PHASE 1 ═══════════════════════════ -->
+<div id="phase-phase1" class="phase-content">
+  <h2>Phase 1: Overlay Markers on Current Bubbles</h2>
+  <p>Keep the flowing VWAP trail exactly as-is. Add visual overlays that encode pro-level information:</p>
+
+  <div class="mockup-area">
+    <div class="mockup-header">
+      <span>PHASE 1: Current Bubbles + Overlay Markers</span>
+      <span class="mockup-label label-upgraded">PHASE 1</span>
+    </div>
+    <canvas id="canvasPhase1" height="300"></canvas>
+  </div>
+
+  <div class="toggle-row">
+    <span style="font-size:10px;color:var(--dim);">Toggle overlays:</span>
+    <button class="toggle-btn on" onclick="toggleOverlay(this,'largePrints')">Large Prints</button>
+    <button class="toggle-btn on" onclick="toggleOverlay(this,'absorption')">Absorption</button>
+    <button class="toggle-btn on" onclick="toggleOverlay(this,'divergence')">Delta Divergence</button>
+    <button class="toggle-btn on" onclick="toggleOverlay(this,'volumeCluster')">Vol Clusters</button>
+  </div>
+
+  <h3>What Each Overlay Shows</h3>
+
+  <div class="pattern-card">
+    <h4><span style="display:inline-block;width:10px;height:10px;border:2px solid #ffeb3b;border-radius:50%;margin-right:6px;"></span>Large Print Markers</h4>
+    <p class="desc">When a single trade is ≥ 5,000 shares (institutional-size for SPY), draw a bright ring around that bubble + a size label. Tells the trader: "big player just entered here."</p>
+    <p class="impact"><span class="tag tag-easy">EASY</span> Filter ticks by size before aggregation. ~30 lines of code.</p>
+  </div>
+
+  <div class="pattern-card">
+    <h4><span style="display:inline-block;width:14px;height:8px;background:rgba(0,188,212,0.4);border:1px solid var(--cyan);border-radius:2px;margin-right:6px;"></span>Absorption Zones</h4>
+    <p class="desc">Horizontal bands at price levels where our server-side absorption detector fires. Shows where large resting orders are soaking up aggressive volume without price breaking through.</p>
+    <p class="impact"><span class="tag tag-easy">EASY</span> Confluence engine already computes this. Just need to send absorption_levels to frontend via WS and render as shaded bands. ~50 lines.</p>
+  </div>
+
+  <div class="pattern-card">
+    <h4><span style="display:inline-block;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:8px solid var(--warn);margin-right:6px;"></span>Delta Divergence Arrow</h4>
+    <p class="desc">When price is rising but CVD (cumulative delta) is falling — or vice versa — show a warning arrow. This "hidden weakness/strength" often precedes reversals.</p>
+    <p class="impact"><span class="tag tag-easy">EASY</span> Already computed. Need to push divergence state to frontend. ~30 lines.</p>
+  </div>
+
+  <div class="pattern-card">
+    <h4><span style="display:inline-block;width:8px;height:20px;background:linear-gradient(to bottom,var(--grn),transparent);margin-right:6px;border-radius:2px;"></span>Volume-at-Price Clusters</h4>
+    <p class="desc">On the right-side price ladder, highlight the 2-3 price levels with the highest total volume in the visible window. These are defacto support/resistance levels.</p>
+    <p class="impact"><span class="tag tag-easy">EASY</span> Ladder already has volume profile. Just highlight top levels. ~20 lines.</p>
+  </div>
+
+  <div class="summary-box">
+    <h4>Phase 1 Summary</h4>
+    <p><strong>Changes:</strong> 4 visual overlays added to existing chart<br>
+    <strong>Data model:</strong> Unchanged — still VWAP-averaged bubbles<br>
+    <strong>Effort:</strong> ~130 lines of frontend code + minor backend WS additions<br>
+    <strong>Time:</strong> 2-3 hours<br>
+    <strong>Patterns enabled:</strong> Large prints ✓, Absorption (visual) ✓, Delta divergence ✓, Volume clusters ✓<br>
+    <strong>Still missing:</strong> Per-price imbalance, stacked imbalances, exhaustion at price levels</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ PHASE 2 ═══════════════════════════ -->
+<div id="phase-phase2" class="phase-content">
+  <h2>Phase 2: Per-Price-Level Bubble Aggregation</h2>
+  <p>This is the key structural change. Instead of VWAP-averaging all trades into one point, group them by price level within each time bar.</p>
+
+  <div class="mockup-area">
+    <div class="mockup-header">
+      <span>PHASE 2: Per-Price-Level Bubbles (same visual style)</span>
+      <span class="mockup-label label-upgraded">PHASE 2</span>
+    </div>
+    <canvas id="canvasPhase2" height="300"></canvas>
+  </div>
+
+  <h3>What Changes</h3>
+  <div class="comparison">
+    <div class="pattern-card">
+      <h4>Before (Current)</h4>
+      <p class="desc">250ms window: 50 trades across 4 price levels → 1 bubble at VWAP $570.26</p>
+      <p class="desc" style="margin-top:6px;color:var(--red);">Lost: which price had the most volume, which was aggressive buy vs sell</p>
+    </div>
+    <div class="pattern-card">
+      <h4>After (Phase 2)</h4>
+      <p class="desc">Same 250ms window: 50 trades → 4 bubbles, one at each price level ($570.25, $570.30, $570.35, $570.40), sized by volume at that level</p>
+      <p class="desc" style="margin-top:6px;color:var(--grn);">Gained: see exactly where volume is, classify aggression per level</p>
+    </div>
+  </div>
+
+  <h3>New Capabilities</h3>
+  <div class="pattern-card">
+    <h4><span style="color:var(--grn);">▓▓▓</span> Stacked Imbalance Detection</h4>
+    <p class="desc">With per-price data, we can compare aggressive buy volume at price X vs aggressive sell volume at price X-0.01 (diagonal comparison). When this ratio is 3:1+ across 3 or more consecutive price levels, that's a <strong>stacked imbalance</strong> — the strongest institutional signal in order flow.</p>
+    <p class="desc">Visually: highlight those price levels with a bright vertical bar or connected markers.</p>
+    <p class="impact"><span class="tag tag-medium">MEDIUM</span> Requires new aggregation logic + NBBO classification at ingest + imbalance comparison algorithm. ~200 lines.</p>
+  </div>
+
+  <div class="pattern-card">
+    <h4><span style="color:var(--warn);">⦿</span> Exhaustion at Price Levels</h4>
+    <p class="desc">When the highest price bubble in a time bar has large buy volume but the next bar's highest price is lower — that's buying exhaustion at the top. The bubbles make this visible because you can see the big green dot at the peak with no follow-through.</p>
+    <p class="impact"><span class="tag tag-easy">EASY</span> Falls out naturally from per-price rendering. No extra code needed.</p>
+  </div>
+
+  <div class="pattern-card">
+    <h4><span style="color:var(--cyan);">│</span> Precise Volume Profile</h4>
+    <p class="desc">The right-side price ladder becomes truly accurate — each level shows volume that actually traded there, not approximated from VWAP buckets.</p>
+    <p class="impact"><span class="tag tag-easy">EASY</span> Direct mapping from per-price data. Actually simplifies ladder code.</p>
+  </div>
+
+  <h3>Performance Consideration</h3>
+  <p>More bubbles per time slice (3-8 vs 1). At 250ms aggregation with a 2-minute window, worst case goes from ~480 bubbles to ~2,000. PixiJS handles this easily (tested up to 10,000 sprites). The GPU renderer we already have was built for this.</p>
+
+  <div class="summary-box">
+    <h4>Phase 2 Summary</h4>
+    <p><strong>Changes:</strong> New aggregation function (renderLiveFlow rewrite), NBBO-aware trade classification at ingest<br>
+    <strong>Data model:</strong> Cells change from {time, vwapPrice, totalVol} to {time, priceLevel, buyVol, sellVol, aggBuy, aggSell}<br>
+    <strong>Effort:</strong> ~300 lines modified/added<br>
+    <strong>Time:</strong> 4-6 hours<br>
+    <strong>Patterns enabled:</strong> Everything from Phase 1 + Stacked imbalances ✓, Exhaustion at levels ✓, Precise volume profile ✓<br>
+    <strong>Still missing:</strong> Numeric bid×ask footprint (Phase 3)</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ PHASE 3 ═══════════════════════════ -->
+<div id="phase-phase3" class="phase-content">
+  <h2>Phase 3: Footprint Chart View (Optional Add-on)</h2>
+  <p>A dedicated panel showing the classic bid×ask footprint — numeric values at each price level within each time bar. This is what Sierra Chart, NinjaTrader, and ATAS traders use.</p>
+
+  <div class="mockup-area">
+    <div class="mockup-header">
+      <span>PHASE 3: Bid × Ask Footprint Chart</span>
+      <span class="mockup-label label-new">PHASE 3</span>
+    </div>
+    <canvas id="canvasPhase3" height="340"></canvas>
+  </div>
+
+  <h3>What This Shows</h3>
+  <div class="pattern-card">
+    <h4>Each Cell = One Price Level in One Time Bar</h4>
+    <p class="desc">Left number (red): volume sold at bid (aggressive sellers)<br>
+    Right number (green): volume bought at ask (aggressive buyers)<br>
+    Background color intensity = total volume at that level<br>
+    Highlighted cells: imbalance ratio ≥ 3:1</p>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Delta Column (right side of each bar)</h4>
+    <p class="desc">Net delta (buy - sell) at each price level. Green = net buyers, Red = net sellers. The pattern of deltas across price levels reveals whether buying is concentrated at lows (accumulation) or highs (exhaustion).</p>
+  </div>
+
+  <div class="pattern-card">
+    <h4>POC (Point of Control)</h4>
+    <p class="desc">The price level with the highest total volume in each bar. Marked with a dot or bar. This is the "fair price" according to volume — price tends to return to POC.</p>
+  </div>
+
+  <h3>When to Use Footprint vs Bubbles</h3>
+  <div class="comparison">
+    <div class="pattern-card">
+      <h4>Use Bubbles For:</h4>
+      <p class="desc">Quick momentum reading, seeing overall flow direction, scanning multiple timeframes, visual pattern recognition at a glance</p>
+    </div>
+    <div class="pattern-card">
+      <h4>Use Footprint For:</h4>
+      <p class="desc">Entry timing (reading exact levels), confirming institutional presence, identifying absorption/iceberg behavior, precise risk placement</p>
+    </div>
+  </div>
+
+  <div class="summary-box">
+    <h4>Phase 3 Summary</h4>
+    <p><strong>Changes:</strong> New chart component (footprint renderer), new tab or split-pane layout<br>
+    <strong>Data model:</strong> Uses same per-price data from Phase 2<br>
+    <strong>Effort:</strong> ~500 lines new code (canvas renderer for footprint grid)<br>
+    <strong>Time:</strong> 6-8 hours<br>
+    <strong>Prerequisite:</strong> Phase 2 (needs per-price aggregation)<br>
+    <strong>Patterns enabled:</strong> All 6/6 — this is the complete pro-grade order flow toolkit</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ MATRIX ═══════════════════════════ -->
+<div id="phase-matrix" class="phase-content">
+  <h2>Pattern Enablement Matrix</h2>
+  <p>Which trading patterns become visible at each phase:</p>
+
+  <table class="matrix-table">
+    <thead>
+      <tr>
+        <th>Trading Pattern</th>
+        <th>What It Tells You</th>
+        <th>Current</th>
+        <th>Phase 1</th>
+        <th>Phase 2</th>
+        <th>Phase 3</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Momentum Direction</strong></td>
+        <td>Which way is aggressive volume pushing</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+      </tr>
+      <tr>
+        <td><strong>Volume Spike</strong></td>
+        <td>Unusual activity — something is happening</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+      </tr>
+      <tr>
+        <td><strong>Large Prints (5K+ shares)</strong></td>
+        <td>Institutional player entering/exiting</td>
+        <td class="cross">✗</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+      </tr>
+      <tr>
+        <td><strong>Absorption Zones</strong></td>
+        <td>Large resting orders soaking up aggression → reversal likely</td>
+        <td class="partial">server only</td>
+        <td class="check">✓ visual</td>
+        <td class="check">✓ visual</td>
+        <td class="check">✓ numeric</td>
+      </tr>
+      <tr>
+        <td><strong>Delta Divergence</strong></td>
+        <td>Price rising but selling increasing → hidden weakness</td>
+        <td class="partial">server only</td>
+        <td class="check">✓ arrow</td>
+        <td class="check">✓ arrow</td>
+        <td class="check">✓ per-level</td>
+      </tr>
+      <tr>
+        <td><strong>Volume-at-Price Clusters</strong></td>
+        <td>Key support/resistance from actual trading activity</td>
+        <td class="partial">~approx</td>
+        <td class="check">✓ highlighted</td>
+        <td class="check">✓ exact</td>
+        <td class="check">✓ exact</td>
+      </tr>
+      <tr>
+        <td><strong>Stacked Imbalances (3:1+)</strong></td>
+        <td>Institutional buying/selling across multiple price levels</td>
+        <td class="cross">✗</td>
+        <td class="cross">✗</td>
+        <td class="check">✓</td>
+        <td class="check">✓ highlighted</td>
+      </tr>
+      <tr>
+        <td><strong>Exhaustion at Levels</strong></td>
+        <td>Big delta at extremes with no follow-through → trend ending</td>
+        <td class="cross">✗</td>
+        <td class="cross">✗</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+      </tr>
+      <tr>
+        <td><strong>Bid×Ask at Each Price</strong></td>
+        <td>Exact numeric aggression: "3,200 bought at ask vs 800 sold at bid"</td>
+        <td class="cross">✗</td>
+        <td class="cross">✗</td>
+        <td class="partial">ratio only</td>
+        <td class="check">✓ full</td>
+      </tr>
+      <tr>
+        <td><strong>Point of Control (POC)</strong></td>
+        <td>Fair value price — where most volume traded</td>
+        <td class="cross">✗</td>
+        <td class="cross">✗</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+      </tr>
+      <tr>
+        <td><strong>Iceberg Detection</strong></td>
+        <td>Hidden orders refilling at a level (institutional)</td>
+        <td class="cross">✗</td>
+        <td class="cross">✗</td>
+        <td class="partial">~heuristic</td>
+        <td class="check">✓</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════ EFFORT ═══════════════════════════ -->
+<div id="phase-effort" class="phase-content">
+  <h2>Effort Estimates &amp; Implementation Order</h2>
+
+  <table class="matrix-table">
+    <thead>
+      <tr>
+        <th>Phase</th>
+        <th>What Changes</th>
+        <th>Lines of Code</th>
+        <th>Est. Time</th>
+        <th>Prerequisite</th>
+        <th>Risk</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="tag tag-phase1">PHASE 1</span></td>
+        <td>4 overlay markers on existing chart + minor WS additions</td>
+        <td>~130 lines</td>
+        <td>2-3 hrs</td>
+        <td>None</td>
+        <td style="color:var(--grn)">Low — additive only</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-phase2">PHASE 2</span></td>
+        <td>Aggregation rewrite + NBBO classification + imbalance algo</td>
+        <td>~300 lines</td>
+        <td>4-6 hrs</td>
+        <td>Phase 1 (recommended)</td>
+        <td style="color:var(--warn)">Medium — core render change</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-phase3">PHASE 3</span></td>
+        <td>New footprint chart renderer + tab/panel layout</td>
+        <td>~500 lines</td>
+        <td>6-8 hrs</td>
+        <td>Phase 2 (required)</td>
+        <td style="color:var(--warn)">Medium — new component</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Recommended Order</h3>
+  <div class="summary-box">
+    <h4>Start with Phase 1</h4>
+    <p>Zero risk to existing functionality. Immediate visual value. Gives you absorption, large prints, and divergence on the chart right away. Takes 2-3 hours.</p>
+  </div>
+  <div class="summary-box">
+    <h4>Then Phase 2</h4>
+    <p>This is the critical upgrade. Per-price bubbles unlock stacked imbalances — the most valuable institutional signal. The visual style stays similar (flowing bubbles) but each bubble now means something actionable. The PixiJS renderer already handles the increased bubble count.</p>
+  </div>
+  <div class="summary-box">
+    <h4>Phase 3 only if needed</h4>
+    <p>Full footprint view is the professional gold standard but has a steep learning curve. If Phase 2 bubbles give you enough information, Phase 3 may not be necessary. It's a nice-to-have for deep tape reading.</p>
+  </div>
+
+  <h2>Data Pipeline Changes</h2>
+  <h3>Phase 1 — Backend → Frontend Data Additions</h3>
+  <p>Push existing server-side detections to the frontend via WebSocket:</p>
+  <ul>
+    <li><code>absorption_levels</code>: array of {price, bias, volume} from confluence engine</li>
+    <li><code>divergence_state</code>: {type: "bullish"|"bearish", strength: 0-1}</li>
+    <li>Large print flag on individual ticks: <code>is_large: true</code> when size ≥ 5000</li>
+  </ul>
+
+  <h3>Phase 2 — Aggregation Model Change</h3>
+  <p>Current: <code>ticks → group by time bucket → VWAP average → one cell per bucket</code></p>
+  <p>New: <code>ticks → group by (time bucket, rounded price) → per-level stats → N cells per bucket</code></p>
+  <p>Each cell gains: <code>{price, aggBuyVol, aggSellVol, passiveBuyVol, passiveSellVol, tradeCount}</code></p>
+  <p>Trade classification uses NBBO: trade at/above ask = aggressive buy, at/below bid = aggressive sell.</p>
+
+  <h3>Phase 3 — No Additional Backend Changes</h3>
+  <p>Uses the same per-price data from Phase 2. Only new frontend rendering code.</p>
+</div>
+
+<!-- ═══════════════════════════ CANVAS RENDERING ═══════════════════════════ -->
+<script>
+// ── Tab switching ──
+function showPhase(id) {
+  document.querySelectorAll('.phase-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.phase-tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('phase-' + id).classList.add('active');
+  event.target.classList.add('active');
+  // Render canvases when their tab is shown
+  requestAnimationFrame(() => renderAllCanvases());
+}
+
+// ── Overlay toggles ──
+const overlayState = { largePrints: true, absorption: true, divergence: true, volumeCluster: true };
+function toggleOverlay(btn, key) {
+  overlayState[key] = !overlayState[key];
+  btn.classList.toggle('on', overlayState[key]);
+  renderPhase1();
+}
+
+// ── Synthetic data ──
+function generateMockData() {
+  const data = [];
+  const basePrice = 570.25;
+  const now = Date.now();
+  for (let i = 0; i < 80; i++) {
+    const t = now - (80 - i) * 1500;
+    const drift = Math.sin(i * 0.08) * 0.5 + (i > 50 ? 0.3 : 0);
+    const price = basePrice + drift + (Math.random() - 0.5) * 0.15;
+    const vol = Math.floor(Math.random() * 8000) + 500;
+    const buyRatio = 0.3 + Math.random() * 0.4 + (drift > 0 ? 0.1 : -0.1);
+    const buyVol = Math.floor(vol * Math.min(1, Math.max(0, buyRatio)));
+    const sellVol = vol - buyVol;
+    data.push({
+      t, price: Math.round(price * 100) / 100,
+      vol, buyVol, sellVol,
+      delta: (buyVol - sellVol) / vol,
+      isLarge: vol > 6000,
+    });
+  }
+  return data;
+}
+
+function generatePerPriceData() {
+  const data = [];
+  const basePrice = 570.25;
+  const now = Date.now();
+  const priceLevels = [570.15, 570.20, 570.25, 570.30, 570.35, 570.40, 570.45, 570.50, 570.55, 570.60];
+
+  for (let i = 0; i < 40; i++) {
+    const t = now - (40 - i) * 3000;
+    const drift = Math.sin(i * 0.1) * 0.3;
+    const centerIdx = Math.floor(priceLevels.length / 2 + drift * 6);
+
+    for (let j = 0; j < priceLevels.length; j++) {
+      const dist = Math.abs(j - centerIdx);
+      if (dist > 3 || Math.random() < 0.3) continue;
+
+      const intensity = Math.max(0.1, 1 - dist * 0.3);
+      const vol = Math.floor((Math.random() * 4000 + 500) * intensity);
+      const buyRatio = 0.3 + Math.random() * 0.4 + drift * 0.2;
+      const aggBuy = Math.floor(vol * Math.min(1, Math.max(0, buyRatio)));
+      const aggSell = vol - aggBuy;
+
+      data.push({
+        t, price: priceLevels[j],
+        vol, aggBuy, aggSell,
+        delta: vol > 0 ? (aggBuy - aggSell) / vol : 0,
+        imbalance: aggBuy > 0 && aggSell > 0 ? Math.max(aggBuy/aggSell, aggSell/aggBuy) : 1,
+        imbalanceDir: aggBuy > aggSell ? 'buy' : 'sell',
+      });
+    }
+  }
+  return data;
+}
+
+const mockData = generateMockData();
+const perPriceData = generatePerPriceData();
+
+// ── Color helpers ──
+function deltaColor(delta, alpha) {
+  const t = (delta + 1) / 2;
+  let r, g, b;
+  if (t < 0.45) {
+    const f = t / 0.45;
+    r = Math.round(230 - 50*f); g = Math.round(40 + 100*f); b = Math.round(60 + 80*f);
+  } else if (t > 0.55) {
+    const f = (t - 0.55) / 0.45;
+    r = Math.round(140 - 140*f); g = Math.round(140 + 90*f); b = Math.round(140 - 22*f);
+  } else {
+    r = 180; g = 180; b = 180;
+  }
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// ── Draw grid + labels ──
+function drawGrid(ctx, W, H, marginL, marginR, marginT, marginB, yMin, yMax, xStart, xEnd) {
+  const plotW = W - marginL - marginR;
+  const plotH = H - marginT - marginB;
+
+  ctx.fillStyle = '#0a0a12';
+  ctx.fillRect(0, 0, W, H);
+
+  // Price grid
+  const step = 0.05;
+  ctx.font = '10px SF Mono, monospace';
+  ctx.textAlign = 'right';
+  for (let p = Math.ceil(yMin / step) * step; p <= yMax; p += step) {
+    const y = marginT + plotH - ((p - yMin) / (yMax - yMin)) * plotH;
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.beginPath(); ctx.moveTo(marginL, y); ctx.lineTo(W - marginR, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillText('$' + p.toFixed(2), marginL - 4, y + 3);
+  }
+
+  // Time labels
+  ctx.textAlign = 'center';
+  const timeStep = (xEnd - xStart) / 6;
+  for (let i = 1; i < 6; i++) {
+    const ms = xStart + i * timeStep;
+    const x = marginL + (i / 6) * plotW;
+    const d = new Date(ms);
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillText(d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}), x, H - 4);
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.beginPath(); ctx.moveTo(x, marginT); ctx.lineTo(x, marginT + plotH); ctx.stroke();
+  }
+
+  return { plotW, plotH };
+}
+
+// ── Render CURRENT ──
+function renderCurrent() {
+  const canvas = document.getElementById('canvasCurrent');
+  if (!canvas || !canvas.offsetParent) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr;
+  canvas.height = 280 * dpr;
+  canvas.style.height = '280px';
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const mL = 55*dpr, mR = 20*dpr, mT = 10*dpr, mB = 24*dpr;
+
+  const prices = mockData.map(d => d.price);
+  const yMin = Math.min(...prices) - 0.1;
+  const yMax = Math.max(...prices) + 0.1;
+  const xStart = mockData[0].t;
+  const xEnd = mockData[mockData.length-1].t;
+
+  const {plotW, plotH} = drawGrid(ctx, W, H, mL, mR, mT, mB, yMin, yMax, xStart, xEnd);
+
+  // Trail line
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 2 * dpr;
+  mockData.forEach((d, i) => {
+    const x = mL + ((d.t - xStart) / (xEnd - xStart)) * plotW;
+    const y = mT + plotH - ((d.price - yMin) / (yMax - yMin)) * plotH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Bubbles
+  const vols = mockData.map(d => d.vol).sort((a,b) => a-b);
+  const p50 = vols[Math.floor(vols.length*0.5)];
+  const p95 = vols[Math.floor(vols.length*0.95)];
+  const minR = 4*dpr, maxR = 18*dpr;
+
+  mockData.forEach(d => {
+    const x = mL + ((d.t - xStart) / (xEnd - xStart)) * plotW;
+    const y = mT + plotH - ((d.price - yMin) / (yMax - yMin)) * plotH;
+    const t = Math.min(1, (d.vol - vols[0]) / (p95 - vols[0] || 1));
+    const r = minR + t * (maxR - minR);
+
+    const grad = ctx.createRadialGradient(x - r*0.2, y - r*0.2, r*0.1, x, y, r);
+    const c = deltaColor(d.delta, 1);
+    const cFade = deltaColor(d.delta, 0.4);
+    grad.addColorStop(0, c);
+    grad.addColorStop(0.6, deltaColor(d.delta, 0.75));
+    grad.addColorStop(1, cFade);
+
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI*2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 0.5*dpr;
+    ctx.stroke();
+  });
+}
+
+// ── Render PHASE 1 ──
+function renderPhase1() {
+  const canvas = document.getElementById('canvasPhase1');
+  if (!canvas || !canvas.offsetParent) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr;
+  canvas.height = 300 * dpr;
+  canvas.style.height = '300px';
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const mL = 55*dpr, mR = 20*dpr, mT = 10*dpr, mB = 24*dpr;
+
+  const prices = mockData.map(d => d.price);
+  const yMin = Math.min(...prices) - 0.1;
+  const yMax = Math.max(...prices) + 0.1;
+  const xStart = mockData[0].t;
+  const xEnd = mockData[mockData.length-1].t;
+
+  const {plotW, plotH} = drawGrid(ctx, W, H, mL, mR, mT, mB, yMin, yMax, xStart, xEnd);
+
+  // Absorption zone (Phase 1 overlay)
+  if (overlayState.absorption) {
+    const absPrice = 570.25;
+    const absY = mT + plotH - ((absPrice - yMin) / (yMax - yMin)) * plotH;
+    ctx.fillStyle = 'rgba(0,188,212,0.08)';
+    ctx.fillRect(mL, absY - 8*dpr, plotW, 16*dpr);
+    ctx.strokeStyle = 'rgba(0,188,212,0.3)';
+    ctx.setLineDash([4*dpr, 4*dpr]);
+    ctx.beginPath(); ctx.moveTo(mL, absY); ctx.lineTo(mL + plotW, absY); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = `${8*dpr}px SF Mono, monospace`;
+    ctx.fillStyle = 'rgba(0,188,212,0.7)';
+    ctx.textAlign = 'left';
+    ctx.fillText('ABSORPTION $570.25', mL + 6*dpr, absY - 10*dpr);
+  }
+
+  // Divergence arrow (Phase 1 overlay)
+  if (overlayState.divergence) {
+    const divX = mL + plotW * 0.72;
+    const divY = mT + 20*dpr;
+    ctx.fillStyle = 'rgba(255,167,38,0.9)';
+    ctx.font = `bold ${10*dpr}px SF Mono, monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠ BEARISH DIVERGENCE', divX, divY);
+    ctx.fillStyle = 'rgba(255,167,38,0.15)';
+    ctx.fillRect(divX - 70*dpr, divY + 2*dpr, 140*dpr, plotH * 0.6);
+  }
+
+  // Trail line
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 2*dpr;
+  mockData.forEach((d, i) => {
+    const x = mL + ((d.t - xStart) / (xEnd - xStart)) * plotW;
+    const y = mT + plotH - ((d.price - yMin) / (yMax - yMin)) * plotH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Bubbles + overlays
+  const vols = mockData.map(d => d.vol).sort((a,b) => a-b);
+  const p95 = vols[Math.floor(vols.length*0.95)];
+  const minR = 4*dpr, maxR = 18*dpr;
+
+  mockData.forEach(d => {
+    const x = mL + ((d.t - xStart) / (xEnd - xStart)) * plotW;
+    const y = mT + plotH - ((d.price - yMin) / (yMax - yMin)) * plotH;
+    const t = Math.min(1, (d.vol - vols[0]) / (p95 - vols[0] || 1));
+    const r = minR + t * (maxR - minR);
+
+    const grad = ctx.createRadialGradient(x - r*0.2, y - r*0.2, r*0.1, x, y, r);
+    grad.addColorStop(0, deltaColor(d.delta, 1));
+    grad.addColorStop(0.6, deltaColor(d.delta, 0.75));
+    grad.addColorStop(1, deltaColor(d.delta, 0.4));
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2);
+    ctx.fillStyle = grad; ctx.fill();
+
+    // Large print marker
+    if (overlayState.largePrints && d.isLarge) {
+      ctx.strokeStyle = '#ffeb3b';
+      ctx.lineWidth = 2*dpr;
+      ctx.beginPath(); ctx.arc(x, y, r + 4*dpr, 0, Math.PI*2); ctx.stroke();
+      ctx.font = `bold ${8*dpr}px SF Mono, monospace`;
+      ctx.fillStyle = '#ffeb3b';
+      ctx.textAlign = 'center';
+      ctx.fillText((d.vol/1000).toFixed(1)+'K', x, y - r - 6*dpr);
+    } else {
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 0.5*dpr;
+      ctx.stroke();
+    }
+  });
+
+  // Volume cluster highlights on right side
+  if (overlayState.volumeCluster) {
+    const priceVol = {};
+    mockData.forEach(d => {
+      const rp = Math.round(d.price * 20) / 20;
+      priceVol[rp] = (priceVol[rp] || 0) + d.vol;
+    });
+    const sorted = Object.entries(priceVol).sort((a,b) => b[1]-a[1]).slice(0, 3);
+    sorted.forEach(([p, v]) => {
+      const y = mT + plotH - ((parseFloat(p) - yMin) / (yMax - yMin)) * plotH;
+      const barW = Math.min(40*dpr, (v / sorted[0][1]) * 40*dpr);
+      ctx.fillStyle = 'rgba(124,77,255,0.3)';
+      ctx.fillRect(W - mR - barW, y - 3*dpr, barW, 6*dpr);
+      ctx.fillStyle = 'rgba(124,77,255,0.8)';
+      ctx.font = `${7*dpr}px SF Mono, monospace`;
+      ctx.textAlign = 'right';
+      ctx.fillText((v/1000).toFixed(0)+'K', W - mR - barW - 2*dpr, y + 3*dpr);
+    });
+  }
+}
+
+// ── Render PHASE 2 ──
+function renderPhase2() {
+  const canvas = document.getElementById('canvasPhase2');
+  if (!canvas || !canvas.offsetParent) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr;
+  canvas.height = 300 * dpr;
+  canvas.style.height = '300px';
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const mL = 55*dpr, mR = 20*dpr, mT = 10*dpr, mB = 24*dpr;
+
+  const yMin = 570.10, yMax = 570.65;
+  const xStart = perPriceData[0].t;
+  const xEnd = perPriceData[perPriceData.length-1].t;
+
+  const {plotW, plotH} = drawGrid(ctx, W, H, mL, mR, mT, mB, yMin, yMax, xStart, xEnd);
+
+  // Per-price bubbles
+  const vols = perPriceData.map(d => d.vol).sort((a,b) => a-b);
+  const p95 = vols[Math.floor(vols.length*0.95)];
+  const minR = 3*dpr, maxR = 14*dpr;
+
+  // Draw imbalance highlights first (behind bubbles)
+  perPriceData.forEach(d => {
+    if (d.imbalance >= 3) {
+      const x = mL + ((d.t - xStart) / (xEnd - xStart)) * plotW;
+      const y = mT + plotH - ((d.price - yMin) / (yMax - yMin)) * plotH;
+      const color = d.imbalanceDir === 'buy' ? 'rgba(0,230,118,0.12)' : 'rgba(255,23,68,0.12)';
+      ctx.fillStyle = color;
+      ctx.fillRect(x - 8*dpr, y - 6*dpr, 16*dpr, 12*dpr);
+    }
+  });
+
+  // Bubbles
+  perPriceData.forEach(d => {
+    const x = mL + ((d.t - xStart) / (xEnd - xStart)) * plotW;
+    const y = mT + plotH - ((d.price - yMin) / (yMax - yMin)) * plotH;
+    const t = Math.min(1, (d.vol - vols[0]) / (p95 - vols[0] || 1));
+    const r = minR + t * (maxR - minR);
+
+    const grad = ctx.createRadialGradient(x - r*0.2, y - r*0.2, r*0.1, x, y, r);
+    grad.addColorStop(0, deltaColor(d.delta, 0.95));
+    grad.addColorStop(0.6, deltaColor(d.delta, 0.7));
+    grad.addColorStop(1, deltaColor(d.delta, 0.35));
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2);
+    ctx.fillStyle = grad; ctx.fill();
+
+    // Imbalance border
+    if (d.imbalance >= 3) {
+      ctx.strokeStyle = d.imbalanceDir === 'buy' ? 'rgba(0,230,118,0.6)' : 'rgba(255,23,68,0.6)';
+      ctx.lineWidth = 1.5*dpr;
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 0.5*dpr;
+      ctx.stroke();
+    }
+  });
+
+  // Stacked imbalance label
+  ctx.font = `bold ${9*dpr}px SF Mono, monospace`;
+  ctx.fillStyle = 'rgba(0,230,118,0.8)';
+  ctx.textAlign = 'left';
+  ctx.fillText('← STACKED BUY IMBALANCE (3:1+)', mL + plotW * 0.35, mT + 16*dpr);
+}
+
+// ── Render PHASE 3 (Footprint) ──
+function renderPhase3() {
+  const canvas = document.getElementById('canvasPhase3');
+  if (!canvas || !canvas.offsetParent) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr;
+  canvas.height = 340 * dpr;
+  canvas.style.height = '340px';
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  ctx.fillStyle = '#0a0a12';
+  ctx.fillRect(0, 0, W, H);
+
+  // Footprint grid
+  const mL = 55*dpr, mR = 20*dpr, mT = 20*dpr, mB = 24*dpr;
+  const plotW = W - mL - mR;
+  const plotH = H - mT - mB;
+
+  const priceLevels = [570.15, 570.20, 570.25, 570.30, 570.35, 570.40, 570.45, 570.50];
+  const timeBars = 8;
+  const cellW = plotW / timeBars;
+  const cellH = plotH / priceLevels.length;
+
+  // Header
+  ctx.font = `bold ${9*dpr}px SF Mono, monospace`;
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.textAlign = 'center';
+  ctx.fillText('BID × ASK FOOTPRINT (each cell = sell vol | buy vol at that price)', W/2, mT - 6*dpr);
+
+  // Price labels
+  ctx.textAlign = 'right';
+  ctx.font = `${9*dpr}px SF Mono, monospace`;
+  priceLevels.forEach((p, i) => {
+    const y = mT + (priceLevels.length - 1 - i) * cellH + cellH/2;
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillText('$' + p.toFixed(2), mL - 4*dpr, y + 3*dpr);
+  });
+
+  // Generate footprint data
+  const fpData = [];
+  for (let b = 0; b < timeBars; b++) {
+    const bar = [];
+    const centerPrice = 570.30 + Math.sin(b * 0.5) * 0.1;
+    priceLevels.forEach((p, pi) => {
+      const dist = Math.abs(p - centerPrice);
+      const hasData = dist < 0.2 && Math.random() > 0.2;
+      if (hasData) {
+        const intensity = Math.max(0.2, 1 - dist * 5);
+        const bidVol = Math.floor((Math.random() * 3000 + 200) * intensity);
+        const askVol = Math.floor((Math.random() * 3000 + 200) * intensity);
+        const imb = Math.max(bidVol/askVol, askVol/bidVol);
+        bar.push({ price: p, priceIdx: pi, bidVol, askVol, imbalance: imb, imbDir: askVol > bidVol ? 'buy' : 'sell' });
+      }
+    });
+    fpData.push(bar);
+  }
+
+  // Draw cells
+  fpData.forEach((bar, b) => {
+    const barX = mL + b * cellW;
+
+    // Bar border
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.strokeRect(barX, mT, cellW, plotH);
+
+    // Find POC (max volume level)
+    let maxVol = 0, pocIdx = -1;
+    bar.forEach(cell => {
+      const total = cell.bidVol + cell.askVol;
+      if (total > maxVol) { maxVol = total; pocIdx = cell.priceIdx; }
+    });
+
+    bar.forEach(cell => {
+      const y = mT + (priceLevels.length - 1 - cell.priceIdx) * cellH;
+      const total = cell.bidVol + cell.askVol;
+      const intensity = Math.min(0.3, total / 8000);
+
+      // Background intensity
+      ctx.fillStyle = `rgba(255,255,255,${intensity})`;
+      ctx.fillRect(barX + 1, y + 1, cellW - 2, cellH - 2);
+
+      // Imbalance highlight
+      if (cell.imbalance >= 3) {
+        const imbColor = cell.imbDir === 'buy' ? 'rgba(0,230,118,0.15)' : 'rgba(255,23,68,0.15)';
+        ctx.fillStyle = imbColor;
+        ctx.fillRect(barX + 1, y + 1, cellW - 2, cellH - 2);
+      }
+
+      // POC marker
+      if (cell.priceIdx === pocIdx) {
+        ctx.strokeStyle = 'rgba(124,77,255,0.5)';
+        ctx.lineWidth = 1.5*dpr;
+        ctx.strokeRect(barX + 1, y + 1, cellW - 2, cellH - 2);
+      }
+
+      // Bid × Ask numbers
+      ctx.font = `${8*dpr}px SF Mono, monospace`;
+      ctx.textAlign = 'center';
+      const midX = barX + cellW/2;
+
+      // Bid (sell) — left side, red
+      ctx.fillStyle = cell.imbalance >= 3 && cell.imbDir === 'sell' ?
+        'rgba(255,23,68,1)' : 'rgba(239,83,80,0.7)';
+      ctx.fillText(cell.bidVol.toLocaleString(), midX - cellW*0.22, y + cellH*0.55);
+
+      // Separator
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fillText('×', midX, y + cellH*0.55);
+
+      // Ask (buy) — right side, green
+      ctx.fillStyle = cell.imbalance >= 3 && cell.imbDir === 'buy' ?
+        'rgba(0,230,118,1)' : 'rgba(38,166,154,0.7)';
+      ctx.fillText(cell.askVol.toLocaleString(), midX + cellW*0.22, y + cellH*0.55);
+    });
+  });
+
+  // Legend
+  ctx.font = `${8*dpr}px SF Mono, monospace`;
+  ctx.textAlign = 'left';
+  const ly = H - 6*dpr;
+  ctx.fillStyle = 'rgba(239,83,80,0.7)'; ctx.fillText('Red = Sell at bid (aggressive sellers)', mL, ly);
+  ctx.fillStyle = 'rgba(38,166,154,0.7)'; ctx.fillText('Green = Buy at ask (aggressive buyers)', mL + plotW*0.35, ly);
+  ctx.fillStyle = 'rgba(124,77,255,0.7)'; ctx.fillText('Purple border = POC', mL + plotW*0.7, ly);
+  ctx.fillStyle = 'rgba(0,230,118,0.6)'; ctx.fillText('Bright = 3:1+ imbalance', mL + plotW*0.85, ly);
+}
+
+function renderAllCanvases() {
+  renderCurrent();
+  renderPhase1();
+  renderPhase2();
+  renderPhase3();
+}
+
+window.addEventListener('load', () => setTimeout(renderAllCanvases, 100));
+window.addEventListener('resize', () => requestAnimationFrame(renderAllCanvases));
+</script>
+
+</body>
+</html>

@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Dashboard — Trading Bot</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+            background: #0a0a14;
+            color: #e0e0e0;
+            font-size: 12px;
+            line-height: 1.5;
+            padding: 16px;
+        }
+
+        h1 { font-size: 16px; color: #4488ff; margin-bottom: 16px; letter-spacing: 1px; }
+        h2 { font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .panel {
+            background: #0f0f1e;
+            border: 1px solid #1a1a2e;
+            border-radius: 4px;
+            padding: 12px;
+        }
+
+        .full-width { grid-column: 1 / -1; }
+
+        /* Connection cards */
+        .conn-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px;
+        }
+        .conn-card {
+            background: #0a0a14;
+            border: 1px solid #1a1a2e;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        .conn-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .conn-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #666;
+        }
+        .conn-dot.connected { background: #00c850; }
+        .conn-dot.disconnected { background: #dc3232; }
+        .conn-dot.error { background: #dc3232; }
+        .conn-dot.unknown { background: #666; }
+        .conn-name { font-weight: 600; }
+        .conn-stat { color: #666; font-size: 10px; margin-top: 2px; }
+
+        /* Log table */
+        .log-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .log-table th {
+            text-align: left;
+            color: #666;
+            font-size: 10px;
+            text-transform: uppercase;
+            padding: 4px 8px;
+            border-bottom: 1px solid #1a1a2e;
+        }
+        .log-table td {
+            padding: 3px 8px;
+            border-bottom: 1px solid #0a0a14;
+            vertical-align: top;
+        }
+        .log-table tr:hover { background: rgba(68, 136, 255, 0.05); }
+
+        .time-col { color: #555; white-space: nowrap; width: 180px; }
+        .method-col { color: #4488ff; width: 50px; }
+        .path-col { color: #ccc; }
+        .status-col { width: 50px; font-weight: 600; }
+        .status-col.ok { color: #00c850; }
+        .status-col.err { color: #dc3232; }
+        .dur-col { color: #888; width: 70px; text-align: right; }
+        .source-col { color: #888; width: 100px; }
+        .error-msg { color: #ff6666; }
+        .level-col { width: 60px; font-weight: 600; }
+        .level-col.error { color: #dc3232; }
+        .level-col.warn { color: #ffb400; }
+        .level-col.info { color: #4488ff; }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+            align-items: center;
+        }
+        .toolbar button {
+            background: #1a1a2e;
+            border: 1px solid #2a2a3e;
+            color: #ccc;
+            padding: 6px 14px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 11px;
+            border-radius: 3px;
+        }
+        .toolbar button:hover { border-color: #4488ff; color: #4488ff; }
+        .toolbar button.active { background: #4488ff; color: #0a0a14; border-color: #4488ff; }
+
+        .auto-refresh {
+            margin-left: auto;
+            color: #666;
+            font-size: 10px;
+        }
+        .auto-refresh span { color: #00c850; font-weight: 600; }
+
+        .stats-bar {
+            display: flex;
+            gap: 24px;
+            padding: 8px 0;
+            color: #888;
+        }
+        .stats-bar .stat-val { color: #ccc; font-weight: 600; }
+
+        .env-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 8px;
+        }
+        .env-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 8px;
+            background: #0a0a14;
+            border-radius: 3px;
+        }
+        .env-key { color: #888; }
+        .env-val { color: #00c850; font-weight: 600; }
+        .env-val.missing { color: #dc3232; }
+
+        .scroll-box {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #0a0a14; }
+        ::-webkit-scrollbar-thumb { background: #1a1a2e; border-radius: 2px; }
+    </style>
+</head>
+<body>
+    <h1>DEBUG DASHBOARD</h1>
+
+    <div class="toolbar">
+        <button onclick="refresh()" class="active">Refresh Now</button>
+        <button onclick="testApis()">Test All APIs</button>
+        <button onclick="window.open('/api/debug/data','_blank')">Raw API Debug</button>
+        <button onclick="window.open('/api/debug/live','_blank')">Raw Live Debug</button>
+        <button onclick="window.location.href='/'">← Back to Dashboard</button>
+        <div class="auto-refresh">Auto-refresh: <span id="autoStatus">ON</span> (every 3s) | Last: <span id="lastRefresh">--</span></div>
+    </div>
+
+    <div class="grid">
+        <!-- CONNECTIONS -->
+        <div class="panel full-width">
+            <h2>Connections</h2>
+            <div class="conn-grid" id="connections">Loading...</div>
+        </div>
+
+        <!-- API KEYS / ENV STATUS -->
+        <div class="panel">
+            <h2>API Keys & Environment</h2>
+            <div class="env-grid" id="envStatus">Loading...</div>
+        </div>
+
+        <!-- STATS -->
+        <div class="panel">
+            <h2>Server Stats</h2>
+            <div id="serverStats">Loading...</div>
+        </div>
+
+        <!-- RECENT REQUESTS -->
+        <div class="panel full-width">
+            <h2>Recent HTTP Requests</h2>
+            <div class="scroll-box">
+                <table class="log-table" id="requestsTable">
+                    <thead><tr><th>Time</th><th>Method</th><th>Path</th><th>Status</th><th>Duration</th><th>Error</th></tr></thead>
+                    <tbody id="requestsBody">
+                        <tr><td colspan="6" style="color:#555;">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ERRORS -->
+        <div class="panel">
+            <h2>Recent Errors</h2>
+            <div class="scroll-box">
+                <table class="log-table" id="errorsTable">
+                    <thead><tr><th>Time</th><th>Source</th><th>Message</th></tr></thead>
+                    <tbody id="errorsBody">
+                        <tr><td colspan="3" style="color:#555;">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- WEBSOCKET EVENTS -->
+        <div class="panel">
+            <h2>WebSocket Events</h2>
+            <div class="scroll-box">
+                <table class="log-table" id="wsTable">
+                    <thead><tr><th>Time</th><th>Connection</th><th>Event</th><th>Detail</th></tr></thead>
+                    <tbody id="wsBody">
+                        <tr><td colspan="4" style="color:#555;">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- API DATA TEST -->
+        <div class="panel full-width" id="apiTestPanel" style="display:none;">
+            <h2>API Test Results</h2>
+            <pre id="apiTestResults" style="color:#ccc; white-space:pre-wrap; max-height:400px; overflow-y:auto;"></pre>
+        </div>
+    </div>
+
+    <script>
+        let autoRefresh = true;
+        let refreshTimer = null;
+
+        async function refresh() {
+            try {
+                // Fetch live debug data from backend
+                const resp = await fetch('/api/debug/live');
+                if (!resp.ok) {
+                    document.getElementById('serverStats').innerHTML = `<div class="error-msg">Backend returned ${resp.status} — is the server running?</div>`;
+                    return;
+                }
+                const data = await resp.json();
+                renderConnections(data.connections || {});
+                renderRequests(data.recent_requests || []);
+                renderErrors(data.recent_errors || []);
+                renderWsEvents(data.recent_ws_events || []);
+                renderStats(data);
+
+                document.getElementById('lastRefresh').textContent =
+                    new Date().toLocaleTimeString('en-US', { hour12: false });
+
+                // Also fetch API status for env info
+                const statusResp = await fetch('/api/status');
+                if (statusResp.ok) {
+                    const status = await statusResp.json();
+                    renderEnvStatus(status);
+                }
+            } catch (e) {
+                document.getElementById('serverStats').innerHTML =
+                    `<div class="error-msg">Cannot reach server: ${e.message}</div>`;
+            }
+        }
+
+        function renderConnections(conns) {
+            const el = document.getElementById('connections');
+            let html = '';
+            for (const [name, info] of Object.entries(conns)) {
+                const label = name.replace(/_/g, ' ').toUpperCase();
+                html += `<div class="conn-card">
+                    <div class="conn-header">
+                        <div class="conn-dot ${info.status}"></div>
+                        <span class="conn-name">${label}</span>
+                    </div>
+                    <div class="conn-stat">Status: ${info.status}</div>
+                    <div class="conn-stat">Messages: ${info.messages || 0}</div>
+                    <div class="conn-stat">Errors: ${info.errors || 0}</div>
+                    <div class="conn-stat">Last event: ${info.last_event ? new Date(info.last_event).toLocaleTimeString() : 'none'}</div>
+                </div>`;
+            }
+            el.innerHTML = html || '<div style="color:#555">No connection data yet</div>';
+        }
+
+        function renderRequests(requests) {
+            const body = document.getElementById('requestsBody');
+            if (requests.length === 0) {
+                body.innerHTML = '<tr><td colspan="6" style="color:#555">No requests logged yet</td></tr>';
+                return;
+            }
+            let html = '';
+            for (const r of requests.reverse()) {
+                const isErr = r.status >= 400;
+                html += `<tr>
+                    <td class="time-col">${formatTime(r.time)}</td>
+                    <td class="method-col">${r.method}</td>
+                    <td class="path-col">${esc(r.path)}</td>
+                    <td class="status-col ${isErr ? 'err' : 'ok'}">${r.status}</td>
+                    <td class="dur-col">${r.duration_ms}ms</td>
+                    <td class="${r.error ? 'error-msg' : ''}">${r.error ? esc(r.error) : ''}</td>
+                </tr>`;
+            }
+            body.innerHTML = html;
+        }
+
+        function renderErrors(errors) {
+            const body = document.getElementById('errorsBody');
+            if (errors.length === 0) {
+                body.innerHTML = '<tr><td colspan="3" style="color:#555">No errors — looking good!</td></tr>';
+                return;
+            }
+            let html = '';
+            for (const e of errors.reverse()) {
+                html += `<tr>
+                    <td class="time-col">${formatTime(e.time)}</td>
+                    <td class="source-col">${esc(e.source)}</td>
+                    <td class="error-msg">${esc(e.message)}${e.detail ? '<br><small style="color:#994444">' + esc(e.detail) + '</small>' : ''}</td>
+                </tr>`;
+            }
+            body.innerHTML = html;
+        }
+
+        function renderWsEvents(events) {
+            const body = document.getElementById('wsBody');
+            if (events.length === 0) {
+                body.innerHTML = '<tr><td colspan="4" style="color:#555">No WebSocket events yet</td></tr>';
+                return;
+            }
+            let html = '';
+            for (const e of events.reverse()) {
+                html += `<tr>
+                    <td class="time-col">${formatTime(e.time)}</td>
+                    <td class="source-col">${esc(e.connection)}</td>
+                    <td>${esc(e.event)}</td>
+                    <td style="color:#888">${e.detail ? esc(e.detail) : ''}</td>
+                </tr>`;
+            }
+            body.innerHTML = html;
+        }
+
+        function renderStats(data) {
+            const el = document.getElementById('serverStats');
+            const s = data.stats || {};
+            el.innerHTML = `
+                <div class="stats-bar">
+                    <div>Uptime since: <span class="stat-val">${data.server_uptime_since ? new Date(data.server_uptime_since).toLocaleString() : '--'}</span></div>
+                </div>
+                <div class="stats-bar">
+                    <div>Requests logged: <span class="stat-val">${s.total_requests_logged || 0}</span></div>
+                    <div>Errors logged: <span class="stat-val" style="color:${(s.total_errors_logged||0) > 0 ? '#dc3232':'#00c850'}">${s.total_errors_logged || 0}</span></div>
+                    <div>WS events: <span class="stat-val">${s.total_ws_events_logged || 0}</span></div>
+                </div>
+            `;
+        }
+
+        function renderEnvStatus(status) {
+            const el = document.getElementById('envStatus');
+            const keys = [
+                ['Alpaca Key', status.alpaca_api_key],
+                ['Alpaca Secret', status.alpaca_secret_key],
+                ['Finnhub Key', status.finnhub_api_key],
+                ['Polygon Key', status.polygon_api_key],
+            ];
+            let html = '';
+            for (const [name, val] of keys) {
+                const present = !!val;
+                const display = present ? val.substring(0, 6) + '...' + val.slice(-4) : 'NOT SET';
+                html += `<div class="env-item">
+                    <span class="env-key">${name}</span>
+                    <span class="env-val ${present ? '' : 'missing'}">${display}</span>
+                </div>`;
+            }
+            html += `<div class="env-item">
+                <span class="env-key">Data Sources</span>
+                <span class="env-val">${(status.data_sources || []).join(', ') || 'none'}</span>
+            </div>`;
+            html += `<div class="env-item">
+                <span class="env-key">Mode</span>
+                <span class="env-val">${status.mode || '--'}</span>
+            </div>`;
+            el.innerHTML = html;
+        }
+
+        async function testApis() {
+            const panel = document.getElementById('apiTestPanel');
+            const results = document.getElementById('apiTestResults');
+            panel.style.display = 'block';
+            results.textContent = 'Testing APIs...\n';
+
+            try {
+                const resp = await fetch('/api/debug/data');
+                const data = await resp.json();
+                results.textContent = JSON.stringify(data, null, 2);
+            } catch (e) {
+                results.textContent = 'Error: ' + e.message;
+            }
+        }
+
+        function formatTime(isoStr) {
+            if (!isoStr) return '--';
+            try {
+                return new Date(isoStr).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            } catch { return isoStr; }
+        }
+
+        function esc(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        // Auto-refresh
+        function startAutoRefresh() {
+            refresh();
+            refreshTimer = setInterval(refresh, 3000);
+        }
+
+        document.getElementById('autoStatus').addEventListener('click', () => {
+            autoRefresh = !autoRefresh;
+            document.getElementById('autoStatus').textContent = autoRefresh ? 'ON' : 'OFF';
+            document.getElementById('autoStatus').style.color = autoRefresh ? '#00c850' : '#dc3232';
+            if (autoRefresh) startAutoRefresh();
+            else clearInterval(refreshTimer);
+        });
+
+        startAutoRefresh();
+    </script>
+</body>
+</html>

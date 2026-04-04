@@ -1,0 +1,120 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Panel Component Styles
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Base panel ─────────────────────────────────────────────────────────── */
+.pnl {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  position: relative;
+  transition: height var(--ease-slow);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.pnl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--surface-2);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  flex-shrink: 0;
+  min-height: 28px;
+}
+
+.pnl--collapsed .pnl-header {
+  border-bottom: none;
+}
+
+.pnl-title-area {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  user-select: none;
+}
+
+.pnl-chevron {
+  font-size: 8px;
+  color: var(--text-muted);
+  transition: transform var(--ease-default);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.pnl-icon {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.pnl-title {
+  font-size: var(--font-xs);
+  font-weight: var(--font-bold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pnl-badge {
+  font-size: var(--font-2xs);
+  font-weight: var(--font-bold);
+  color: var(--accent);
+  background: var(--accent-subtle);
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  line-height: 1.5;
+}
+
+.pnl-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* ── Body ───────────────────────────────────────────────────────────────── */
+.pnl-body {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+
+.pnl-body::-webkit-scrollbar { width: 6px; height: 6px; }
+.pnl-body::-webkit-scrollbar-track { background: transparent; }
+.pnl-body::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 3px;
+}
+
+/* ── Resize handle ──────────────────────────────────────────────────────── */
+.pnl-resize-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  cursor: row-resize;
+  z-index: 2;
+  transition: background var(--ease-fast);
+}
+
+.pnl-resize-handle:hover,
+.pnl-resize-handle:active {
+  background: var(--accent);
+  opacity: 0.3;
+}
+
+/* ── Collapsed state ────────────────────────────────────────────────────── */
+.pnl--collapsed {
+  height: auto !important;
+}
+
+.pnl--collapsed .pnl-body,
+.pnl--collapsed .pnl-resize-handle {
+  display: none;
+}

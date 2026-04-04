@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Price Ladder Spacing Samples</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a14; color: #d0d0da; font-family: 'SF Mono', Menlo, Consolas, monospace; padding: 30px; }
+  h1 { font-size: 18px; margin-bottom: 8px; color: #fff; font-family: -apple-system, sans-serif; }
+  p.subtitle { font-size: 13px; color: #888; margin-bottom: 30px; font-family: -apple-system, sans-serif; }
+  .samples { display: flex; gap: 40px; flex-wrap: wrap; }
+  .sample {
+    background: #12121e;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 20px;
+    width: 220px;
+  }
+  .sample.active { border-color: #4ade80; }
+  .sample h2 { font-size: 13px; color: #aaa; margin-bottom: 4px; font-family: -apple-system, sans-serif; }
+  .sample h3 { font-size: 16px; color: #fff; margin-bottom: 16px; font-family: -apple-system, sans-serif; }
+  .ladder { position: relative; border-right: 1px solid rgba(255,255,255,0.15); width: 100%; }
+  .ladder .tick {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    font-size: 10px;
+    color: #999;
+    position: relative;
+  }
+  .ladder .tick::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 50px;
+    height: 1px;
+    background: rgba(255,255,255,0.04);
+  }
+  .ladder .tick.current { color: #4ade80; font-weight: bold; }
+  .ladder .tick.current::after {
+    content: '';
+    position: absolute;
+    right: -6px;
+    width: 5px;
+    height: 5px;
+    background: #4ade80;
+    clip-path: polygon(100% 50%, 0 0, 0 100%);
+  }
+  .controls {
+    margin-top: 30px;
+    padding: 20px;
+    background: #12121e;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    max-width: 600px;
+  }
+  .controls h2 { font-size: 15px; color: #fff; margin-bottom: 12px; font-family: -apple-system, sans-serif; }
+  .slider-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .slider-row label { font-size: 12px; color: #aaa; width: 140px; font-family: -apple-system, sans-serif; }
+  .slider-row input[type=range] { flex: 1; accent-color: #4ade80; }
+  .slider-row .val { font-size: 13px; color: #4ade80; width: 60px; text-align: right; }
+  #customLadder { margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<h1>Price Ladder Spacing — Pick What Looks Right</h1>
+<p class="subtitle">Each sample shows the same price range (~$633) with different vertical spacing between labels. The "Custom" slider lets you dial it in exactly.</p>
+
+<div class="samples">
+
+  <!-- Sample A: Very tight (current ~12px) -->
+  <div class="sample" id="sampleA">
+    <h2>Option A</h2>
+    <h3>Tight (12px)</h3>
+    <div class="ladder" id="ladderA"></div>
+  </div>
+
+  <!-- Sample B: Moderate (20px) -->
+  <div class="sample" id="sampleB">
+    <h2>Option B</h2>
+    <h3>Moderate (20px)</h3>
+    <div class="ladder" id="ladderB"></div>
+  </div>
+
+  <!-- Sample C: Comfortable (28px) -->
+  <div class="sample" id="sampleC">
+    <h2>Option C</h2>
+    <h3>Comfortable (28px)</h3>
+    <div class="ladder" id="ladderC"></div>
+  </div>
+
+  <!-- Sample D: Spacious (36px) -->
+  <div class="sample" id="sampleD">
+    <h2>Option D</h2>
+    <h3>Spacious (36px)</h3>
+    <div class="ladder" id="ladderD"></div>
+  </div>
+
+</div>
+
+<div class="controls">
+  <h2>Custom — Dial It In</h2>
+  <div class="slider-row">
+    <label>Pixel spacing:</label>
+    <input type="range" id="spacingSlider" min="10" max="50" value="28" step="1">
+    <span class="val" id="spacingVal">28px</span>
+  </div>
+  <div class="slider-row">
+    <label>Price step:</label>
+    <input type="range" id="stepSlider" min="1" max="10" value="5" step="1">
+    <span class="val" id="stepVal">$0.25</span>
+  </div>
+  <div class="sample active" style="width:220px; margin-top:12px;">
+    <h2>Your Pick</h2>
+    <h3 id="customLabel">28px / $0.25</h3>
+    <div class="ladder" id="ladderCustom"></div>
+  </div>
+</div>
+
+<script>
+const currentPrice = 633.75;
+const stepMap = {1: 0.05, 2: 0.10, 3: 0.15, 4: 0.20, 5: 0.25, 6: 0.30, 7: 0.35, 8: 0.40, 9: 0.45, 10: 0.50};
+
+function buildLadder(containerId, pxSpacing, priceStep) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  // Show enough labels to fill ~320px height
+  const maxH = 360;
+  const numLabels = Math.floor(maxH / pxSpacing);
+  const midIdx = Math.floor(numLabels / 2);
+
+  // Center around current price
+  const topPrice = currentPrice + midIdx * priceStep;
+
+  for (let i = 0; i < numLabels; i++) {
+    const price = topPrice - i * priceStep;
+    const div = document.createElement('div');
+    div.className = 'tick';
+    if (Math.abs(price - currentPrice) < priceStep * 0.5) div.className += ' current';
+    div.style.height = pxSpacing + 'px';
+    div.textContent = price.toFixed(2);
+    container.appendChild(div);
+  }
+}
+
+// Build fixed samples
+buildLadder('ladderA', 12, 0.05);  // Current: very tight
+buildLadder('ladderB', 20, 0.10);
+buildLadder('ladderC', 28, 0.25);
+buildLadder('ladderD', 36, 0.50);
+
+// Custom slider
+function updateCustom() {
+  const px = parseInt(document.getElementById('spacingSlider').value);
+  const stepIdx = parseInt(document.getElementById('stepSlider').value);
+  const priceStep = stepMap[stepIdx];
+  document.getElementById('spacingVal').textContent = px + 'px';
+  document.getElementById('stepVal').textContent = '$' + priceStep.toFixed(2);
+  document.getElementById('customLabel').textContent = px + 'px / $' + priceStep.toFixed(2);
+  buildLadder('ladderCustom', px, priceStep);
+}
+
+document.getElementById('spacingSlider').addEventListener('input', updateCustom);
+document.getElementById('stepSlider').addEventListener('input', updateCustom);
+updateCustom();
+</script>
+
+</body>
+</html>

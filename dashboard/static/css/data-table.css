@@ -1,0 +1,169 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DataTable Component Styles
+   ═══════════════════════════════════════════════════════════════════════════
+   Styles for the DataTable JS component. Uses design tokens from tokens.css.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Scroll wrapper ─────────────────────────────────────────────────────── */
+.dt-wrap {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+  position: relative;
+  /* Prevent unbounded growth when parent isn't a flex container */
+  max-height: var(--dt-max-h, min(280px, 30vh));
+  /* Custom scrollbar to match dashboard theme */
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+/* When inside a flex column with constrained height, let flex handle sizing */
+.flex-col > .dt-wrap,
+.agent-sub-panel > .dt-wrap,
+[style*="display:flex"] > .dt-wrap {
+  max-height: none;
+}
+.dt-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+.dt-wrap::-webkit-scrollbar-track { background: transparent; }
+.dt-wrap::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 3px;
+}
+.dt-wrap::-webkit-scrollbar-thumb:hover { background: var(--surface-4); }
+
+/* ── Table base ─────────────────────────────────────────────────────────── */
+.dt {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+  font-family: var(--font-mono);
+  table-layout: fixed; /* Enables resizable columns via colgroup widths */
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.dt thead th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: var(--font-semibold);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: var(--table-cell-py) var(--table-cell-px);
+  border-bottom: var(--border-width) solid var(--border);
+  white-space: nowrap;
+  position: relative;
+  user-select: none;
+  transition: color var(--ease-fast);
+}
+
+.dt thead th.dt-sticky {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  z-index: var(--z-sticky);
+}
+
+/* ── Sort indicators ────────────────────────────────────────────────────── */
+.dt-sortable { cursor: pointer; }
+.dt-sortable:hover { color: var(--text-primary); }
+
+.dt-sort-icon {
+  display: inline-block;
+  margin-left: 3px;
+  font-size: 8px;
+  opacity: 0.2;
+  transition: opacity var(--ease-fast), transform var(--ease-fast);
+}
+.dt-sort-asc .dt-sort-icon {
+  opacity: 0.8;
+  color: var(--accent);
+  transform: rotate(0deg);
+}
+.dt-sort-desc .dt-sort-icon {
+  opacity: 0.8;
+  color: var(--accent);
+  transform: rotate(180deg);
+}
+.dt-sortable:hover .dt-sort-icon { opacity: 0.5; }
+
+/* ── Resize handle ──────────────────────────────────────────────────────── */
+.dt-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  z-index: 2;
+  transition: background var(--ease-fast);
+}
+.dt-resize-handle:hover,
+.dt-resize-handle:active {
+  background: var(--accent);
+  opacity: 0.4;
+}
+
+/* ── Body cells ─────────────────────────────────────────────────────────── */
+.dt tbody td {
+  padding: var(--table-cell-py) var(--table-cell-px);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+
+/* Alignment */
+.dt .dt-r { text-align: right; }
+.dt .dt-c { text-align: center; }
+
+/* Row hover */
+.dt tbody tr.dt-hover:hover td {
+  background: rgba(255,255,255,0.03);
+}
+
+/* Empty state */
+.dt .dt-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: var(--space-3xl);
+  font-style: italic;
+}
+
+/* ── Compact variant ────────────────────────────────────────────────────── */
+.dt--compact thead th {
+  padding: 2px var(--table-cell-px);
+  font-size: var(--font-2xs);
+}
+.dt--compact tbody td {
+  padding: 2px var(--table-cell-px);
+  font-size: var(--font-xs);
+}
+
+/* ── Striped variant ────────────────────────────────────────────────────── */
+.dt--striped tbody tr:nth-child(even) td {
+  background: rgba(255,255,255,0.01);
+}
+
+/* ── Cell value coloring (use as cell classes) ──────────────────────────── */
+.dt-val-positive { color: var(--positive); }
+.dt-val-negative { color: var(--negative); }
+.dt-val-warning  { color: var(--warning); }
+.dt-val-accent   { color: var(--accent); }
+.dt-val-muted    { color: var(--text-muted); }
+.dt-val-bold     { font-weight: var(--font-bold); }
+
+/* ── Inline badge (use inside render functions) ─────────────────────────── */
+.dt-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  font-size: var(--font-2xs);
+  font-weight: var(--font-bold);
+  letter-spacing: 0.3px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+}
+.dt-badge-call    { background: var(--positive-subtle); color: var(--positive); }
+.dt-badge-put     { background: var(--negative-subtle); color: var(--negative); }
+.dt-badge-neutral { background: rgba(255,255,255,0.06); color: var(--text-secondary); }

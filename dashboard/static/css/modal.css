@@ -1,0 +1,271 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Modal Component Styles
+   ═══════════════════════════════════════════════════════════════════════════
+   Styles for the Modal JS component. Uses design tokens from tokens.css.
+
+   Variants:
+   - .modal--sm     →  380px max-width  (confirmations, quick actions)
+   - .modal--md     →  560px max-width  (forms, details)      [default]
+   - .modal--lg     →  800px max-width  (complex content)
+   - .modal--full   →  full-page panel  (settings, editors)
+   - .modal--slide  →  slides in from right edge
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Overlay / backdrop ────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--ease-slow), visibility var(--ease-slow);
+}
+.modal-overlay.modal-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ── Modal container ───────────────────────────────────────────────────── */
+.modal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-height: 85vh;
+  width: 90vw;
+  max-width: 560px;  /* default = md */
+  overflow: hidden;
+  transform: translateY(12px) scale(0.97);
+  transition: transform var(--ease-slow);
+}
+.modal-visible .modal {
+  transform: translateY(0) scale(1);
+}
+
+/* Size variants */
+.modal--sm .modal { max-width: 380px; }
+.modal--md .modal { max-width: 560px; }
+.modal--lg .modal { max-width: 800px; }
+.modal--full .modal {
+  max-width: calc(100vw - 64px);
+  max-height: calc(100vh - 48px);
+  width: calc(100vw - 64px);
+  height: calc(100vh - 48px);
+  border-radius: var(--radius-xl);
+}
+
+/* Slide-in variant (from right) */
+.modal--slide {
+  align-items: stretch;
+  justify-content: flex-end;
+}
+.modal--slide .modal {
+  max-width: 480px;
+  width: 100%;
+  height: 100vh;
+  max-height: 100vh;
+  border-radius: 0;
+  border-right: none;
+  transform: translateX(100%);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.modal--slide.modal-visible .modal {
+  transform: translateX(0);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-2xl);
+  border-bottom: var(--border-width) solid var(--border);
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.modal-header-title {
+  flex: 1;
+  font-size: var(--font-md);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  letter-spacing: -0.01em;
+}
+
+.modal-header-subtitle {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.modal-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-lg);
+  cursor: pointer;
+  transition: background var(--ease-fast), color var(--ease-fast);
+}
+.modal-close-btn:hover {
+  background: var(--surface-3);
+  color: var(--text-primary);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2xl);
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+.modal-body::-webkit-scrollbar { width: 6px; }
+.modal-body::-webkit-scrollbar-track { background: transparent; }
+.modal-body::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 3px;
+}
+
+/* No padding variant for embedded panels/tabs */
+.modal-body--flush { padding: 0; }
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-2xl);
+  border-top: var(--border-width) solid var(--border);
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.modal-footer--split {
+  justify-content: space-between;
+}
+
+/* ── Sections within body ──────────────────────────────────────────────── */
+.modal-section {
+  margin-bottom: var(--space-2xl);
+}
+.modal-section:last-child { margin-bottom: 0; }
+
+.modal-section-title {
+  font-size: var(--font-xs);
+  font-weight: var(--font-bold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: var(--space-md);
+}
+
+.modal-section-desc {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+  margin-bottom: var(--space-lg);
+}
+
+/* ── Divider ───────────────────────────────────────────────────────────── */
+.modal-divider {
+  height: 1px;
+  background: var(--border);
+  margin: var(--space-2xl) 0;
+}
+
+/* ── Status card (e.g. account balance) ────────────────────────────────── */
+.modal-status-card {
+  padding: var(--space-lg);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2xl);
+}
+.modal-status-card--positive {
+  background: var(--positive-bg);
+  border: 1px solid rgba(38,166,154,0.2);
+}
+.modal-status-card--negative {
+  background: var(--negative-bg);
+  border: 1px solid rgba(239,83,80,0.2);
+}
+.modal-status-card--accent {
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent-border);
+}
+
+/* ── With sidebar layout (for settings) ────────────────────────────────── */
+.modal-with-sidebar {
+  display: flex;
+  overflow: hidden;
+}
+
+.modal-sidebar {
+  width: 180px;
+  min-width: 180px;
+  background: var(--surface-2);
+  border-right: var(--border-width) solid var(--border);
+  padding: var(--space-lg) 0;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.modal-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-2xl);
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background var(--ease-fast), color var(--ease-fast), border-color var(--ease-fast);
+  font-family: var(--font-sans);
+}
+.modal-sidebar-item:hover {
+  background: var(--surface-3);
+  color: var(--text-primary);
+}
+.modal-sidebar-item.active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.modal-sidebar-icon {
+  font-size: var(--font-base);
+  width: 16px;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.modal-content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2xl);
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+.modal-content-area::-webkit-scrollbar { width: 6px; }
+.modal-content-area::-webkit-scrollbar-track { background: transparent; }
+.modal-content-area::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 3px; }

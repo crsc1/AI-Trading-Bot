@@ -1,0 +1,106 @@
+"""
+EXAMPLE API KEYS AND ENVIRONMENT VARIABLES
+
+This file shows which API keys and settings you need to configure.
+DO NOT commit real keys to version control!
+
+INSTRUCTIONS:
+1. Copy this file to .env in the project root
+2. Fill in your actual API keys
+3. Never share or commit the .env file
+4. Add .env to .gitignore
+
+API PROVIDER SETUP GUIDE:
+
+1. POLYGON.IO (Options data, real-time quotes, Greeks)
+   - Sign up: https://polygon.io
+   - Free tier includes: Real-time stock quotes, options data
+   - Paid tier needed for: Advanced features
+   - Key: In dashboard under "API Keys"
+
+2. FINNHUB (News, economic calendar, market data)
+   - Sign up: https://finnhub.io
+   - Free tier includes: News, economic calendar, company news
+   - Key: In dashboard under Account Settings
+
+3. ALPHA VANTAGE (News sentiment, technical indicators)
+   - Sign up: https://www.alphavantage.co
+   - Free tier includes: 5 requests per minute, daily limit
+   - Key: Emailed on signup
+   - Note: Be aware of rate limits when using in production
+
+4. UNUSUAL WHALES (Options flow, dark pool data)
+   - Sign up: https://unusualwhales.com
+   - Subscription service with API access
+   - Key: In your account dashboard
+   - Note: Premium data, consider cost vs. benefit
+"""
+
+# ============================================================================
+# REQUIRED API KEYS
+# ============================================================================
+
+POLYGON_API_KEY=your_polygon_key_here
+FINNHUB_API_KEY=your_finnhub_key_here
+ALPHA_VANTAGE_API_KEY=your_alpha_vantage_key_here
+UNUSUAL_WHALES_API_KEY=your_unusual_whales_key_here
+
+# ============================================================================
+# TRADING CONFIGURATION (optional - defaults are in config/settings.py)
+# ============================================================================
+
+# Trading symbols to monitor
+TRADING_SYMBOLS=SPY,SPX
+
+# Risk management
+STARTING_CAPITAL=5000
+MAX_RISK_PER_TRADE=0.02
+MAX_DAILY_LOSS=0.02
+
+# Trading hours (ET timezone)
+TRADING_START_TIME=09:45
+TRADING_END_TIME=15:30
+
+# Position management
+MAX_TOTAL_OPEN_POSITIONS=5
+DEFAULT_HOLD_MINUTES=60
+DEFAULT_STOP_LOSS_PERCENT=0.10
+DEFAULT_PROFIT_TARGET_PERCENT=0.25
+
+# Strategy weights (should sum to ~1.0)
+WEIGHT_FLOW_ANALYSIS=0.30
+WEIGHT_TECHNICAL=0.25
+WEIGHT_SENTIMENT=0.20
+WEIGHT_VOLATILITY=0.15
+WEIGHT_ECONOMIC=0.10
+
+# Signal confidence
+MIN_SIGNAL_CONFIDENCE=65.0
+HIGH_CONFIDENCE_THRESHOLD=80.0
+
+# Options selection
+PREFERRED_DTE=7
+MIN_DTE=3
+MAX_DTE=30
+MIN_OPTION_VOLUME=50
+MIN_OPTION_OPEN_INTEREST=100
+
+# Trading mode: SIGNAL (signals only), SEMI_AUTO (needs approval), AUTO (full automation)
+TRADING_MODE=SIGNAL
+
+# Paper trading: set to true for testing, false for real trades
+PAPER_TRADING=true
+
+# Dashboard
+DASHBOARD_HOST=127.0.0.1
+DASHBOARD_PORT=8000
+
+# Logging
+LOG_LEVEL=INFO
+LOG_FILE=./logs/trading_bot.log
+
+# Database
+DATABASE_PATH=./data/trading_bot.db
+
+# Data caching
+CACHE_TTL_SECONDS=60

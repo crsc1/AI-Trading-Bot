@@ -1,0 +1,176 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Badge / Chip Component Styles
+   ═══════════════════════════════════════════════════════════════════════════
+   Status indicators, tags, and chips. Uses design tokens from tokens.css.
+
+   Usage:
+     <span class="badge badge--positive">BULLISH</span>
+     <span class="badge badge--tier-textbook">TEXTBOOK</span>
+     <span class="badge badge--sm badge--outline">SCALP</span>
+
+   Semantic variants:
+     .badge--positive    →  green (profit, bullish, confirmed)
+     .badge--negative    →  red (loss, bearish, rejected)
+     .badge--warning     →  yellow (caution, developing)
+     .badge--accent      →  blue (info, active, selected)
+     .badge--muted       →  gray (neutral, inactive)
+
+   Tier badges (trading-specific):
+     .badge--tier-textbook   →  gold
+     .badge--tier-high       →  green
+     .badge--tier-valid      →  blue
+     .badge--tier-developing →  gray
+
+   Direction badges:
+     .badge--call        →  green (BUY CALL)
+     .badge--put         →  red (BUY PUT)
+
+   Sizes:
+     .badge--xs          →  tiny inline
+     .badge--sm          →  compact (default)
+     .badge--md          →  standard
+
+   Variants:
+     .badge--outline     →  border only, transparent bg
+     .badge--dot         →  tiny colored dot + text
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Base ──────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: var(--font-2xs);
+  font-weight: var(--font-bold);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-radius: var(--radius-sm);
+  line-height: var(--leading-tight);
+  border: var(--border-width) solid transparent;
+}
+
+/* ── Sizes ─────────────────────────────────────────────────────────────── */
+.badge--xs { font-size: 6px; padding: 0 4px; letter-spacing: 0.4px; }
+.badge--md { font-size: var(--font-xs); padding: 2px 8px; }
+
+/* ── Semantic variants (filled) ────────────────────────────────────────── */
+.badge--positive {
+  background: var(--positive-subtle);
+  color: var(--positive);
+}
+.badge--negative {
+  background: var(--negative-subtle);
+  color: var(--negative);
+}
+.badge--warning {
+  background: var(--warning-subtle);
+  color: var(--warning);
+}
+.badge--accent {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+.badge--muted {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-secondary);
+}
+
+/* ── Tier badges (trading-specific) ────────────────────────────────────── */
+.badge--tier-textbook {
+  background: rgba(255,215,0,0.12);
+  color: #ffd700;
+}
+.badge--tier-high {
+  background: var(--positive-subtle);
+  color: var(--positive);
+}
+.badge--tier-valid {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+.badge--tier-developing {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-muted);
+}
+
+/* ── Direction badges ──────────────────────────────────────────────────── */
+.badge--call {
+  background: var(--positive-subtle);
+  color: var(--positive);
+}
+.badge--put {
+  background: var(--negative-subtle);
+  color: var(--negative);
+}
+
+/* ── Trade mode badges ─────────────────────────────────────────────────── */
+.badge--mode-scalp {
+  background: rgba(255,179,0,0.12);
+  color: var(--warning);
+}
+.badge--mode-standard {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+.badge--mode-swing {
+  background: rgba(171,71,188,0.12);
+  color: #ab47bc;
+}
+
+/* ── Outline variant ───────────────────────────────────────────────────── */
+.badge--outline {
+  background: transparent;
+}
+.badge--outline.badge--positive  { border-color: var(--positive); }
+.badge--outline.badge--negative  { border-color: var(--negative); }
+.badge--outline.badge--warning   { border-color: var(--warning); }
+.badge--outline.badge--accent    { border-color: var(--accent); }
+.badge--outline.badge--muted     { border-color: var(--border); }
+
+/* ── Dot variant (colored dot + label text) ────────────────────────────── */
+.badge--dot {
+  background: transparent;
+  padding: 0;
+  gap: var(--space-xs);
+  text-transform: none;
+  font-weight: var(--font-medium);
+  letter-spacing: 0;
+}
+.badge--dot::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-round);
+  flex-shrink: 0;
+}
+.badge--dot.badge--positive::before  { background: var(--positive); }
+.badge--dot.badge--negative::before  { background: var(--negative); }
+.badge--dot.badge--warning::before   { background: var(--warning); }
+.badge--dot.badge--accent::before    { background: var(--accent); }
+.badge--dot.badge--muted::before     { background: var(--text-muted); }
+
+/* ── Status dot (no text, just a colored circle) ───────────────────────── */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-round);
+  flex-shrink: 0;
+}
+.status-dot--online  { background: var(--positive); box-shadow: 0 0 4px var(--positive); }
+.status-dot--offline { background: var(--text-muted); }
+.status-dot--warning { background: var(--warning); box-shadow: 0 0 4px var(--warning); }
+.status-dot--error   { background: var(--negative); box-shadow: 0 0 4px var(--negative); }
+
+/* Pulsing animation for live indicators */
+.status-dot--pulse {
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

@@ -1,0 +1,1831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPX/SPY Options Trading Bot</title>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0a14;
+            --bg-secondary: #0f0f1e;
+            --border-color: #1a1a2e;
+            --text-primary: #e0e0e0;
+            --text-secondary: #999999;
+            --bullish: #00c850;
+            --bearish: #dc3232;
+            --accent: #4488ff;
+            --font-mono: 'Menlo', 'Monaco', 'Consolas', monospace;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.5;
+            overflow: hidden;
+        }
+
+        /* HEADER */
+        .header {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            padding: 12px 16px;
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            gap: 24px;
+            height: 48px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .header-title {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 1px;
+        }
+
+        .header-mode {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .mode-value {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .paper-live {
+            color: var(--text-secondary);
+        }
+
+        .paper-live.live {
+            color: var(--bearish);
+            font-weight: 600;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--bearish);
+            animation: disconnected 1s infinite;
+        }
+
+        .status-dot.connected {
+            background-color: var(--bullish);
+            animation: none;
+        }
+
+        @keyframes disconnected {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        /* MAIN LAYOUT */
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 280px;
+            grid-template-rows: 48px 1fr;
+            height: 100vh;
+            gap: 0;
+        }
+
+        .main-content {
+            grid-column: 1;
+            grid-row: 2;
+            display: grid;
+            grid-template-columns: 1fr;
+            grid-template-rows: auto 55% 30% 1fr;
+            gap: 12px;
+            padding: 12px;
+            overflow: auto;
+        }
+
+        .sidebar {
+            grid-column: 2;
+            grid-row: 2;
+            display: flex;
+            flex-direction: column;
+            padding: 12px;
+            gap: 12px;
+            overflow-y: auto;
+            border-left: 1px solid var(--border-color);
+            background-color: var(--bg-secondary);
+        }
+
+        /* TIMEFRAME SELECTOR */
+        .timeframe-selector {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            padding: 0 0 8px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .timeframe-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            margin-right: 4px;
+        }
+
+        .timeframe-btn {
+            padding: 4px 10px;
+            border: 1px solid var(--border-color);
+            background-color: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 10px;
+            font-weight: 600;
+            border-radius: 3px;
+            text-transform: uppercase;
+            font-family: var(--font-mono);
+            transition: all 0.2s;
+        }
+
+        .timeframe-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .timeframe-btn.active {
+            background-color: var(--accent);
+            color: var(--bg-primary);
+            border-color: var(--accent);
+        }
+
+        /* PANEL STYLING */
+        .panel {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .panel-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .panel-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .empty-state {
+            color: var(--text-secondary);
+            font-size: 12px;
+            padding: 24px 0;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        .waiting-dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: var(--accent);
+            margin-left: 4px;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* CHART CONTAINER */
+        .chart-container {
+            position: relative;
+            min-height: 400px;
+        }
+
+        .chart-wrapper {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* ORDER FLOW CONTAINER */
+        .orderflow-container {
+            position: relative;
+            min-height: 250px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .orderflow-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            padding: 0 12px;
+        }
+
+        .orderflow-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 10px;
+            cursor: pointer;
+        }
+
+        .orderflow-link:hover {
+            text-decoration: underline;
+        }
+
+        .orderflow-iframe {
+            flex: 1;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: var(--bg-secondary);
+        }
+
+        /* BOTTOM PANELS GRID */
+        .bottom-panels {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+        }
+
+        /* LIVE SIGNALS SIDEBAR */
+        .signals-panel {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .signal-card {
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 10px;
+            gap: 6px;
+            display: flex;
+            flex-direction: column;
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+
+        .signal-action {
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 12px;
+        }
+
+        .signal-action.buy-call {
+            color: var(--bullish);
+        }
+
+        .signal-action.buy-put {
+            color: var(--bearish);
+        }
+
+        .signal-meta {
+            display: flex;
+            gap: 8px;
+            justify-content: space-between;
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        .signal-confidence {
+            margin: 6px 0;
+        }
+
+        .confidence-bar {
+            width: 100%;
+            height: 4px;
+            background-color: var(--border-color);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background-color: var(--accent);
+            transition: width 0.3s ease;
+        }
+
+        .signal-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        .signal-detail-item {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .signal-detail-label {
+            color: #666;
+            font-size: 9px;
+        }
+
+        .signal-detail-value {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .signal-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+            margin-top: 6px;
+        }
+
+        .signal-btn {
+            padding: 6px 8px;
+            border: 1px solid var(--border-color);
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 10px;
+            font-weight: 600;
+            border-radius: 3px;
+            text-transform: uppercase;
+            transition: all 0.2s;
+            font-family: var(--font-mono);
+        }
+
+        .signal-btn:hover {
+            background-color: var(--border-color);
+        }
+
+        .signal-btn.approve {
+            border-color: var(--bullish);
+            color: var(--bullish);
+        }
+
+        .signal-btn.approve:hover {
+            background-color: rgba(0, 200, 80, 0.1);
+        }
+
+        .signal-btn.reject {
+            border-color: var(--bearish);
+            color: var(--bearish);
+        }
+
+        .signal-btn.reject:hover {
+            background-color: rgba(220, 50, 50, 0.1);
+        }
+
+        .signal-reasoning {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+            color: var(--text-secondary);
+            font-size: 10px;
+            border-top: 1px solid var(--border-color);
+            margin-top: 6px;
+            padding-top: 6px;
+        }
+
+        .signal-reasoning.expanded {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .toggle-reasoning {
+            color: var(--accent);
+            cursor: pointer;
+            font-size: 10px;
+            text-decoration: none;
+        }
+
+        .toggle-reasoning:hover {
+            text-decoration: underline;
+        }
+
+        /* METRICS */
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(30, 30, 50, 0.3);
+        }
+
+        .metric:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+
+        .metric-value {
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        .metric-value.bullish {
+            color: var(--bullish);
+        }
+
+        .metric-value.bearish {
+            color: var(--bearish);
+        }
+
+        /* ECONOMIC CALENDAR */
+        .event-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(30, 30, 50, 0.3);
+            font-size: 10px;
+        }
+
+        .event-item:last-child {
+            border-bottom: none;
+        }
+
+        .event-name {
+            flex: 1;
+            color: var(--text-primary);
+        }
+
+        .event-date {
+            color: var(--text-secondary);
+            margin: 0 8px;
+            min-width: 60px;
+            text-align: right;
+        }
+
+        .event-impact {
+            padding: 2px 6px;
+            border-radius: 2px;
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .event-impact.high {
+            background-color: rgba(220, 50, 50, 0.2);
+            color: var(--bearish);
+        }
+
+        .event-impact.medium {
+            background-color: rgba(68, 136, 255, 0.2);
+            color: var(--accent);
+        }
+
+        .event-impact.low {
+            background-color: rgba(150, 150, 150, 0.2);
+            color: var(--text-secondary);
+        }
+
+        /* SCROLLBARS */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background-color: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background-color: var(--border-color);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background-color: #2a2a3e;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+            <div class="header-left">
+                <div class="header-title">SPX/SPY OPTIONS BOT</div>
+                <div class="header-mode">
+                    <span>Mode: <span class="mode-value" id="modeValue">...</span></span>
+                    <span class="paper-live" id="paperLiveIndicator">Paper</span>
+                    <div class="status-indicator">
+                        <div class="status-dot" id="statusDot"></div>
+                        <span id="statusText">Connecting...</span>
+                    </div>
+                </div>
+            </div>
+            <!-- LIVE MARKET TICKER -->
+            <div id="marketTicker" style="display:flex;gap:24px;align-items:center;font-size:12px;">
+                <div id="spyTicker" style="display:flex;gap:6px;align-items:center;">
+                    <span style="color:var(--accent);font-weight:600;">SPY</span>
+                    <span id="spyPrice" style="color:var(--text-primary);">--</span>
+                    <span id="spyChange" style="font-size:11px;">--</span>
+                </div>
+                <div id="vixTicker" style="display:flex;gap:6px;align-items:center;">
+                    <span style="color:#ff9800;font-weight:600;">VIXY</span>
+                    <span id="vixPrice" style="color:var(--text-primary);">--</span>
+                    <span id="vixChange" style="font-size:11px;">--</span>
+                </div>
+                <div id="dataSource" style="font-size:10px;color:var(--text-secondary);"></div>
+            </div>
+        </div>
+
+        <!-- MAIN CONTENT -->
+        <div class="main-content">
+            <!-- TIMEFRAME SELECTOR -->
+            <div class="timeframe-selector">
+                <span class="timeframe-label">Timeframe:</span>
+                <button class="timeframe-btn" data-timeframe="1Min" onclick="changeTimeframe('1Min')">1m</button>
+                <button class="timeframe-btn active" data-timeframe="5Min" onclick="changeTimeframe('5Min')">5m</button>
+                <button class="timeframe-btn" data-timeframe="15Min" onclick="changeTimeframe('15Min')">15m</button>
+                <button class="timeframe-btn" data-timeframe="1H" onclick="changeTimeframe('1H')">1h</button>
+                <button class="timeframe-btn" data-timeframe="1D" onclick="changeTimeframe('1D')">1d</button>
+            </div>
+
+            <!-- LIGHTWEIGHT CHARTS -->
+            <div class="panel chart-container">
+                <div class="chart-wrapper" id="chartContainer"></div>
+            </div>
+
+            <!-- ORDER FLOW -->
+            <div class="panel orderflow-container">
+                <div class="orderflow-header">
+                    <div class="panel-title">Order Flow (Finnhub + Alpaca — Real-time)</div>
+                    <a class="orderflow-link" onclick="openOrderFlowFullscreen()">Open Full Screen</a>
+                </div>
+                <iframe id="orderflowFrame" class="orderflow-iframe" src="/orderflow" title="Order Flow"></iframe>
+            </div>
+
+            <!-- BOTTOM PANELS -->
+            <div class="bottom-panels">
+                <!-- RISK PANEL -->
+                <div class="panel">
+                    <div class="panel-title">Risk</div>
+                    <div class="panel-content">
+                        <div class="metric">
+                            <span class="metric-label">Open Positions</span>
+                            <span class="metric-value" id="openPositions">--</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Day Trades (Used/Limit)</span>
+                            <span class="metric-value" id="dayTradesUsed">--</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Daily P&L</span>
+                            <span class="metric-value" id="dailyPnL">--</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Max Risk</span>
+                            <span class="metric-value" id="maxRisk">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- P&L PANEL -->
+                <div class="panel">
+                    <div class="panel-title">P&L</div>
+                    <div class="panel-content">
+                        <div id="pnlContent" class="empty-state">No trade history yet</div>
+                    </div>
+                </div>
+
+                <!-- ECONOMIC CALENDAR PANEL -->
+                <div class="panel">
+                    <div class="panel-title">Economic Calendar</div>
+                    <div class="panel-content" id="economicCalendarContent">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SIDEBAR: LIVE SIGNALS -->
+        <div class="sidebar">
+            <div class="panel signals-panel">
+                <div class="panel-title">Live Signals</div>
+                <div class="panel-content" id="signalsContent">
+                    <div class="empty-state">
+                        Waiting for first signal<span class="waiting-dot"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== CONFIGURATION =====
+        const config = {
+            wsUrl: 'ws://localhost:8000/ws',
+            apiBaseUrl: '/api',
+            reconnectDelay: 3000,
+            reconnectMaxDelay: 30000
+        };
+
+        let ws = null;
+        let reconnectAttempts = 0;
+        let currentSignals = {};
+        let chart = null;
+        let candlestickSeries = null;
+        let volumeSeries = null;
+        let vwapSeries = null;
+        let currentTimeframe = '5Min';
+        let currentBars = [];
+        let alpacaKeys = { key: null, secret: null };
+        let wsAlpaca = null;
+        let alpacaReconnectAttempts = 0;
+        let finnhubKey = null;
+        let wsFinnhub = null;
+        let finnhubReconnectAttempts = 0;
+        let alpacaReconnectTimer = null;
+        let finnhubReconnectTimer = null;
+
+        // ===== CLOSE ALL WEBSOCKETS CLEANLY =====
+        function closeAllWebSockets() {
+            console.log('Closing all WebSocket connections...');
+            if (alpacaReconnectTimer) { clearTimeout(alpacaReconnectTimer); alpacaReconnectTimer = null; }
+            if (finnhubReconnectTimer) { clearTimeout(finnhubReconnectTimer); finnhubReconnectTimer = null; }
+            if (wsAlpaca) { try { wsAlpaca.onclose = null; wsAlpaca.onerror = null; wsAlpaca.close(); } catch(e){} wsAlpaca = null; }
+            if (wsFinnhub) { try { wsFinnhub.onclose = null; wsFinnhub.onerror = null; wsFinnhub.close(); } catch(e){} wsFinnhub = null; }
+            if (ws) { try { ws.onclose = null; ws.onerror = null; ws.close(); } catch(e){} ws = null; }
+        }
+
+        // Close connections when leaving/refreshing the page
+        window.addEventListener('beforeunload', closeAllWebSockets);
+
+        // ===== INITIALIZATION =====
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeChart();
+            initializeWebSocket();
+            fetchInitialData();
+            fetchMarketData();
+            populateEconomicCalendar();
+
+            // Delay market data WS connections by 2 seconds to let any
+            // stale connections from a previous page load time out
+            setTimeout(() => {
+                initializeAlpacaWebSocket();
+            }, 2000);
+            setTimeout(() => {
+                initializeFinnhubWebSocket();
+            }, 3000);
+
+            setInterval(fetchInitialData, 30000);
+            setInterval(fetchMarketData, 15000);
+        });
+
+        // ===== CHART INITIALIZATION =====
+        function initializeChart() {
+            const chartContainer = document.getElementById('chartContainer');
+            chart = LightweightCharts.createChart(chartContainer, {
+                layout: {
+                    background: { color: '#0a0a14' },
+                    textColor: '#e0e0e0'
+                },
+                width: chartContainer.clientWidth,
+                height: chartContainer.clientHeight,
+                timeScale: {
+                    timeVisible: true,
+                    secondsVisible: true,
+                    rightOffset: 0
+                },
+                grid: {
+                    vertLines: { color: '#1a1a2e' },
+                    horzLines: { color: '#1a1a2e' }
+                }
+            });
+
+            candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#00c850',
+                downColor: '#dc3232',
+                borderUpColor: '#00c850',
+                borderDownColor: '#dc3232',
+                wickUpColor: '#00c850',
+                wickDownColor: '#dc3232'
+            });
+
+            // Volume as overlay at bottom 30% of chart
+            volumeSeries = chart.addHistogramSeries({
+                color: '#4488ff',
+                priceFormat: { type: 'volume' },
+                priceScaleId: 'volume_scale',
+            });
+            chart.priceScale('volume_scale').applyOptions({
+                scaleMargins: { top: 0.7, bottom: 0 },
+            });
+
+            vwapSeries = chart.addLineSeries({
+                color: '#ff9800',
+                lineWidth: 2,
+                lineStyle: 0,
+            });
+
+            chart.timeScale().fitContent();
+
+            window.addEventListener('resize', () => {
+                const container = document.getElementById('chartContainer');
+                if (chart && container) {
+                    chart.applyOptions({
+                        width: container.clientWidth,
+                        height: container.clientHeight
+                    });
+                }
+            });
+
+            fetchBars(currentTimeframe);
+        }
+
+        // ===== FETCH BARS AND POPULATE CHART =====
+        // Alpaca for historical bars (Finnhub free tier blocks /stock/candle)
+        // Finnhub WebSocket handles real-time tick updates (including after-hours)
+        async function fetchBars(timeframe) {
+            try {
+                const resp = await fetch(`/api/bars?symbol=SPY&timeframe=${timeframe}&limit=500`);
+                if (!resp.ok) {
+                    console.error('Bars API returned', resp.status);
+                    return;
+                }
+                const data = await resp.json();
+
+                if (data.error) {
+                    console.error('Bars API error:', data.error);
+                    return;
+                }
+
+                if (!data.bars || data.bars.length === 0) {
+                    console.warn('No bars returned');
+                    return;
+                }
+
+                console.log(`Chart loaded ${data.bars.length} bars from Alpaca`);
+                currentBars = data.bars;
+                updateChart();
+                document.getElementById('dataSource').textContent =
+                    `alpaca (${data.bars.length} bars) + finnhub live`;
+            } catch (e) {
+                console.error('Error fetching bars:', e);
+            }
+        }
+
+        function updateChart() {
+            if (!candlestickSeries || !volumeSeries || !vwapSeries || currentBars.length === 0) return;
+
+            const candleData = [];
+            const volumeData = [];
+            let cumVolume = 0;
+            let cumVolumePrice = 0;
+
+            const vwapData = [];
+
+            currentBars.forEach(bar => {
+                // API returns {time: unix_ts, open, high, low, close, volume}
+                const time = bar.time;
+
+                candleData.push({
+                    time: time,
+                    open: bar.open,
+                    high: bar.high,
+                    low: bar.low,
+                    close: bar.close
+                });
+
+                const volume = parseFloat(bar.volume) || 0;
+                const isUp = bar.close >= bar.open;
+
+                volumeData.push({
+                    time: time,
+                    value: volume,
+                    color: isUp ? 'rgba(0, 200, 80, 0.3)' : 'rgba(220, 50, 50, 0.3)'
+                });
+
+                // Running VWAP: cumulative (TP * Vol) / cumulative Vol
+                const tp = (bar.high + bar.low + bar.close) / 3;
+                cumVolume += volume;
+                cumVolumePrice += tp * volume;
+                if (cumVolume > 0) {
+                    vwapData.push({ time: time, value: cumVolumePrice / cumVolume });
+                }
+            });
+
+            candlestickSeries.setData(candleData);
+            volumeSeries.setData(volumeData);
+            if (vwapData.length > 0) {
+                vwapSeries.setData(vwapData);
+            }
+
+            chart.timeScale().fitContent();
+        }
+
+        // ===== CHANGE TIMEFRAME =====
+        function changeTimeframe(timeframe) {
+            currentTimeframe = timeframe;
+
+            // Update button states
+            document.querySelectorAll('.timeframe-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-timeframe="${timeframe}"]`).classList.add('active');
+
+            // Fetch new bars
+            fetchBars(timeframe);
+        }
+
+        // ===== ALPACA WEBSOCKET FOR REAL-TIME UPDATES =====
+        async function initializeAlpacaWebSocket() {
+            try {
+                const statusData = await fetchData('/api/status', null);
+                if (!statusData || !statusData.alpaca_api_key || !statusData.alpaca_secret_key) {
+                    console.warn('Alpaca credentials not available');
+                    return;
+                }
+
+                alpacaKeys = {
+                    key: statusData.alpaca_api_key,
+                    secret: statusData.alpaca_secret_key
+                };
+
+                connectAlpacaWebSocket();
+            } catch (e) {
+                console.error('Error initializing Alpaca WebSocket:', e);
+            }
+        }
+
+        function connectAlpacaWebSocket() {
+            // Close any existing connection first
+            if (wsAlpaca) {
+                try { wsAlpaca.onclose = null; wsAlpaca.onerror = null; wsAlpaca.close(); } catch(e){}
+                wsAlpaca = null;
+            }
+            try {
+                wsAlpaca = new WebSocket('wss://stream.data.alpaca.markets/v2/iex');
+
+                wsAlpaca.onopen = () => {
+                    console.log('Alpaca WebSocket connected');
+                    alpacaReconnectAttempts = 0;
+                    // Step 1: Authenticate (subscribe AFTER auth success in onmessage)
+                    wsAlpaca.send(JSON.stringify({
+                        action: 'auth',
+                        key: alpacaKeys.key,
+                        secret: alpacaKeys.secret
+                    }));
+                };
+
+                wsAlpaca.onmessage = (event) => {
+                    try {
+                        // Alpaca sends arrays of messages: [{"T":"b",...}, {"T":"q",...}]
+                        const raw = JSON.parse(event.data);
+                        const messages = Array.isArray(raw) ? raw : [raw];
+                        for (const msg of messages) {
+                            if (msg.T === 'success' && msg.msg === 'authenticated') {
+                                console.log('Alpaca authenticated — subscribing');
+                                // Step 2: Now subscribe after auth confirmed
+                                wsAlpaca.send(JSON.stringify({
+                                    action: 'subscribe',
+                                    bars: ['SPY'],
+                                    trades: ['SPY'],
+                                    quotes: ['SPY']
+                                }));
+                            } else if (msg.T === 'subscription') {
+                                console.log('Alpaca subscribed:', msg.bars, msg.quotes);
+                            } else if (msg.T === 'b') {
+                                handleAlpacaBar(msg);
+                            } else if (msg.T === 'q') {
+                                handleAlpacaQuote(msg);
+                                // Forward quote to orderflow iframe for bid/ask classification
+                                forwardToOrderflow({ type: 'alpaca_quote', bp: msg.bp, ap: msg.ap });
+                            } else if (msg.T === 't') {
+                                // Forward Alpaca trade to orderflow iframe
+                                forwardToOrderflow({ type: 'alpaca_trade', p: msg.p, s: msg.s, t: msg.t });
+                            } else if (msg.T === 'error') {
+                                console.error('Alpaca error:', msg.msg);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error parsing Alpaca message:', e);
+                    }
+                };
+
+                wsAlpaca.onclose = () => {
+                    console.log('Alpaca WebSocket disconnected');
+                    scheduleAlpacaReconnect();
+                };
+
+                wsAlpaca.onerror = (error) => {
+                    console.error('Alpaca WebSocket error:', error);
+                };
+            } catch (e) {
+                console.error('Failed to create Alpaca WebSocket:', e);
+                scheduleAlpacaReconnect();
+            }
+        }
+
+        function handleAlpacaBar(barMsg) {
+            // barMsg format: { T:'b', S:'SPY', o:567.1, h:567.5, l:566.9, c:567.3, v:12345, t:'2026-03-24T14:30:00Z' }
+            if (!candlestickSeries || !currentBars || currentBars.length === 0) return;
+
+            // Alpaca bar timestamp is RFC3339 string
+            const newBarTime = Math.floor(new Date(barMsg.t).getTime() / 1000);
+            if (isNaN(newBarTime)) return;
+
+            const newBar = {
+                time: newBarTime,
+                open: barMsg.o,
+                high: barMsg.h,
+                low: barMsg.l,
+                close: barMsg.c,
+                volume: barMsg.v || 0
+            };
+
+            const lastBar = currentBars[currentBars.length - 1];
+
+            if (newBarTime === lastBar.time) {
+                // Update existing bar
+                currentBars[currentBars.length - 1] = newBar;
+            } else if (newBarTime > lastBar.time) {
+                // Add new bar
+                if (currentBars.length >= 500) {
+                    currentBars.shift();
+                }
+                currentBars.push(newBar);
+            }
+
+            updateChart();
+        }
+
+        function handleAlpacaQuote(quoteMsg) {
+            // quoteMsg format: { T: 'q', S: 'SPY', bp: ..., ap: ..., bs: ..., as: ..., t: ... }
+            // Update header ticker with latest bid/ask or use as additional price source
+            if (quoteMsg.S === 'SPY' && quoteMsg.ap) {
+                // Optionally update if we want to show mid-price from WebSocket
+                // For now, rely on fetchMarketData
+            }
+        }
+
+        function scheduleAlpacaReconnect() {
+            if (alpacaReconnectTimer) { clearTimeout(alpacaReconnectTimer); alpacaReconnectTimer = null; }
+            // Start at 5s minimum, double each time, cap at 60s
+            const delay = Math.min(5000 * Math.pow(2, alpacaReconnectAttempts), 60000);
+            alpacaReconnectAttempts++;
+            console.log(`Alpaca reconnecting in ${delay}ms (attempt ${alpacaReconnectAttempts})...`);
+            alpacaReconnectTimer = setTimeout(connectAlpacaWebSocket, delay);
+        }
+
+        // ===== FINNHUB WEBSOCKET FOR REAL-TIME TICK UPDATES =====
+        // Finnhub streams individual trades (including after-hours)
+        // Used to update the current candle in real-time between Alpaca bar intervals
+        async function initializeFinnhubWebSocket() {
+            try {
+                const statusData = await fetchData('/api/status', null);
+                if (!statusData || !statusData.finnhub_api_key) {
+                    console.warn('Finnhub API key not available');
+                    return;
+                }
+                finnhubKey = statusData.finnhub_api_key;
+                connectFinnhubWebSocket();
+            } catch (e) {
+                console.error('Error initializing Finnhub WebSocket:', e);
+            }
+        }
+
+        function connectFinnhubWebSocket() {
+            if (!finnhubKey) return;
+
+            // Close any existing connection first
+            if (wsFinnhub) {
+                try { wsFinnhub.onclose = null; wsFinnhub.onerror = null; wsFinnhub.close(); } catch(e){}
+                wsFinnhub = null;
+            }
+            try {
+                wsFinnhub = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
+
+                wsFinnhub.onopen = () => {
+                    console.log('Finnhub WebSocket connected');
+                    finnhubReconnectAttempts = 0;
+                    // Subscribe to SPY trades
+                    wsFinnhub.send(JSON.stringify({ type: 'subscribe', symbol: 'SPY' }));
+                };
+
+                wsFinnhub.onmessage = (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'trade' && msg.data) {
+                            for (const trade of msg.data) {
+                                handleFinnhubTrade(trade);
+                            }
+                            // Forward trades to orderflow iframe
+                            forwardToOrderflow({ type: 'finnhub_trades', trades: msg.data });
+                        }
+                    } catch (e) {
+                        console.error('Error parsing Finnhub message:', e);
+                    }
+                };
+
+                wsFinnhub.onclose = (event) => {
+                    console.log(`Finnhub WebSocket closed — code: ${event.code}, reason: "${event.reason}", clean: ${event.wasClean}`);
+                    scheduleFinnhubReconnect();
+                };
+
+                wsFinnhub.onerror = (error) => {
+                    console.error('Finnhub WebSocket error:', error);
+                    console.error(`Finnhub WS key used (first 8 chars): ${finnhubKey ? finnhubKey.substring(0, 8) + '...' : 'none'}, key length: ${finnhubKey ? finnhubKey.length : 0}`);
+                };
+            } catch (e) {
+                console.error('Failed to create Finnhub WebSocket:', e);
+                scheduleFinnhubReconnect();
+            }
+        }
+
+        function handleFinnhubTrade(trade) {
+            // trade format: { p: price, s: "SPY", t: unix_ms, v: volume, c: [conditions] }
+            if (!trade.p || !candlestickSeries || currentBars.length === 0) return;
+
+            const price = trade.p;
+            const volume = trade.v || 0;
+            const tradeTimeSec = Math.floor(trade.t / 1000);
+
+            // Calculate which bar this trade belongs to based on current timeframe
+            const barDuration = getTimeframeDurationSec(currentTimeframe);
+            const barTime = Math.floor(tradeTimeSec / barDuration) * barDuration;
+
+            const lastBar = currentBars[currentBars.length - 1];
+
+            if (barTime === lastBar.time) {
+                // Update the current (last) candle with this tick
+                lastBar.high = Math.max(lastBar.high, price);
+                lastBar.low = Math.min(lastBar.low, price);
+                lastBar.close = price;
+                lastBar.volume += volume;
+
+                // Efficient single-bar update instead of full redraw
+                candlestickSeries.update({
+                    time: lastBar.time,
+                    open: lastBar.open,
+                    high: lastBar.high,
+                    low: lastBar.low,
+                    close: lastBar.close
+                });
+                volumeSeries.update({
+                    time: lastBar.time,
+                    value: lastBar.volume,
+                    color: lastBar.close >= lastBar.open ? 'rgba(0, 200, 80, 0.3)' : 'rgba(220, 50, 50, 0.3)'
+                });
+            } else if (barTime > lastBar.time) {
+                // New bar period — create a new candle
+                const newBar = {
+                    time: barTime,
+                    open: price,
+                    high: price,
+                    low: price,
+                    close: price,
+                    volume: volume
+                };
+                if (currentBars.length >= 500) {
+                    currentBars.shift();
+                }
+                currentBars.push(newBar);
+                updateChart();
+            }
+
+            // Update the header price display in real-time
+            const spyPriceEl = document.getElementById('spyPrice');
+            if (spyPriceEl) {
+                spyPriceEl.textContent = '$' + price.toFixed(2);
+            }
+        }
+
+        function getTimeframeDurationSec(tf) {
+            if (tf === '1Min') return 60;
+            if (tf === '5Min') return 300;
+            if (tf === '15Min') return 900;
+            if (tf === '1H') return 3600;
+            if (tf === '1D') return 86400;
+            return 300; // default 5min
+        }
+
+        function scheduleFinnhubReconnect() {
+            if (finnhubReconnectTimer) { clearTimeout(finnhubReconnectTimer); finnhubReconnectTimer = null; }
+            // Start at 5s minimum, double each time, cap at 60s
+            const delay = Math.min(5000 * Math.pow(2, finnhubReconnectAttempts), 60000);
+            finnhubReconnectAttempts++;
+            console.log(`Finnhub reconnecting in ${delay}ms (attempt ${finnhubReconnectAttempts})...`);
+            finnhubReconnectTimer = setTimeout(connectFinnhubWebSocket, delay);
+        }
+
+        // ===== WEBSOCKET (LOCAL BOT) =====
+        function initializeWebSocket() {
+            try {
+                ws = new WebSocket(config.wsUrl);
+
+                ws.onopen = () => {
+                    console.log('WebSocket connected');
+                    updateConnectionStatus(true);
+                    reconnectAttempts = 0;
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleWebSocketMessage(data);
+                    } catch (e) {
+                        console.error('Failed to parse WebSocket message:', e);
+                    }
+                };
+
+                ws.onclose = () => {
+                    console.log('WebSocket disconnected');
+                    updateConnectionStatus(false);
+                    scheduleReconnect();
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    updateConnectionStatus(false);
+                };
+            } catch (e) {
+                console.error('Failed to create WebSocket:', e);
+                updateConnectionStatus(false);
+                scheduleReconnect();
+            }
+        }
+
+        function handleWebSocketMessage(data) {
+            if (data.type === 'signal') {
+                updateSignalsPanel(data.signal);
+            } else if (data.type === 'status') {
+                updateStatusFromWebSocket(data);
+            }
+        }
+
+        function scheduleReconnect() {
+            const delay = Math.min(config.reconnectDelay * Math.pow(2, reconnectAttempts), config.reconnectMaxDelay);
+            reconnectAttempts++;
+            console.log(`Reconnecting in ${delay}ms...`);
+            setTimeout(initializeWebSocket, delay);
+        }
+
+        function updateConnectionStatus(connected) {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            if (connected) {
+                dot.classList.add('connected');
+                text.textContent = 'Connected';
+            } else {
+                dot.classList.remove('connected');
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        // ===== FETCH INITIAL DATA =====
+        async function fetchInitialData() {
+            fetchStatus();
+            fetchLatestSignal();
+            fetchPnL();
+        }
+
+        async function fetchStatus() {
+            const data = await fetchData('/api/status', null);
+            if (data) {
+                updateStatusPanel(data);
+            }
+        }
+
+        async function fetchLatestSignal() {
+            const data = await fetchData('/api/signals/latest', null);
+            if (data && data.signal) {
+                updateSignalsPanel(data.signal);
+            }
+        }
+
+        async function fetchPnL() {
+            const data = await fetchData('/api/pnl', null);
+            if (data) {
+                updatePnLPanel(data);
+            }
+        }
+
+        // ===== MARKET DATA =====
+        async function fetchMarketData() {
+            const data = await fetchData('/api/market', null);
+            if (!data) return;
+
+            // SPY
+            if (data.spy && data.spy.price) {
+                document.getElementById('spyPrice').textContent = '$' + data.spy.price.toFixed(2);
+                const change = data.spy.change || 0;
+                const changePct = data.spy.change_percent || 0;
+                const changeEl = document.getElementById('spyChange');
+                const sign = change >= 0 ? '+' : '';
+                changeEl.textContent = `${sign}${change.toFixed(2)} (${sign}${changePct.toFixed(2)}%)`;
+                changeEl.style.color = change >= 0 ? 'var(--bullish)' : 'var(--bearish)';
+            }
+
+            // VIX / VIXY
+            if (data.vix && data.vix.price) {
+                document.getElementById('vixPrice').textContent = '$' + data.vix.price.toFixed(2);
+                const change = data.vix.change || 0;
+                const changePct = data.vix.change_percent || 0;
+                const changeEl = document.getElementById('vixChange');
+                const sign = change >= 0 ? '+' : '';
+                changeEl.textContent = `${sign}${change.toFixed(2)} (${sign}${changePct.toFixed(2)}%)`;
+                changeEl.style.color = change >= 0 ? 'var(--bearish)' : 'var(--bullish)';
+            }
+
+            // Data source indicator
+            const source = data.spy?.source || data.vix?.source || '';
+            if (source) {
+                document.getElementById('dataSource').textContent = `via ${source}`;
+            }
+
+            if (data.error) {
+                document.getElementById('dataSource').textContent = data.error;
+            }
+        }
+
+        async function fetchData(url, fallback) {
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) return fallback;
+                return await resp.json();
+            } catch (e) {
+                console.error(`Fetch error for ${url}:`, e);
+                return fallback;
+            }
+        }
+
+        // ===== STATUS PANEL =====
+        function updateStatusPanel(data) {
+            // Mode
+            const modeValue = document.getElementById('modeValue');
+            if (data.mode) {
+                modeValue.textContent = data.mode;
+            }
+
+            // Paper/Live
+            const paperLive = document.getElementById('paperLiveIndicator');
+            if (data.is_live) {
+                paperLive.textContent = 'LIVE';
+                paperLive.classList.add('live');
+            } else {
+                paperLive.textContent = 'Paper';
+                paperLive.classList.remove('live');
+            }
+
+            // Risk metrics
+            const openPos = document.getElementById('openPositions');
+            const dayTrades = document.getElementById('dayTradesUsed');
+            const dailyPnL = document.getElementById('dailyPnL');
+            const maxRisk = document.getElementById('maxRisk');
+
+            if (data.positions !== undefined) {
+                openPos.textContent = data.positions;
+            }
+            if (data.day_trades_used !== undefined && data.day_trades_available !== undefined) {
+                dayTrades.textContent = `${data.day_trades_used}/${data.day_trades_used + data.day_trades_available}`;
+            }
+            if (data.daily_pnl !== undefined) {
+                const pnlNum = parseFloat(data.daily_pnl);
+                dailyPnL.textContent = `$${pnlNum.toFixed(2)}`;
+                dailyPnL.className = pnlNum >= 0 ? 'metric-value bullish' : 'metric-value bearish';
+            }
+
+            // Show connected data sources
+            if (data.data_sources && data.data_sources.length > 0) {
+                document.getElementById('dataSource').textContent = `via ${data.data_sources.join(' + ')}`;
+            }
+        }
+
+        function updateStatusFromWebSocket(data) {
+            updateStatusPanel(data);
+        }
+
+        // ===== SIGNALS PANEL =====
+        function updateSignalsPanel(signal) {
+            const signalsContent = document.getElementById('signalsContent');
+            currentSignals = signal;
+
+            const actionClass = signal.action && signal.action.includes('CALL') ? 'buy-call' : 'buy-put';
+            const actionText = signal.action || 'N/A';
+
+            let html = `
+                <div class="signal-card">
+                    <div class="signal-action ${actionClass}">${actionText}</div>
+                    <div class="signal-meta">
+                        <span>${signal.symbol || 'SPY'}</span>
+                        <span>${signal.strike ? '$' + signal.strike : 'N/A'}</span>
+                        <span>${signal.expiry || 'N/A'}</span>
+                    </div>
+                    <div class="signal-confidence">
+                        <div style="color: var(--text-secondary); font-size: 10px; margin-bottom: 4px;">
+                            Confidence: ${signal.confidence ? signal.confidence + '%' : 'N/A'}
+                        </div>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: ${signal.confidence || 0}%"></div>
+                        </div>
+                    </div>
+                    <div class="signal-details">
+                        <div class="signal-detail-item">
+                            <span class="signal-detail-label">Entry</span>
+                            <span class="signal-detail-value">${signal.entry ? '$' + parseFloat(signal.entry).toFixed(2) : '--'}</span>
+                        </div>
+                        <div class="signal-detail-item">
+                            <span class="signal-detail-label">Stop Loss</span>
+                            <span class="signal-detail-value">${signal.stop_loss ? '$' + parseFloat(signal.stop_loss).toFixed(2) : '--'}</span>
+                        </div>
+                        <div class="signal-detail-item">
+                            <span class="signal-detail-label">Target</span>
+                            <span class="signal-detail-value">${signal.target ? '$' + parseFloat(signal.target).toFixed(2) : '--'}</span>
+                        </div>
+                        <div class="signal-detail-item">
+                            <span class="signal-detail-label">R:R Ratio</span>
+                            <span class="signal-detail-value">${signal.risk_reward_ratio ? signal.risk_reward_ratio + ':1' : '--'}</span>
+                        </div>
+                    </div>
+                    <div class="signal-buttons">
+                        <button class="signal-btn approve" onclick="approveSignal()">Approve</button>
+                        <button class="signal-btn reject" onclick="rejectSignal()">Reject</button>
+                    </div>
+                    ${signal.reasoning ? `
+                        <div>
+                            <a class="toggle-reasoning" onclick="toggleReasoning(this)">+ Show Reasoning</a>
+                            <div class="signal-reasoning">
+                                ${signal.reasoning}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+
+            signalsContent.innerHTML = html;
+        }
+
+        function toggleReasoning(link) {
+            const reasoning = link.nextElementSibling;
+            reasoning.classList.toggle('expanded');
+            link.textContent = reasoning.classList.contains('expanded') ? '- Hide Reasoning' : '+ Show Reasoning';
+        }
+
+        function approveSignal() {
+            if (!currentSignals || !currentSignals.id) return;
+            fetch('/api/signals/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ signal_id: currentSignals.id })
+            }).catch(e => console.error('Error approving signal:', e));
+        }
+
+        function rejectSignal() {
+            if (!currentSignals || !currentSignals.id) return;
+            fetch('/api/signals/reject', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ signal_id: currentSignals.id })
+            }).catch(e => console.error('Error rejecting signal:', e));
+        }
+
+        // ===== P&L PANEL =====
+        function updatePnLPanel(data) {
+            const pnlContent = document.getElementById('pnlContent');
+            if (!data.cumulative_pnl && data.cumulative_pnl !== 0) {
+                pnlContent.innerHTML = '<div class="empty-state">No trade history yet</div>';
+                return;
+            }
+            const cumulativePnL = parseFloat(data.cumulative_pnl);
+            const isPositive = cumulativePnL >= 0;
+            pnlContent.innerHTML = `
+                <div style="text-align: center; padding: 16px 0;">
+                    <div style="color: var(--text-secondary); font-size: 11px; margin-bottom: 8px;">Cumulative P&L</div>
+                    <div style="font-size: 24px; font-weight: 600; color: ${isPositive ? 'var(--bullish)' : 'var(--bearish)'};">
+                        ${isPositive ? '+' : ''}$${cumulativePnL.toFixed(2)}
+                    </div>
+                </div>
+            `;
+        }
+
+        // ===== ECONOMIC CALENDAR =====
+        function populateEconomicCalendar() {
+            const calendarContent = document.getElementById('economicCalendarContent');
+            const events = getUpcomingEconomicEvents();
+
+            if (events.length === 0) {
+                calendarContent.innerHTML = '<div class="empty-state">No upcoming events</div>';
+                return;
+            }
+
+            let html = '';
+            events.forEach(event => {
+                const daysUntil = Math.ceil((new Date(event.date) - new Date()) / (1000 * 60 * 60 * 24));
+                const daysText = daysUntil === 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil}d`;
+                html += `
+                    <div class="event-item">
+                        <div class="event-name">${event.name}</div>
+                        <div class="event-date">${daysText}</div>
+                        <div class="event-impact ${event.impact.toLowerCase()}">${event.impact}</div>
+                    </div>
+                `;
+            });
+            calendarContent.innerHTML = html;
+        }
+
+        function getUpcomingEconomicEvents() {
+            const today = new Date();
+            const sixMonthsOut = new Date(today.getTime() + 180 * 24 * 60 * 60 * 1000);
+
+            const events = [
+                // FOMC Meetings
+                { name: 'FOMC Meeting', date: new Date('2026-04-29'), impact: 'HIGH' },
+                { name: 'FOMC Meeting', date: new Date('2026-06-16'), impact: 'HIGH' },
+                { name: 'FOMC Meeting', date: new Date('2026-07-28'), impact: 'HIGH' },
+                { name: 'FOMC Meeting', date: new Date('2026-09-16'), impact: 'HIGH' },
+
+                // NFP
+                { name: 'Non-Farm Payrolls', date: new Date('2026-04-03'), impact: 'HIGH' },
+                { name: 'Non-Farm Payrolls', date: new Date('2026-05-01'), impact: 'HIGH' },
+                { name: 'Non-Farm Payrolls', date: new Date('2026-06-05'), impact: 'HIGH' },
+                { name: 'Non-Farm Payrolls', date: new Date('2026-07-03'), impact: 'HIGH' },
+                { name: 'Non-Farm Payrolls', date: new Date('2026-08-07'), impact: 'HIGH' },
+                { name: 'Non-Farm Payrolls', date: new Date('2026-09-04'), impact: 'HIGH' },
+
+                // CPI
+                { name: 'CPI Release', date: new Date('2026-04-10'), impact: 'HIGH' },
+                { name: 'CPI Release', date: new Date('2026-05-09'), impact: 'HIGH' },
+                { name: 'CPI Release', date: new Date('2026-06-12'), impact: 'HIGH' },
+                { name: 'CPI Release', date: new Date('2026-07-10'), impact: 'HIGH' },
+                { name: 'CPI Release', date: new Date('2026-08-12'), impact: 'HIGH' },
+                { name: 'CPI Release', date: new Date('2026-09-11'), impact: 'HIGH' },
+
+                // GDP
+                { name: 'GDP Release (Advance)', date: new Date('2026-04-30'), impact: 'HIGH' },
+                { name: 'GDP Release (Second Estimate)', date: new Date('2026-05-28'), impact: 'MEDIUM' },
+                { name: 'GDP Release (Final)', date: new Date('2026-06-25'), impact: 'MEDIUM' },
+
+                // Other
+                { name: 'Initial Jobless Claims', date: new Date('2026-04-02'), impact: 'MEDIUM' },
+                { name: 'Initial Jobless Claims', date: new Date('2026-04-09'), impact: 'MEDIUM' },
+                { name: 'Retail Sales', date: new Date('2026-04-15'), impact: 'HIGH' },
+                { name: 'Producer Price Index', date: new Date('2026-04-16'), impact: 'MEDIUM' },
+                { name: 'Consumer Sentiment', date: new Date('2026-04-10'), impact: 'LOW' }
+            ];
+
+            return events
+                .filter(e => e.date >= today && e.date <= sixMonthsOut)
+                .sort((a, b) => a.date - b.date)
+                .slice(0, 8);
+        }
+
+        // ===== FORWARD DATA TO ORDERFLOW IFRAME =====
+        // The parent page owns all WebSocket connections to avoid
+        // "connection limit exceeded" errors from Alpaca/Finnhub free tiers.
+        function forwardToOrderflow(msg) {
+            const iframe = document.getElementById('orderflowFrame');
+            if (iframe && iframe.contentWindow) {
+                try {
+                    iframe.contentWindow.postMessage(msg, '*');
+                } catch (e) {
+                    // iframe not ready yet — ignore silently
+                }
+            }
+        }
+
+        // ===== UTILITY =====
+        function openOrderFlowFullscreen() {
+            window.open('/orderflow', 'orderflow', 'width=1200,height=800');
+        }
+
+        // =================================================================
+        // DEBUG PANEL — Intercepts console, tracks connections & API calls
+        // =================================================================
+        (function initDebugPanel() {
+            const MAX_LOG_ENTRIES = 150;
+            const debugLog = [];
+            let debugVisible = false;
+
+            // Connection tracker
+            const connState = {
+                alpaca_ws: { status: 'unknown', msgs: 0, errors: 0, lastEvent: null },
+                finnhub_ws: { status: 'unknown', msgs: 0, errors: 0, lastEvent: null },
+                bot_ws: { status: 'unknown', msgs: 0, errors: 0, lastEvent: null },
+                api_calls: { ok: 0, fail: 0, lastCall: null },
+            };
+
+            // Intercept console methods
+            const origLog = console.log;
+            const origWarn = console.warn;
+            const origError = console.error;
+
+            function addEntry(level, args) {
+                const msg = Array.from(args).map(a => {
+                    if (typeof a === 'string') return a;
+                    try { return JSON.stringify(a).substring(0, 200); } catch { return String(a); }
+                }).join(' ');
+
+                const entry = {
+                    time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    level,
+                    msg: msg.substring(0, 300),
+                };
+                debugLog.push(entry);
+                if (debugLog.length > MAX_LOG_ENTRIES) debugLog.shift();
+
+                // Classify connection events
+                const lower = msg.toLowerCase();
+                if (lower.includes('alpaca')) {
+                    connState.alpaca_ws.lastEvent = entry.time;
+                    if (lower.includes('connected') || lower.includes('authenticated')) connState.alpaca_ws.status = 'connected';
+                    else if (lower.includes('disconnect')) connState.alpaca_ws.status = 'disconnected';
+                    else if (level === 'error') { connState.alpaca_ws.status = 'error'; connState.alpaca_ws.errors++; }
+                    if (lower.includes('subscri') || lower.includes('message')) connState.alpaca_ws.msgs++;
+                }
+                if (lower.includes('finnhub')) {
+                    connState.finnhub_ws.lastEvent = entry.time;
+                    if (lower.includes('connected')) connState.finnhub_ws.status = 'connected';
+                    else if (lower.includes('disconnect')) connState.finnhub_ws.status = 'disconnected';
+                    else if (level === 'error') { connState.finnhub_ws.status = 'error'; connState.finnhub_ws.errors++; }
+                    if (lower.includes('trade')) connState.finnhub_ws.msgs++;
+                }
+                if (lower.includes('websocket connected') && !lower.includes('alpaca') && !lower.includes('finnhub')) {
+                    connState.bot_ws.status = 'connected';
+                    connState.bot_ws.lastEvent = entry.time;
+                }
+                if (lower.includes('websocket disconnected') && !lower.includes('alpaca') && !lower.includes('finnhub')) {
+                    connState.bot_ws.status = 'disconnected';
+                    connState.bot_ws.lastEvent = entry.time;
+                }
+
+                // Update debug panel if visible
+                if (debugVisible) renderDebugLog();
+            }
+
+            console.log = function() { origLog.apply(console, arguments); addEntry('info', arguments); };
+            console.warn = function() { origWarn.apply(console, arguments); addEntry('warn', arguments); };
+            console.error = function() { origError.apply(console, arguments); addEntry('error', arguments); };
+
+            // Intercept fetch to track API calls
+            const origFetch = window.fetch;
+            window.fetch = async function(url, opts) {
+                const start = performance.now();
+                try {
+                    const resp = await origFetch.apply(this, arguments);
+                    const dur = (performance.now() - start).toFixed(0);
+                    const urlStr = typeof url === 'string' ? url : url.url || '';
+                    if (urlStr.startsWith('/api')) {
+                        connState.api_calls.lastCall = `${urlStr} → ${resp.status} (${dur}ms)`;
+                        if (resp.ok) connState.api_calls.ok++;
+                        else {
+                            connState.api_calls.fail++;
+                            origLog.call(console, `[DEBUG] API FAIL: ${urlStr} → ${resp.status} (${dur}ms)`);
+                            addEntry('error', [`API ${resp.status}: ${urlStr} (${dur}ms)`]);
+                        }
+                    }
+                    return resp;
+                } catch (e) {
+                    const dur = (performance.now() - start).toFixed(0);
+                    const urlStr = typeof url === 'string' ? url : url.url || '';
+                    connState.api_calls.fail++;
+                    addEntry('error', [`API NETWORK ERROR: ${urlStr} (${dur}ms) — ${e.message}`]);
+                    throw e;
+                }
+            };
+
+            // Build the debug panel HTML
+            const panel = document.createElement('div');
+            panel.id = 'debugPanel';
+            panel.innerHTML = `
+                <style>
+                    #debugPanel {
+                        position: fixed;
+                        bottom: 0;
+                        left: 0;
+                        right: 0;
+                        z-index: 9999;
+                        font-family: 'Menlo', 'Monaco', monospace;
+                        font-size: 11px;
+                    }
+                    #debugToggle {
+                        position: absolute;
+                        top: -24px;
+                        right: 16px;
+                        background: #1a1a2e;
+                        color: #888;
+                        border: 1px solid #2a2a3e;
+                        border-bottom: none;
+                        padding: 3px 12px;
+                        cursor: pointer;
+                        font-family: inherit;
+                        font-size: 10px;
+                        border-radius: 4px 4px 0 0;
+                    }
+                    #debugToggle:hover { color: #4488ff; border-color: #4488ff; }
+                    #debugToggle .error-count {
+                        color: #dc3232;
+                        font-weight: 700;
+                        margin-left: 6px;
+                    }
+                    #debugBody {
+                        display: none;
+                        background: #0a0a14;
+                        border-top: 1px solid #2a2a3e;
+                        max-height: 260px;
+                        overflow: hidden;
+                    }
+                    #debugBody.visible { display: flex; }
+                    .debug-connections {
+                        display: flex;
+                        gap: 12px;
+                        padding: 6px 12px;
+                        background: #0f0f1e;
+                        border-bottom: 1px solid #1a1a2e;
+                        flex-wrap: wrap;
+                    }
+                    .debug-conn-item {
+                        display: flex;
+                        align-items: center;
+                        gap: 5px;
+                    }
+                    .debug-conn-dot {
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 50%;
+                        background: #666;
+                    }
+                    .debug-conn-dot.connected { background: #00c850; }
+                    .debug-conn-dot.disconnected { background: #dc3232; }
+                    .debug-conn-dot.error { background: #dc3232; animation: pulse 1s infinite; }
+                    .debug-conn-label { color: #888; }
+                    .debug-conn-detail { color: #555; font-size: 9px; }
+                    .debug-log-wrap {
+                        flex: 1;
+                        overflow-y: auto;
+                        padding: 4px 8px;
+                        max-height: 220px;
+                    }
+                    .debug-log-entry {
+                        padding: 1px 0;
+                        display: flex;
+                        gap: 8px;
+                        line-height: 1.4;
+                    }
+                    .debug-log-time { color: #555; min-width: 62px; }
+                    .debug-log-level { min-width: 40px; font-weight: 600; }
+                    .debug-log-level.info { color: #4488ff; }
+                    .debug-log-level.warn { color: #ffb400; }
+                    .debug-log-level.error { color: #dc3232; }
+                    .debug-log-msg { color: #ccc; word-break: break-all; }
+                    .debug-log-msg.error { color: #ff6666; }
+                    .debug-toolbar {
+                        display: flex;
+                        gap: 8px;
+                        padding: 4px 12px;
+                        background: #0f0f1e;
+                        border-bottom: 1px solid #1a1a2e;
+                    }
+                    .debug-toolbar button {
+                        background: transparent;
+                        border: 1px solid #2a2a3e;
+                        color: #888;
+                        padding: 2px 8px;
+                        cursor: pointer;
+                        font-family: inherit;
+                        font-size: 10px;
+                        border-radius: 2px;
+                    }
+                    .debug-toolbar button:hover { color: #4488ff; border-color: #4488ff; }
+                    .debug-api-stats { color: #555; margin-left: auto; }
+                </style>
+                <button id="debugToggle">DEBUG <span class="error-count" id="debugErrorCount"></span></button>
+                <div id="debugBody">
+                    <div style="flex-direction:column;display:flex;width:100%;">
+                        <div class="debug-connections" id="debugConnections"></div>
+                        <div class="debug-toolbar">
+                            <button onclick="window._debugClear()">Clear</button>
+                            <button onclick="window._debugTestApis()">Test APIs</button>
+                            <button onclick="window.open('/api/debug/live','_blank')">Backend Logs</button>
+                            <button onclick="window.open('/debug','_blank')">Full Debug</button>
+                            <span class="debug-api-stats" id="debugApiStats"></span>
+                        </div>
+                        <div class="debug-log-wrap" id="debugLogWrap"></div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(panel);
+
+            // Toggle
+            document.getElementById('debugToggle').addEventListener('click', () => {
+                debugVisible = !debugVisible;
+                document.getElementById('debugBody').classList.toggle('visible', debugVisible);
+                if (debugVisible) { renderDebugLog(); renderConnections(); }
+            });
+
+            function renderDebugLog() {
+                const wrap = document.getElementById('debugLogWrap');
+                // Only render last 60 for performance
+                const entries = debugLog.slice(-60);
+                let html = '';
+                for (const e of entries) {
+                    html += `<div class="debug-log-entry">
+                        <span class="debug-log-time">${e.time}</span>
+                        <span class="debug-log-level ${e.level}">${e.level.toUpperCase()}</span>
+                        <span class="debug-log-msg ${e.level === 'error' ? 'error' : ''}">${escHtml(e.msg)}</span>
+                    </div>`;
+                }
+                wrap.innerHTML = html;
+                wrap.scrollTop = wrap.scrollHeight;
+
+                // Error count badge
+                const errCount = debugLog.filter(e => e.level === 'error').length;
+                const badge = document.getElementById('debugErrorCount');
+                badge.textContent = errCount > 0 ? `(${errCount})` : '';
+
+                // API stats
+                document.getElementById('debugApiStats').textContent =
+                    `API: ${connState.api_calls.ok} ok / ${connState.api_calls.fail} fail | Last: ${connState.api_calls.lastCall || 'none'}`;
+            }
+
+            function renderConnections() {
+                const el = document.getElementById('debugConnections');
+                let html = '';
+                const items = [
+                    ['Alpaca WS', connState.alpaca_ws],
+                    ['Finnhub WS', connState.finnhub_ws],
+                    ['Bot WS', connState.bot_ws],
+                ];
+                for (const [label, st] of items) {
+                    html += `<div class="debug-conn-item">
+                        <div class="debug-conn-dot ${st.status}"></div>
+                        <span class="debug-conn-label">${label}: ${st.status}</span>
+                        <span class="debug-conn-detail">(msgs:${st.msgs} err:${st.errors}${st.lastEvent ? ' @' + st.lastEvent : ''})</span>
+                    </div>`;
+                }
+                el.innerHTML = html;
+            }
+
+            // Refresh connections display every 2s when visible
+            setInterval(() => { if (debugVisible) renderConnections(); }, 2000);
+
+            function escHtml(str) {
+                return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            }
+
+            // Expose helpers
+            window._debugClear = function() {
+                debugLog.length = 0;
+                renderDebugLog();
+            };
+            window._debugTestApis = async function() {
+                addEntry('info', ['[DEBUG] Testing APIs...']);
+                try {
+                    const resp = await origFetch('/api/debug/data');
+                    const data = await resp.json();
+                    addEntry('info', ['[DEBUG] Alpaca:', JSON.stringify(data.alpaca)]);
+                    addEntry('info', ['[DEBUG] Finnhub:', JSON.stringify(data.finnhub)]);
+                } catch (e) {
+                    addEntry('error', ['[DEBUG] API test failed:', e.message]);
+                }
+            };
+
+            // Capture unhandled errors
+            window.addEventListener('error', (event) => {
+                addEntry('error', [`UNHANDLED: ${event.message} at ${event.filename}:${event.lineno}`]);
+            });
+            window.addEventListener('unhandledrejection', (event) => {
+                addEntry('error', [`UNHANDLED PROMISE: ${event.reason}`]);
+            });
+
+            origLog.call(console, '[DEBUG] Debug panel initialized — click DEBUG button (bottom-right) to open');
+        })();
+    </script>
+</body>
+</html>

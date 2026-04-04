@@ -1,0 +1,195 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Button Component Styles
+   ═══════════════════════════════════════════════════════════════════════════
+   Unified button system. Uses design tokens from tokens.css.
+
+   Variants:
+     .btn              →  base (ghost style — no bg, subtle border)
+     .btn--primary     →  accent filled
+     .btn--positive    →  green filled (confirm, save)
+     .btn--negative    →  red filled (delete, danger)
+     .btn--ghost       →  no border or bg (icons, inline actions)
+
+   Sizes:
+     .btn--xs          →  tiny (icon-only, badges)
+     .btn--sm          →  compact (toolbar, card actions)     [default]
+     .btn--md          →  standard (dialogs, forms)
+     .btn--lg          →  prominent (CTAs)
+
+   States:
+     .btn.active       →  toggle active
+     .btn:disabled     →  disabled
+     .btn.btn--loading →  spinner + disabled
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Base ──────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  font-family: var(--font-sans);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  padding: var(--space-xs) var(--space-md);
+  transition: background var(--ease-fast), color var(--ease-fast),
+              border-color var(--ease-fast), opacity var(--ease-fast);
+}
+.btn:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+.btn:active { opacity: 0.85; }
+.btn.active {
+  background: var(--accent-subtle);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+/* ── Primary variant ───────────────────────────────────────────────────── */
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn--primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.btn--primary.active {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+
+/* ── Positive variant ──────────────────────────────────────────────────── */
+.btn--positive {
+  background: var(--positive);
+  border-color: var(--positive);
+  color: #fff;
+}
+.btn--positive:hover {
+  background: var(--positive-bright);
+  border-color: var(--positive-bright);
+}
+
+/* ── Negative variant ──────────────────────────────────────────────────── */
+.btn--negative {
+  background: var(--negative);
+  border-color: var(--negative);
+  color: #fff;
+}
+.btn--negative:hover {
+  background: var(--negative-bright);
+  border-color: var(--negative-bright);
+}
+
+/* ── Ghost variant (no border, minimal bg) ─────────────────────────────── */
+.btn--ghost {
+  border-color: transparent;
+  background: transparent;
+}
+.btn--ghost:hover {
+  background: rgba(255,255,255,0.05);
+  border-color: transparent;
+}
+.btn--ghost.active {
+  background: var(--accent-subtle);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+/* ── Outline variants ──────────────────────────────────────────────────── */
+.btn--outline-positive {
+  border-color: var(--positive);
+  color: var(--positive);
+  background: transparent;
+}
+.btn--outline-positive:hover {
+  background: var(--positive-bg);
+}
+.btn--outline-negative {
+  border-color: var(--negative);
+  color: var(--negative);
+  background: transparent;
+}
+.btn--outline-negative:hover {
+  background: var(--negative-bg);
+}
+
+/* ── Sizes ─────────────────────────────────────────────────────────────── */
+.btn--xs {
+  font-size: var(--font-2xs);
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
+  gap: 2px;
+}
+/* .btn--sm is the default — no overrides needed */
+.btn--md {
+  font-size: var(--font-base);
+  padding: var(--space-sm) var(--space-xl);
+}
+.btn--lg {
+  font-size: var(--font-md);
+  padding: var(--space-md) var(--space-2xl);
+  border-radius: var(--radius-lg);
+}
+
+/* ── Icon-only (square) ────────────────────────────────────────────────── */
+.btn--icon {
+  padding: var(--space-xs);
+  min-width: 28px;
+  min-height: 28px;
+}
+.btn--icon.btn--xs { min-width: 22px; min-height: 22px; padding: 2px; }
+.btn--icon.btn--md { min-width: 32px; min-height: 32px; }
+.btn--icon.btn--lg { min-width: 40px; min-height: 40px; }
+
+/* ── Disabled ──────────────────────────────────────────────────────────── */
+.btn:disabled,
+.btn.btn--loading {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ── Loading spinner ───────────────────────────────────────────────────── */
+.btn--loading .btn-label { opacity: 0; }
+.btn--loading::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: btn-spin 0.6s linear infinite;
+}
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Button group ──────────────────────────────────────────────────────── */
+.btn-group {
+  display: inline-flex;
+  gap: 0;
+}
+.btn-group .btn {
+  border-radius: 0;
+  margin-left: -1px;
+}
+.btn-group .btn:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  margin-left: 0;
+}
+.btn-group .btn:last-child {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}

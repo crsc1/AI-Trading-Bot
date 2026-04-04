@@ -1,0 +1,484 @@
+//! Flow Engine — High-speed order flow analysis server.
+//!
+//! Ingests real-time tick data from Alpaca SIP (primary) with
+//! ThetaData as fallback, computes order flow signals (footprint,
+//! CVD, imbalances, sweeps, absorption, delta flips), and publishes
+//! structured events to the dashboard via WebSocket.
+//!
+//! Architecture (Alpaca Algo Trader Plus):
+//!   Alpaca SIP WebSocket (trades + quotes) → TradeClassifier → Engine Pipeline
+//!     → FootprintBuilder + CvdCalculator + Detectors
+//!       → FlowEvents published via WebSocket to dashboard
+//!   Fallback: ThetaData REST → same pipeline
+
+mod alpaca_ws;
+mod classifier;
+mod cvd;
+mod detectors;
+mod events;
+mod footprint;
+mod ingestion;
+
+use axum::{
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
+    response::{Html, IntoResponse},
+    routing::get,
+    Router,
+};
+use alpaca_ws::AlpacaWsConfig;
+use classifier::TradeClassifier;
+use cvd::{CvdCalculator, CvdConfig};
+use detectors::{AbsorptionDetector, ImbalanceDetector, SweepDetector};
+use events::FlowEvent;
+use footprint::{FootprintBuilder, FootprintConfig};
+use futures::{SinkExt, StreamExt};
+use ingestion::{IngestionConfig, IngestionMode, TickIngestor};
+use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc, RwLock};
+use tower_http::cors::{Any, CorsLayer};
+use tracing::{error, info, warn};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Application state shared across handlers
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct AppState {
+    /// Broadcast channel for flow events → WebSocket clients
+    event_tx: broadcast::Sender<FlowEvent>,
+    /// Engine stats
+    stats: RwLock<EngineStats>,
+}
+
+#[derive(Debug, Default)]
+struct EngineStats {
+    ticks_processed: u64,
+    events_published: u64,
+    ws_clients_connected: u32,
+    engine_running: bool,
+    data_source: String,
+    last_price: f64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main entry point
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "flow_engine=info,tower_http=info".into()),
+        )
+        .json()
+        .init();
+
+    info!("Starting Flow Engine v0.2.0");
+
+    dotenvy::dotenv().ok();
+
+    let (event_tx, _) = broadcast::channel::<FlowEvent>(1000);
+
+    let state = Arc::new(AppState {
+        event_tx: event_tx.clone(),
+        stats: RwLock::new(EngineStats::default()),
+    });
+
+    // Build ingestion config from environment
+    let ing_config = IngestionConfig {
+        theta_enabled: std::env::var("THETA_ENABLED")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false),
+        theta_base_url: std::env::var("THETA_BASE_URL")
+            .unwrap_or_else(|_| "http://localhost:25503".to_string()),
+        symbol: std::env::var("TRADING_SYMBOL").unwrap_or_else(|_| "SPY".to_string()),
+        poll_interval_ms: std::env::var("THETA_POLL_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(200),
+    };
+
+    // Prepare Alpaca config (used as fallback if ThetaData isn't available)
+    let alpaca_config = AlpacaWsConfig::from_env();
+
+    // Spawn the engine pipeline
+    let engine_state = state.clone();
+    tokio::spawn(async move {
+        run_engine(ing_config, engine_state, alpaca_config).await;
+    });
+
+    // Spawn heartbeat task
+    let hb_tx = event_tx.clone();
+    let hb_state = state.clone();
+    tokio::spawn(async move {
+        heartbeat_loop(hb_tx, hb_state).await;
+    });
+
+    // Build HTTP/WebSocket server
+    let app = Router::new()
+        .route("/", get(index_handler))
+        .route("/ws", get(ws_handler))
+        .route("/health", get(health_handler))
+        .route("/stats", get(stats_handler))
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any))
+        .with_state(state);
+
+    let port: u16 = std::env::var("FLOW_ENGINE_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8081);
+
+    let addr = format!("0.0.0.0:{}", port);
+    info!("Flow Engine listening on {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect("Failed to bind");
+
+    axum::serve(listener, app)
+        .await
+        .expect("Server error");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Engine pipeline: ingest → classify → compute → publish
+//
+// Priority: Alpaca SIP (trades+quotes) → ThetaData Realtime → ThetaData EOD
+// ─────────────────────────────────────────────────────────────────────────────
+
+async fn run_engine(
+    config: IngestionConfig,
+    state: Arc<AppState>,
+    alpaca_config: Option<AlpacaWsConfig>,
+) {
+    info!(
+        "Engine pipeline starting — symbol: {}, theta_enabled: {}",
+        config.symbol, config.theta_enabled,
+    );
+
+    let mut ingestor = TickIngestor::new(config.clone());
+    let classifier = TradeClassifier::new();
+    let mut footprint = FootprintBuilder::new(FootprintConfig::default());
+    let mut cvd_calc = CvdCalculator::new(CvdConfig::default());
+    let imbalance_detector = ImbalanceDetector::default();
+    let mut sweep_detector = SweepDetector::default();
+    let mut absorption_detector = AbsorptionDetector::default();
+
+    // Mark engine as running
+    {
+        let mut stats = state.stats.write().await;
+        stats.engine_running = true;
+    }
+
+    // ── Data source priority ──
+    // 1. Alpaca WebSocket SIP (best for order flow — actual trades, real timestamps)
+    // 2. ThetaData Realtime NBBO (synthetic ticks from quote changes)
+    // 3. ThetaData EOD replay (offline/testing only)
+    //
+    // Note: ThetaData is ALWAYS used for options data via the dashboard's
+    // api_routes.py. The engine only handles stock ticks for order flow.
+
+    let alpaca_available = alpaca_config
+        .as_ref()
+        .map(|c| c.is_configured())
+        .unwrap_or(false);
+
+    if alpaca_available {
+        // ── PRIMARY: Alpaca WebSocket SIP — real trades + NBBO quotes ──
+        let alpaca_cfg = alpaca_config.unwrap();
+        info!(
+            "Using Alpaca SIP as primary data source (trades + quotes): {}",
+            alpaca_cfg.ws_url
+        );
+        {
+            let mut stats = state.stats.write().await;
+            stats.data_source = format!("Alpaca SIP ({})", alpaca_cfg.ws_url.split('/').last().unwrap_or("ws"));
+        }
+
+        let mut alpaca_rx = alpaca_ws::spawn_alpaca_feed(alpaca_cfg);
+
+        // Main loop: consume trades and quotes from Alpaca
+        info!("Waiting for live Alpaca trades + quotes...");
+
+        loop {
+            match alpaca_rx.recv().await {
+                Some(alpaca_ws::AlpacaFeedMsg::Trade(raw_tick)) => {
+                    process_tick(
+                        &raw_tick,
+                        &classifier,
+                        &mut footprint,
+                        &mut cvd_calc,
+                        &imbalance_detector,
+                        &mut sweep_detector,
+                        &mut absorption_detector,
+                        &state,
+                    )
+                    .await;
+                }
+                Some(alpaca_ws::AlpacaFeedMsg::Quote(nbbo)) => {
+                    // Update classifier with NBBO for accurate buy/sell classification
+                    classifier.update_quote(nbbo);
+                }
+                None => {
+                    warn!("Alpaca feed channel closed");
+                    break;
+                }
+            }
+        }
+    } else {
+        // ── FALLBACK: ThetaData only ──
+        let mode = ingestor.detect_mode().await;
+        info!("No Alpaca — ThetaData ingestion mode: {:?}", mode);
+
+        match mode {
+            IngestionMode::Realtime => {
+                info!("Using ThetaData Standard real-time NBBO as data source");
+                {
+                    let mut stats = state.stats.write().await;
+                    stats.data_source = "ThetaData Realtime".to_string();
+                }
+
+                let poll_interval =
+                    tokio::time::Duration::from_millis(config.poll_interval_ms);
+
+                loop {
+                    let (ticks, nbbo) = ingestor.poll_realtime().await;
+                    if let Some(quote) = nbbo {
+                        classifier.update_quote(quote);
+                    }
+                    for raw_tick in &ticks {
+                        process_tick(
+                            raw_tick,
+                            &classifier,
+                            &mut footprint,
+                            &mut cvd_calc,
+                            &imbalance_detector,
+                            &mut sweep_detector,
+                            &mut absorption_detector,
+                            &state,
+                        )
+                        .await;
+                    }
+                    tokio::time::sleep(poll_interval).await;
+                }
+            }
+            _ => {
+                info!("No real-time source — using ThetaData EOD replay");
+                {
+                    let mut stats = state.stats.write().await;
+                    stats.data_source = "ThetaData EOD Replay".to_string();
+                }
+
+                let poll_interval =
+                    tokio::time::Duration::from_millis(config.poll_interval_ms);
+
+                loop {
+                    let raw_ticks = ingestor.poll_replay().await;
+                    if let Some(quote) = ingestor.poll_eod_quote().await {
+                        classifier.update_quote(quote);
+                    }
+                    for raw_tick in &raw_ticks {
+                        process_tick(
+                            raw_tick,
+                            &classifier,
+                            &mut footprint,
+                            &mut cvd_calc,
+                            &imbalance_detector,
+                            &mut sweep_detector,
+                            &mut absorption_detector,
+                            &state,
+                        )
+                        .await;
+                    }
+                    tokio::time::sleep(poll_interval).await;
+                }
+            }
+        }
+    }
+}
+
+/// Process a single tick through the full pipeline.
+async fn process_tick(
+    raw_tick: &events::RawTick,
+    classifier: &TradeClassifier,
+    footprint: &mut FootprintBuilder,
+    cvd_calc: &mut CvdCalculator,
+    imbalance_detector: &ImbalanceDetector,
+    sweep_detector: &mut SweepDetector,
+    absorption_detector: &mut AbsorptionDetector,
+    state: &Arc<AppState>,
+) {
+    let classified = classifier.classify(raw_tick);
+
+    // 0. Broadcast tick for dashboard candle building
+    publish_event(
+        state,
+        FlowEvent::Tick {
+            price: classified.price,
+            size: classified.size,
+            side: classified.side,
+            timestamp: classified.timestamp,
+        },
+    )
+    .await;
+
+    // 1. Update footprint
+    let fp_event = footprint.process_tick(&classified);
+    publish_event(state, fp_event).await;
+
+    // 2. Update CVD + detect delta flips / large trades
+    let cvd_events = cvd_calc.process_tick(&classified);
+    for event in cvd_events {
+        publish_event(state, event).await;
+    }
+
+    // 3. Check imbalances
+    let levels = footprint.current_levels();
+    let imb_events = imbalance_detector.check(&levels, classified.timestamp);
+    for event in imb_events {
+        publish_event(state, event).await;
+    }
+
+    // 4. Check for sweeps
+    if let Some(sweep_event) = sweep_detector.process_tick(&classified) {
+        publish_event(state, sweep_event).await;
+    }
+
+    // 5. Check for absorption
+    if let Some(abs_event) = absorption_detector.process_tick(&classified) {
+        publish_event(state, abs_event).await;
+    }
+
+    // Update stats
+    {
+        let mut stats = state.stats.write().await;
+        stats.ticks_processed += 1;
+        stats.last_price = classified.price;
+    }
+}
+
+async fn publish_event(state: &Arc<AppState>, event: FlowEvent) {
+    if state.event_tx.receiver_count() > 0 {
+        if let Err(e) = state.event_tx.send(event) {
+            warn!("Failed to publish event: {}", e);
+        } else {
+            let mut stats = state.stats.write().await;
+            stats.events_published += 1;
+        }
+    }
+}
+
+async fn heartbeat_loop(tx: broadcast::Sender<FlowEvent>, state: Arc<AppState>) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+    loop {
+        interval.tick().await;
+        let (ticks, price, source) = {
+            let stats = state.stats.read().await;
+            (stats.ticks_processed, stats.last_price, stats.data_source.clone())
+        };
+        let _ = tx.send(FlowEvent::Heartbeat {
+            timestamp: chrono::Utc::now(),
+            ticks_processed: ticks,
+            last_price: price,
+            data_source: if source.is_empty() { None } else { Some(source) },
+        });
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HTTP handlers
+// ─────────────────────────────────────────────────────────────────────────────
+
+async fn index_handler() -> Html<&'static str> {
+    Html(
+        r#"<html><body style="background:#0a0a14;color:#e0e0e0;font-family:monospace;padding:20px">
+        <h1 style="color:#4488ff">Flow Engine v0.2.0</h1>
+        <p>WebSocket endpoint: <code>ws://localhost:8081/ws</code></p>
+        <p>Health: <a href="/health" style="color:#00c850">/health</a></p>
+        <p>Stats: <a href="/stats" style="color:#00c850">/stats</a></p>
+        </body></html>"#,
+    )
+}
+
+async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let stats = state.stats.read().await;
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "engine_running": stats.engine_running,
+        "ticks_processed": stats.ticks_processed,
+        "data_source": stats.data_source,
+    }))
+}
+
+async fn stats_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let stats = state.stats.read().await;
+    axum::Json(serde_json::json!({
+        "ticks_processed": stats.ticks_processed,
+        "events_published": stats.events_published,
+        "ws_clients": stats.ws_clients_connected,
+        "engine_running": stats.engine_running,
+        "data_source": stats.data_source,
+        "last_price": stats.last_price,
+    }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WebSocket handler — streams FlowEvents to connected agents
+// ─────────────────────────────────────────────────────────────────────────────
+
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_ws_client(socket, state))
+}
+
+async fn handle_ws_client(socket: WebSocket, state: Arc<AppState>) {
+    let (mut sender, mut receiver): (
+        futures::stream::SplitSink<WebSocket, Message>,
+        futures::stream::SplitStream<WebSocket>,
+    ) = socket.split();
+    let mut rx = state.event_tx.subscribe();
+
+    {
+        let mut stats = state.stats.write().await;
+        stats.ws_clients_connected += 1;
+    }
+    info!(
+        "WebSocket client connected (total: {})",
+        state.stats.read().await.ws_clients_connected
+    );
+
+    let send_task = tokio::spawn(async move {
+        while let Ok(event) = rx.recv().await {
+            match serde_json::to_string(&event) {
+                Ok(json) => {
+                    if sender.send(Message::Text(json)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to serialize event: {}", e);
+                }
+            }
+        }
+    });
+
+    let recv_task = tokio::spawn(async move {
+        while let Some(Ok(_msg)) = receiver.next().await {}
+    });
+
+    tokio::select! {
+        _ = send_task => {},
+        _ = recv_task => {},
+    }
+
+    {
+        let mut stats = state.stats.write().await;
+        stats.ws_clients_connected = stats.ws_clients_connected.saturating_sub(1);
+    }
+    info!("WebSocket client disconnected");
+}

@@ -1,0 +1,177 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tabs Component Styles
+   ═══════════════════════════════════════════════════════════════════════════
+   Unified tab navigation. Uses design tokens from tokens.css.
+
+   Variants:
+     .tabs             →  horizontal tab bar                  [default]
+     .tabs--vertical   →  vertical sidebar-style tabs
+     .tabs--pills      →  rounded pill buttons instead of underline
+     .tabs--compact    →  smaller text, tighter spacing
+
+   Parts:
+     .tabs-list        →  the tab button container
+     .tabs-item        →  individual tab button
+     .tabs-content     →  the panel area below
+     .tabs-panel       →  individual content panel
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Container ─────────────────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.tabs--vertical {
+  flex-direction: row;
+}
+
+/* ── Tab list (horizontal) ─────────────────────────────────────────────── */
+.tabs-list {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: var(--border-width) solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs-list::-webkit-scrollbar { display: none; }
+
+/* ── Tab list (vertical) ───────────────────────────────────────────────── */
+.tabs--vertical .tabs-list {
+  flex-direction: column;
+  border-bottom: none;
+  border-right: var(--border-width) solid var(--border);
+  width: 160px;
+  min-width: 160px;
+  padding: var(--space-xs) 0;
+  overflow-x: visible;
+  overflow-y: auto;
+}
+
+/* ── Tab item (horizontal — underline style) ───────────────────────────── */
+.tabs-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-lg);
+  font-family: var(--font-sans);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: color var(--ease-fast), border-color var(--ease-fast), background var(--ease-fast);
+  user-select: none;
+}
+.tabs-item:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.02);
+}
+.tabs-item.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Tab icon */
+.tabs-item-icon {
+  font-size: var(--font-base);
+  opacity: 0.7;
+}
+.tabs-item.active .tabs-item-icon { opacity: 1; }
+
+/* Tab badge (count) */
+.tabs-item-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: var(--font-2xs);
+  font-weight: var(--font-bold);
+  color: var(--text-muted);
+  background: var(--surface-3);
+  border-radius: 8px;
+  transition: color var(--ease-fast), background var(--ease-fast);
+}
+.tabs-item.active .tabs-item-badge {
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+/* ── Tab item (vertical) ───────────────────────────────────────────────── */
+.tabs--vertical .tabs-item {
+  border-bottom: none;
+  border-left: 2px solid transparent;
+  padding: var(--space-sm) var(--space-xl);
+  justify-content: flex-start;
+}
+.tabs--vertical .tabs-item.active {
+  border-left-color: var(--accent);
+  background: var(--accent-subtle);
+}
+.tabs--vertical .tabs-item:hover {
+  background: var(--surface-3);
+}
+
+/* ── Pills variant ─────────────────────────────────────────────────────── */
+.tabs--pills .tabs-list {
+  border-bottom: none;
+  gap: var(--space-2xs);
+  padding: var(--space-2xs);
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+}
+.tabs--pills .tabs-item {
+  border-bottom: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2xs) var(--space-md);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.tabs--pills .tabs-item.active {
+  background: var(--surface-4);
+  color: var(--text-primary);
+}
+
+/* ── Compact variant ───────────────────────────────────────────────────── */
+.tabs--compact .tabs-item {
+  padding: var(--space-2xs) var(--space-md);
+  font-size: var(--font-xs);
+}
+
+/* ── Content area ──────────────────────────────────────────────────────── */
+.tabs-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.tabs-panel {
+  display: none;
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+.tabs-panel::-webkit-scrollbar { width: 6px; }
+.tabs-panel::-webkit-scrollbar-track { background: transparent; }
+.tabs-panel::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 3px; }
+
+.tabs-panel.active {
+  display: block;
+}
+
+/* Optional padding for panels */
+.tabs-panel--padded {
+  padding: var(--space-2xl);
+}

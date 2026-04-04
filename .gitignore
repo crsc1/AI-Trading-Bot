@@ -1,0 +1,78 @@
+# ── Secrets & credentials ─────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.secret
+secrets/
+credentials*
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+*.prof
+
+# ── Virtual environments ──────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ── Rust (flow-engine) ────────────────────────────────────────
+flow-engine/target/
+
+# ── Logs & databases ──────────────────────────────────────────
+logs/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# ── IDE / editor ──────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Node (if dashboard tooling added later) ───────────────────
+node_modules/
+package-lock.json
+
+# ── Playwright / test artifacts ───────────────────────────────
+.playwright-mcp/
+test-results/
+playwright-report/
+
+# ── Dev screenshots (debug/audit artifacts) ───────────────────
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+
+# ── Generated docs (keep source, not binary) ──────────────────
+/*.docx
+/*.xlsx
+
+# ── HTML mockups (design artifacts, not production) ────────────
+REDESIGN_FINAL.html
+REDESIGN_MOCKUP.html
+SIGNAL_PLACEMENT_COMPARE.html
+
+# ── OS / misc ─────────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig

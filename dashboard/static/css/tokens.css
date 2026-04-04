@@ -1,0 +1,232 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS — AI Trading Bot Dashboard
+   ═══════════════════════════════════════════════════════════════════════════
+   Single source of truth for all design values. Import this FIRST.
+
+   Usage:  font-size: var(--font-sm);
+           padding: var(--space-md);
+           background: var(--surface-1);
+
+   Migration guide: Replace hardcoded values with token references.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── COLOR PALETTE ─────────────────────────────────────────────────────
+     Semantic names that map to the dashboard's dark theme.
+     Legacy aliases (--bg0, --grn, etc.) remain for backward compat.
+  ──────────────────────────────────────────────────────────────────────── */
+
+  /* Backgrounds (darkest → lightest) */
+  --surface-0: #0a0a12;     /* Canvas / chart bg      (was --bg0) */
+  --surface-1: #0f0f19;     /* Main content bg         (was --bg1) */
+  --surface-2: #151520;     /* Cards / elevated bg     (was --bg2) */
+  --surface-3: #1b1b28;     /* Hover / toolbar bg      (was --bg3) */
+  --surface-4: #222236;     /* Active item bg           (new) */
+
+  /* Borders & Dividers */
+  --border: #22223a;        /* Primary border          (was --brd) */
+  --border-subtle: rgba(255,255,255,0.03);  /* Row dividers */
+  --border-medium: rgba(255,255,255,0.06);  /* Section dividers */
+  --border-strong: rgba(255,255,255,0.12);  /* Emphasis dividers */
+
+  /* Text */
+  --text-primary: #d0d0da;  /* Body text               (was --txt) */
+  --text-secondary: #6e6e88; /* Labels / dimmed text    (was --dim) */
+  --text-muted: #44445a;    /* Disabled / placeholder   (was --mut) */
+  --text-inverse: #0a0a12;  /* Text on bright badges */
+
+  /* Accent & Semantic */
+  --accent: #5588ee;        /* Primary accent           (was --acc) */
+  --accent-hover: #6699ff;
+  --accent-subtle: rgba(85,136,238,0.08);
+  --accent-border: rgba(85,136,238,0.3);
+
+  --positive: #26a69a;      /* Profit / bullish         (was --grn) */
+  --positive-bright: #00e676; /* Strong positive         (was --grn-deep) */
+  --positive-subtle: rgba(38,166,154,0.12);
+  --positive-bg: rgba(38,166,154,0.08);
+
+  --negative: #ef5350;      /* Loss / bearish           (was --red) */
+  --negative-bright: #ff1744; /* Strong negative         (was --red-deep) */
+  --negative-subtle: rgba(239,83,80,0.12);
+  --negative-bg: rgba(239,83,80,0.08);
+
+  --warning: #ffb300;       /* Caution / alert          (was --ylw) */
+  --warning-subtle: rgba(255,179,0,0.12);
+
+  --info: #29b6f6;          /* Information */
+  --info-subtle: rgba(41,182,246,0.12);
+
+  /* Specialty colors (LLM, charts, etc.) */
+  --purple: #7b61ff;        /* Claude validator / AI accent */
+  --purple-subtle: rgba(123,97,255,0.15);
+  --purple-bg: rgba(123,97,255,0.08);
+  --cyan: #00bcd4;          /* Absorb / info-alt */
+  --cyan-bright: #00e5ff;   /* VWAP line */
+
+  /* Chart indicator colors */
+  --chart-rsi: #ab47bc;     /* RSI line (purple) */
+  --chart-sma: #42a5f5;     /* SMA line (blue) */
+  --chart-ema: var(--warning); /* EMA line (amber) */
+  --chart-vwap: var(--cyan-bright); /* VWAP line */
+  --chart-cvd: var(--accent); /* CVD line */
+  --chart-bb-upper: #42a5f5; /* Bollinger upper */
+  --chart-bb-lower: #42a5f5; /* Bollinger lower */
+
+  /* Overlay / backdrop */
+  --overlay: rgba(0,0,0,0.6); /* Modal backdrop */
+
+  /* Legacy aliases (keep for backward compatibility with existing CSS) */
+  --bg0: var(--surface-0);
+  --bg1: var(--surface-1);
+  --bg2: var(--surface-2);
+  --bg3: var(--surface-3);
+  --brd: var(--border);
+  --txt: var(--text-primary);
+  --dim: var(--text-secondary);
+  --mut: var(--text-muted);
+  --acc: var(--accent);
+  --grn: var(--positive);
+  --red: var(--negative);
+  --ylw: var(--warning);
+  --grn-deep: var(--positive-bright);
+  --red-deep: var(--negative-bright);
+
+
+  /* ── TYPOGRAPHY ────────────────────────────────────────────────────────
+     8-step modular scale based on 9px base (dashboard's default).
+     Usage: font-size: var(--font-sm);
+  ──────────────────────────────────────────────────────────────────────── */
+  --font-2xs: 7px;          /* Tiny annotations, timestamps */
+  --font-xs: 8px;           /* Labels, metadata, badges */
+  --font-sm: 9px;           /* Default body / table text */
+  --font-base: 10px;        /* Emphasized body text */
+  --font-md: 11px;          /* Section titles, toolbar text */
+  --font-lg: 12px;          /* Panel headers */
+  --font-xl: 13px;          /* Major headings */
+  --font-2xl: 15px;         /* Hero metrics, large numbers */
+  --font-3xl: 16px;         /* Top-bar price, extra large */
+  --font-hero: 18px;        /* Hero KPI numbers */
+
+  /* Font weights */
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* Font family (monospace for trading data) */
+  --font-mono: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Line heights */
+  --leading-tight: 1.15;
+  --leading-normal: 1.4;
+  --leading-relaxed: 1.6;
+
+
+  /* ── SPACING SCALE ────────────────────────────────────────────────────
+     Consistent spacing for padding, margin, gap.
+     Based on 2px increments matching the dashboard's compact aesthetic.
+     Usage: padding: var(--space-md); gap: var(--space-sm);
+  ──────────────────────────────────────────────────────────────────────── */
+  --space-0: 0;
+  --space-px: 1px;
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 6px;
+  --space-md: 8px;
+  --space-lg: 10px;
+  --space-xl: 12px;
+  --space-2xl: 16px;
+  --space-3xl: 20px;
+  --space-4xl: 24px;
+  --space-5xl: 32px;
+
+
+  /* ── SIZING ───────────────────────────────────────────────────────────
+     Fixed sizes for specific UI elements.
+  ──────────────────────────────────────────────────────────────────────── */
+  --topbar-h: 36px;
+  --toolbar-h: 26px;
+  --sidebar-w: 260px;
+  --sidebar-min: 200px;
+  --sidebar-max: 600px;
+  --left-nav-w: 48px;
+  --resize-handle-w: 8px;
+  --icon-sm: 14px;
+  --icon-md: 18px;
+  --icon-lg: 24px;
+  --ln-btn-size: 40px;        /* Left nav button size */
+  --chart-min-h: 100px;       /* Minimum chart height */
+
+  /* Visual containment */
+  --sb-terminus-h: 24px;     /* Sidebar scroll end gradient height */
+
+  /* Panel heights (configurable — these were previously hardcoded) */
+  --panel-options-h: 220px;
+  --panel-metrics-max-h: 260px;
+  --panel-equity-h: 160px;
+  --panel-rsi-h: 60px;
+  --panel-cvd-h: 60px;
+  --panel-sub-pane-h: 70px;
+
+  /* Table sizing */
+  --table-row-h: 28px;
+  --table-row-compact-h: 22px;
+  --table-header-h: 30px;
+  --table-cell-px: 6px;     /* horizontal cell padding */
+  --table-cell-py: 4px;     /* vertical cell padding */
+
+
+  /* ── BORDERS & RADIUS ─────────────────────────────────────────────────
+  ──────────────────────────────────────────────────────────────────────── */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-round: 50%;
+
+  --border-width: 1px;
+  --border-width-thick: 2px;
+  --border-accent-width: 3px;  /* Left accent on signal/position cards */
+
+
+  /* ── SHADOWS ──────────────────────────────────────────────────────────
+  ──────────────────────────────────────────────────────────────────────── */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
+  --shadow-tooltip: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-glow-positive: 0 0 12px rgba(38,166,154,0.5);
+  --shadow-glow-negative: 0 0 12px rgba(239,83,80,0.5);
+
+
+  /* ── TRANSITIONS ──────────────────────────────────────────────────────
+  ──────────────────────────────────────────────────────────────────────── */
+  --ease-default: 0.15s ease;
+  --ease-slow: 0.3s ease;
+  --ease-fast: 0.1s ease;
+
+
+  /* ── Z-INDEX SCALE ────────────────────────────────────────────────────
+     Avoid z-index wars. All layers defined here.
+  ──────────────────────────────────────────────────────────────────────── */
+  --z-base: 0;
+  --z-above: 1;
+  --z-sticky: 10;
+  --z-overlay: 20;
+  --z-dropdown: 30;
+  --z-modal: 40;
+  --z-tooltip: 50;
+  --z-toast: 60;
+  --z-debug: 99;
+
+
+  /* ── OPACITY ──────────────────────────────────────────────────────────
+  ──────────────────────────────────────────────────────────────────────── */
+  --opacity-disabled: 0.4;
+  --opacity-muted: 0.6;
+  --opacity-subtle: 0.08;
+  --opacity-hover: 0.03;
+}

@@ -1,0 +1,264 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   FormField Component Styles
+   ═══════════════════════════════════════════════════════════════════════════
+   Unified form inputs. Uses design tokens from tokens.css.
+
+   Components:
+     .ff              →  form field wrapper (label + input + help/error)
+     .ff-label        →  field label
+     .ff-input        →  text / number input
+     .ff-select       →  dropdown select
+     .ff-toggle       →  on/off toggle switch
+     .ff-slider       →  range slider
+     .ff-help         →  help text below input
+     .ff-error        →  error text below input
+     .ff-group        →  horizontal row of related fields
+
+   Layouts:
+     .ff--horizontal  →  label and input side by side
+     .ff--compact     →  tighter spacing for dense forms
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Field wrapper ─────────────────────────────────────────────────────── */
+.ff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin-bottom: var(--space-lg);
+}
+.ff:last-child { margin-bottom: 0; }
+
+/* Horizontal layout (label left, input right) */
+.ff--horizontal {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+.ff--horizontal .ff-label { margin-bottom: 0; flex-shrink: 0; }
+.ff--horizontal .ff-input-wrap { flex: 0 0 auto; }
+
+/* Compact variant */
+.ff--compact { margin-bottom: var(--space-sm); }
+.ff--compact .ff-label { font-size: var(--font-2xs); }
+.ff--compact .ff-input,
+.ff--compact .ff-select { padding: 3px var(--space-sm); font-size: var(--font-xs); }
+
+/* ── Label ─────────────────────────────────────────────────────────────── */
+.ff-label {
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+}
+
+.ff-label-required::after {
+  content: ' *';
+  color: var(--negative);
+}
+
+/* ── Input wrap (for suffix/prefix/icons) ──────────────────────────────── */
+.ff-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  position: relative;
+}
+
+.ff-suffix {
+  font-size: var(--font-2xs);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ff-prefix {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── Text / Number input ───────────────────────────────────────────────── */
+.ff-input {
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-xs) var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  background: var(--surface-0);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--ease-fast), box-shadow var(--ease-fast);
+}
+.ff-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+.ff-input::placeholder { color: var(--text-muted); }
+.ff-input:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+/* Number input — narrower */
+.ff-input[type="number"] { width: 80px; }
+.ff-input--wide[type="number"] { width: 120px; }
+
+/* ── Select dropdown ───────────────────────────────────────────────────── */
+.ff-select {
+  padding: var(--space-xs) var(--space-2xl) var(--space-xs) var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  background: var(--surface-0);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236e6e88'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  transition: border-color var(--ease-fast), box-shadow var(--ease-fast);
+}
+.ff-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+.ff-select:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+/* ── Toggle switch ─────────────────────────────────────────────────────── */
+.ff-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+}
+
+.ff-toggle-track {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  background: var(--surface-3);
+  border: var(--border-width) solid var(--border);
+  border-radius: 9px;
+  transition: background var(--ease-default), border-color var(--ease-default);
+}
+
+.ff-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: var(--text-muted);
+  border-radius: var(--radius-round);
+  transition: transform var(--ease-default), background var(--ease-default);
+}
+
+.ff-toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.ff-toggle-input:checked ~ .ff-toggle-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.ff-toggle-input:checked ~ .ff-toggle-track .ff-toggle-thumb {
+  transform: translateX(14px);
+  background: #fff;
+}
+.ff-toggle-input:focus-visible ~ .ff-toggle-track {
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+
+.ff-toggle-label {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+}
+
+/* ── Slider / Range ────────────────────────────────────────────────────── */
+.ff-slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.ff-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--surface-3);
+  border-radius: 2px;
+  outline: none;
+}
+.ff-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border: 2px solid var(--surface-1);
+  border-radius: var(--radius-round);
+  cursor: pointer;
+  transition: transform var(--ease-fast);
+}
+.ff-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.ff-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border: 2px solid var(--surface-1);
+  border-radius: var(--radius-round);
+  cursor: pointer;
+}
+
+.ff-slider-value {
+  min-width: 40px;
+  text-align: right;
+  font-size: var(--font-sm);
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+/* ── Help / Error text ─────────────────────────────────────────────────── */
+.ff-help {
+  font-size: var(--font-2xs);
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  line-height: var(--leading-normal);
+}
+
+.ff-error {
+  font-size: var(--font-2xs);
+  color: var(--negative);
+  font-family: var(--font-sans);
+  line-height: var(--leading-normal);
+}
+
+/* Error state on inputs */
+.ff--error .ff-input,
+.ff--error .ff-select {
+  border-color: var(--negative);
+}
+.ff--error .ff-input:focus,
+.ff--error .ff-select:focus {
+  box-shadow: 0 0 0 2px var(--negative-subtle);
+}
+
+/* ── Field group (horizontal row of fields) ────────────────────────────── */
+.ff-group {
+  display: flex;
+  gap: var(--space-lg);
+}
+.ff-group .ff { flex: 1; margin-bottom: 0; }

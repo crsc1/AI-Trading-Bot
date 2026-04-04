@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Trading Bot — Component Styleguide</title>
+
+<!-- Design tokens + component CSS -->
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/utilities.css">
+<link rel="stylesheet" href="css/button.css">
+<link rel="stylesheet" href="css/badge.css">
+<link rel="stylesheet" href="css/form-field.css">
+<link rel="stylesheet" href="css/tabs.css">
+<link rel="stylesheet" href="css/modal.css">
+<link rel="stylesheet" href="css/toast.css">
+<link rel="stylesheet" href="css/data-table.css">
+<link rel="stylesheet" href="css/panel.css">
+
+<!-- Component JS -->
+<script src="js/components/Modal.js"></script>
+<script src="js/components/Tabs.js"></script>
+<script src="js/components/Toast.js"></script>
+<script src="js/components/DataTable.js"></script>
+<script src="js/components/Panel.js"></script>
+
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--surface-0);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--font-sm);
+    line-height: var(--leading-normal);
+    padding: 24px 32px;
+  }
+
+  .sg-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    letter-spacing: -0.02em;
+  }
+  .sg-subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 32px;
+  }
+  .sg-section {
+    margin-bottom: 48px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sg-section:last-child { border-bottom: none; }
+  .sg-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 20px;
+  }
+  .sg-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .sg-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    min-width: 100px;
+  }
+  .sg-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .sg-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+  }
+  .sg-card-title {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 8px;
+  }
+  .sg-demo { margin-bottom: 24px; }
+  .sg-demo-title {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  #tabsDemo, #tabsPillsDemo, #tabsVerticalDemo {
+    min-height: 120px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+  #dataTableDemo {
+    max-height: 250px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+</style>
+</head>
+<body>
+
+<div class="sg-title">AI Trading Bot — Component Styleguide</div>
+<div class="sg-subtitle">Living reference of all UI components. Every component uses tokens.css for consistent theming.</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     BUTTONS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="sg-section">
+  <div class="sg-section-title">Buttons</div>
+
+  <div class="sg-demo">
+    <div class="sg-demo-title">Variants</div>
+    <div class="sg-row">
+      <span class="sg-label">Default</span>
+      <button class="btn">Default</button>
+      <button class="btn btn--primary">Primary</button>
+      <button class="btn btn--positive">Positive</button>
+      <button class="btn btn--negative">Negative</button>
+      <button class="btn btn--ghost">Ghost</button>
+    </div>
+    <div class="sg-row">
+      <span class="sg-label">Outline</span>
+      <button class="btn btn--outline-positive">Outline +</button>
+      <button class="btn btn--outline-negative">Outline −</button>
+    </div>
+    <div class="sg-row">
+      <span class="sg-label">Active</span>
+      <button class="btn active">Default</button>
+      <button class="btn btn--primary active">Primary</button>
+      <button class="btn btn--ghost active">Ghost</button>
+    </div>
+    <div class="sg-row">
+      <span class="sg-label">Disabled</span>
+      <button class="btn" disabled>Disabled</button>
+      <button class="btn btn--primary" disabled>Primary</button>
+    </div>
+  </div>
+
+  <div class="sg-demo">
+    <div class="sg-demo-title">Sizes</div>
+    <div class="sg-row">
+      <span class="sg-label">XS → LG</span>
+      <button class="btn btn--primary btn--xs">Tiny</button>
+      <button class="btn btn--primary">Small (default)</button>
+      <button class="btn btn--primary btn--md">Medium</button>
+      <button class="btn btn--primary btn--lg">Large</button>
+    </div>
+    <div class="sg-row">
+      <span class="sg-label">Icon only</span>
+      <button class="btn btn--icon btn--xs">✕</button>
+      <button class="btn btn--icon">⚙</button>
+      <button class="btn btn--icon btn--md">📊</button>
+      <button class="btn btn--icon btn--lg">🔄</button>
+    </div>
+  </div>
+
+  <div class="sg-demo">
+    <div class="sg-demo-title">Button Group</div>
+    <div class="sg-row">
+      <span class="sg-label">Group</span>
+      <div class="btn-group">
+        <button class="btn active">1m</button>
+        <button class="btn">5m</button>
+        <button class="btn">15m</button>
+        <button class="btn">1H</button>
+        <button class="btn">1D</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     BADGES
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="sg-section">
+  <div class="sg-section-title">Badges &amp; Chips</div>
+
+  <div class="sg-demo">
+    <div class="sg-demo-title">Semantic Variants</div>
+    <div class="sg-row">
+      <span class="badge badge--positive">Positive</span>
+      <span class="badge badge--negative">Negative</span>
+      <span class="badge badge--warning">Warning</span>
+      <span class="badge badge--accent">Accent</span>
+      <span class="badge badge--muted">Muted</span>
+    </div>
+  </div>
+
+  <div class="sg-demo">
+    <div class="sg-demo-title">Trading Tiers</div>
+    <div class="sg-row">
+      <span class="badge badge--tier-textbook">Textbook</span>
+      <span class="badge badge--tier-high">High</span>
+      <span class="badge badge--tier-valid">Valid</span>
+      <span class="badge badge--tier-developing">Developing</span>
+    </div>
+  </div>
+
+  <div class="sg-demo">
+    <div class="sg-demo-title">Direction &amp; Mode</div>
+    <div class="sg-row">
+      <span class="badge badge--call">BUY CALL</span>
+      <span class="badge badge--put">BUY PUT</span>
+      <span class="badge badge--mode-scalp">Scalp</span>
+      <span class="badge badge--mode-standard">Standard</span>
+      <span class="badge badge--mode-swing">Swing</span>
+    </div>
+  </div>
+
+  <div class="sg-demo">
+    <div class="sg-demo-title">Sizes &amp; Variants</div>
+    <div class="sg-row">
+      <span class="badge badge--xs badge--positive">XS</span>
+      <span class="badge badge--positive">SM (default)</span>
+      <span class="badge badge--md badge--positive">MD</span>
+    </div>
+    <div class="sg-row" style="margin-top:8px">
+      <span class="badge badge--outline badge--positive">Outline</span>
+      <span class="badge badge--outline badge--negative">Outline</span>
+      <span class="badge badge--outline badge--accent">Outline</span>
+    </div>
+    <div class="sg-row" style="margin-top:8px">
+      <span class="badge badge--dot badge--positive">Online</span>
+      <span class="badge badge--dot badge--negative">Offline</span>
+      <span class="badge badge--dot badge--warning">Degraded</span>
+      <span class="badge badge--dot badge--accent">Active</span>
+    </div>
+  </div>
+
+  <div class="sg-demo">
+    <div class="sg-demo-title">Status Dots</div>
+    <div class="sg-row">
+      <span class="status-dot status-dot--online"></span> Online
+      <span class="status-dot status-dot--warning"></span> Warning
+      <span class="status-dot status-dot--error"></span> Error
+      <span class="status-dot status-dot--offline"></span> Offline
+      <span class="status-dot status-dot--online status-dot--pulse"></span> Live
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     FORM FIELDS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="sg-section">
+  <div class="sg-section-title">Form Fields</div>
+
+  <div class="sg-grid">
+    <div class="sg-card">
+      <div class="sg-card-title">Text Input</div>
+      <div class="ff">
+        <label class="ff-label">Symbol</label>
+        <input type="text" class="ff-input" placeholder="SPY" value="SPY">
+      </div>
+    </div>
+
+    <div class="sg-card">
+      <div class="sg-card-title">Number + Suffix</div>
+      <div class="ff ff--horizontal">
+        <label class="ff-label">Max Daily Loss</label>
+        <div class="ff-input-wrap">
+          <input type="number" class="ff-input" value="2.0" min="0.5" max="10" step="0.5">
+          <span class="ff-suffix">%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sg-card">
+      <div class="sg-card-title">Select Dropdown</div>
+      <div class="ff">
+        <label class="ff-label">Min Tier</label>
+        <select class="ff-select">
+          <option>DEVELOPING</option>
+          <option selected>VALID</option>
+          <option>HIGH</option>
+          <option>TEXTBOOK</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sg-card">
+      <div class="sg-card-title">Toggle Switch</div>
+      <div class="ff">
+        <label class="ff-toggle">
+          <input type="checkbox" class="ff-toggle-input" checked>
+          <div class="ff-toggle-track">
+            <div class="ff-toggle-thumb"></div>
+          </div>
+          <span class="ff-toggle-label">Auto-trading enabled</span>
+        </label>
+      </div>
+      <div class="ff">
+        <label class="ff-toggle">
+          <input type="checkbox" class="ff-toggle-input">
+          <div class="ff-toggle-track">
+            <div class="ff-toggle-thumb"></div>
+          </div>
+          <span class="ff-toggle-label">ML Predictor</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="sg-card">
+      <div class="sg-card-title">Slider + Value</div>
+      <div class="ff">
+        <label class="ff-label">Min Confidence</label>
+        <div class="ff-slider-wrap">
+          <input type="range" class="ff-slider" min="10" max="99" value="45"
+                 oninput="this.nextElementSibling.textContent=this.value+'%'">
+          <span class="ff-slider-value">45%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sg-card">
+      <div class="sg-card-title">Error State</div>
+      <div class="ff ff--error">
+        <label class="ff-label ff-label-required">Risk per Trade</label>
+        <input type="number" class="ff-input" value="15">
+        <div class="ff-error">Value must be between 0.5% and 10%</div>
+      </div>
+    </div>
+
+    <div class="sg-card">
+      <div class="sg-card-title">With Help Text</div>
+      <div class="ff">
+        <label class="ff-label">Trailing Stop</label>
+        <div class="ff-input-wrap">
+          <input type="number" class="ff-input" value="15">
+          <span class="ff-suffix">%</span>
+        </div>
+        <div class="ff-help">Percentage drawdown from peak before stop triggers</div>
+      </div>
+    </div>
+
+    <div class="sg-card">
+      <div class="sg-card-title">Compact Horizontal</div>
+      <div class="ff ff--horizontal ff--compact">
+        <label class="ff-label">Positions</label>
+        <input type="number" class="ff-input" value="2" min="1" max="10">
+      </div>
+      <div class="ff ff--horizontal ff--compact">
+        <label class="ff-label">Trades/Day</label>
+        <input type="number" class="ff-input" value="5" min="1" max="20">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     TABS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="sg-section">
+  <div class="sg-section-title">Tabs</div>
+
+  <div class="sg-demo">
+    <div class="sg-demo-title">Default (Underline)</div>
+    <div id="tabsDemo"></div>
+  </div>
+
+  <div class="sg-demo">
+    <div class="sg-demo-title">Pills Variant</div>
+    <div id="tabsPillsDemo"></div>
+  </div>
+
+  <div class="sg-demo">
+    <div class="sg-demo-title">Vertical</div>
+    <div id="tabsVerticalDemo" style="height:180px"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     DATA TABLE
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="sg-section">
+  <div class="sg-section-title">DataTable</div>
+  <div id="dataTableDemo"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     TOASTS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="sg-section">
+  <div class="sg-section-title">Toasts</div>
+  <div class="sg-row">
+    <button class="btn btn--primary" onclick="Toast.info('Info', 'Settings have been loaded')">Info Toast</button>
+    <button class="btn btn--positive" onclick="Toast.success('Trade Executed', 'Bought 2x SPY 520C @ $1.45')">Success Toast</button>
+    <button class="btn" style="border-color:var(--warning);color:var(--warning)" onclick="Toast.warning('Warning', 'Approaching daily loss limit: -$120 / -$150')">Warning Toast</button>
+    <button class="btn btn--negative" onclick="Toast.error('Order Rejected', 'Insufficient buying power for 3 contracts')">Error Toast</button>
+    <button class="btn btn--ghost" onclick="Toast.dismissAll()">Dismiss All</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     MODAL
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="sg-section">
+  <div class="sg-section-title">Modal</div>
+  <div class="sg-row">
+    <button class="btn" onclick="demoModalSm()">Small Modal</button>
+    <button class="btn btn--primary" onclick="demoModalMd()">Medium Modal</button>
+    <button class="btn btn--primary btn--md" onclick="demoModalSidebar()">Sidebar Modal (Settings)</button>
+    <button class="btn" onclick="demoModalSlide()">Slide-in Panel</button>
+  </div>
+</div>
+
+
+<script>
+// ── Tabs demos ──────────────────────────────────────────────────────────
+
+const tabsDefault = new Tabs({
+  container: '#tabsDemo',
+  tabs: [
+    { key: 'positions', label: 'Positions', icon: '📊', badge: 2 },
+    { key: 'decisions', label: 'Decisions', icon: '📋' },
+    { key: 'signals',   label: 'Signals',   icon: '📡', badge: 5 },
+    { key: 'history',   label: 'History',    icon: '📜' },
+  ],
+  activeTab: 'positions',
+});
+tabsDefault.setPanelHTML('positions', '<div style="padding:16px;color:var(--text-secondary)">2 open positions — SPY 520C, SPY 518P</div>');
+tabsDefault.setPanelHTML('decisions', '<div style="padding:16px;color:var(--text-secondary)">Decision log entries...</div>');
+tabsDefault.setPanelHTML('signals', '<div style="padding:16px;color:var(--text-secondary)">5 signals pending review</div>');
+tabsDefault.setPanelHTML('history', '<div style="padding:16px;color:var(--text-secondary)">Closed trade history</div>');
+
+const tabsPills = new Tabs({
+  container: '#tabsPillsDemo',
+  variant: 'pills',
+  tabs: [
+    { key: 'bubbles', label: 'Bubbles' },
+    { key: 'perprice', label: 'Per-Price' },
+    { key: 'footprint', label: 'Footprint' },
+  ],
+  activeTab: 'bubbles',
+});
+tabsPills.setPanelHTML('bubbles', '<div style="padding:16px;color:var(--text-secondary)">Order flow bubble view</div>');
+tabsPills.setPanelHTML('perprice', '<div style="padding:16px;color:var(--text-secondary)">Per-price level view</div>');
+tabsPills.setPanelHTML('footprint', '<div style="padding:16px;color:var(--text-secondary)">Footprint chart view</div>');
+
+const tabsVertical = new Tabs({
+  container: '#tabsVerticalDemo',
+  vertical: true,
+  tabs: [
+    { key: 'account',  label: 'Account',  icon: '💰' },
+    { key: 'risk',     label: 'Risk',     icon: '🛡' },
+    { key: 'signals',  label: 'Signals',  icon: '📡' },
+    { key: 'display',  label: 'Display',  icon: '🎨' },
+  ],
+  activeTab: 'account',
+});
+tabsVertical.setPanelHTML('account', '<div style="padding:16px;color:var(--text-secondary)">Account settings: balance, mode, API keys</div>');
+tabsVertical.setPanelHTML('risk', '<div style="padding:16px;color:var(--text-secondary)">Risk limits: daily loss, position size, trade count</div>');
+tabsVertical.setPanelHTML('signals', '<div style="padding:16px;color:var(--text-secondary)">Signal quality: min tier, min confidence, factor weights</div>');
+tabsVertical.setPanelHTML('display', '<div style="padding:16px;color:var(--text-secondary)">Display preferences: chart theme, intervals</div>');
+
+// ── DataTable demo ──────────────────────────────────────────────────────
+
+const dtDemo = new DataTable({
+  container: '#dataTableDemo',
+  columns: [
+    { key: 'symbol', label: 'Symbol',    width: 120, align: 'left' },
+    { key: 'dir',    label: 'Direction',  width: 80,  align: 'center',
+      render: (v) => `<span class="badge badge--${v==='CALL'?'call':'put'}">${v==='CALL'?'BUY CALL':'BUY PUT'}</span>` },
+    { key: 'entry',  label: 'Entry',      width: 70,  align: 'right', format: 'currency' },
+    { key: 'current',label: 'Current',    width: 70,  align: 'right', format: 'currency' },
+    { key: 'pnl',    label: 'P&L',        width: 80,  align: 'right',
+      render: (v) => `<span class="${v>=0?'dt-val-positive':'dt-val-negative'}">${v>=0?'+':''}$${Math.abs(v).toFixed(2)}</span>` },
+    { key: 'tier',   label: 'Tier',       width: 80,  align: 'center',
+      render: (v) => `<span class="badge badge--tier-${v.toLowerCase()}">${v}</span>` },
+    { key: 'mode',   label: 'Mode',       width: 80,  align: 'center',
+      render: (v) => `<span class="badge badge--mode-${v.toLowerCase()}">${v}</span>` },
+    { key: 'time',   label: 'Time',       width: 70,  align: 'right', format: 'time' },
+  ],
+  data: [
+    { symbol: 'SPY 520C 0DTE', dir: 'CALL', entry: 1.45, current: 2.10, pnl: 130.00, tier: 'TEXTBOOK', mode: 'STANDARD', time: '2026-04-04T10:15:00' },
+    { symbol: 'SPY 518P 0DTE', dir: 'PUT',  entry: 0.85, current: 0.55, pnl: -60.00,  tier: 'HIGH',     mode: 'SCALP',    time: '2026-04-04T10:32:00' },
+    { symbol: 'SPY 522C 0DTE', dir: 'CALL', entry: 0.65, current: 1.20, pnl: 110.00,  tier: 'HIGH',     mode: 'SWING',    time: '2026-04-04T11:05:00' },
+    { symbol: 'SPY 516P 0DTE', dir: 'PUT',  entry: 1.10, current: 0.90, pnl: -40.00,  tier: 'VALID',    mode: 'SCALP',    time: '2026-04-04T13:45:00' },
+  ],
+  compact: false,
+  striped: true,
+  maxHeight: '250px',
+});
+
+// ── Modal demos ─────────────────────────────────────────────────────────
+
+function demoModalSm() {
+  const m = new Modal({
+    title: 'Confirm Reset',
+    size: 'sm',
+    footer: true,
+    footerActions: [
+      { label: 'Cancel', onClick: () => m.close() },
+      { label: 'Reset Account', variant: 'negative', onClick: () => { Toast.success('Account reset'); m.close(); } },
+    ],
+  });
+  m.setContentHTML(`
+    <div class="modal-section">
+      <div class="modal-section-desc">
+        This will wipe all open positions and today's trade history. The bot restarts fresh with $0 P&L.
+        <strong>This cannot be undone.</strong>
+      </div>
+    </div>
+  `);
+  m.open();
+}
+
+function demoModalMd() {
+  const m = new Modal({
+    title: 'Trade Details',
+    subtitle: 'SPY 520C 0DTE',
+    size: 'md',
+    footer: true,
+    footerActions: [
+      { label: 'Close', onClick: () => m.close() },
+    ],
+  });
+  m.setContentHTML(`
+    <div class="modal-status-card modal-status-card--positive">
+      <div style="font-size:var(--font-2xs);color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">UNREALIZED P&L</div>
+      <div style="font-size:var(--font-2xl);font-weight:700;color:var(--positive)">+$130.00 (+44.8%)</div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-title">Entry Details</div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Entry Price</label><span>$1.45</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Current</label><span style="color:var(--positive)">$2.10</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Quantity</label><span>2 contracts</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Tier</label><span class="badge badge--tier-textbook">TEXTBOOK</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Confidence</label><span>0.82</span></div>
+    </div>
+    <div class="modal-divider"></div>
+    <div class="modal-section">
+      <div class="modal-section-title">Exit Engine</div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Momentum</label><span>0.35</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Greeks</label><span>0.22</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Levels</label><span>0.55</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Session</label><span>0.18</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Flow</label><span>0.40</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Urgency</label><span class="badge badge--positive">0.34 HOLD</span></div>
+    </div>
+  `);
+  m.open();
+}
+
+function demoModalSidebar() {
+  const m = new Modal({
+    title: 'Platform Settings',
+    size: 'lg',
+    sidebar: [
+      { key: 'account',  label: 'Account',   icon: '💰' },
+      { key: 'risk',     label: 'Risk',       icon: '🛡' },
+      { key: 'signals',  label: 'Signals',    icon: '📡' },
+      { key: 'exits',    label: 'Exit Rules', icon: '🚪' },
+      { key: 'data',     label: 'Data',       icon: '📊' },
+      { key: 'display',  label: 'Display',    icon: '🎨' },
+    ],
+    footer: true,
+    footerActions: [
+      { label: 'Cancel', onClick: () => m.close() },
+      { label: 'Save Settings', variant: 'positive', onClick: () => { Toast.success('Settings saved'); m.close(); } },
+    ],
+  });
+
+  m.setSidebarContent('account', `
+    <div class="modal-status-card modal-status-card--positive">
+      <div style="font-size:var(--font-2xs);color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">STARTING BALANCE</div>
+      <div style="font-size:var(--font-2xl);font-weight:700;color:var(--positive)">$5,000.00</div>
+      <div style="font-size:var(--font-2xs);color:var(--text-secondary);margin-top:2px">Mode: Paper Simulation</div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-title">Account Config</div>
+      <div class="ff ff--horizontal">
+        <label class="ff-label">Trading Mode</label>
+        <select class="ff-select">
+          <option selected>Paper Trading</option>
+          <option>Live (Disabled)</option>
+        </select>
+      </div>
+      <div class="ff ff--horizontal">
+        <label class="ff-label">Auto-Trading</label>
+        <label class="ff-toggle">
+          <input type="checkbox" class="ff-toggle-input" checked>
+          <div class="ff-toggle-track"><div class="ff-toggle-thumb"></div></div>
+        </label>
+      </div>
+    </div>
+  `);
+
+  m.setSidebarContent('risk', `
+    <div class="modal-section">
+      <div class="modal-section-title">Risk Limits</div>
+      <div class="ff ff--horizontal">
+        <label class="ff-label">Max Daily Loss</label>
+        <div class="ff-input-wrap">
+          <input type="number" class="ff-input" value="2.0" min="0.5" max="10" step="0.5">
+          <span class="ff-suffix">%</span>
+        </div>
+      </div>
+      <div class="ff ff--horizontal">
+        <label class="ff-label">Max Open Positions</label>
+        <input type="number" class="ff-input" value="2" min="1" max="10">
+      </div>
+      <div class="ff ff--horizontal">
+        <label class="ff-label">Max Trades / Day</label>
+        <input type="number" class="ff-input" value="5" min="1" max="20">
+      </div>
+      <div class="ff ff--horizontal">
+        <label class="ff-label">Risk per Trade</label>
+        <div class="ff-input-wrap">
+          <input type="number" class="ff-input" value="2.0" min="0.5" max="10" step="0.5">
+          <span class="ff-suffix">%</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-divider"></div>
+    <div class="modal-section">
+      <div class="modal-section-title" style="color:var(--negative)">Danger Zone</div>
+      <div class="modal-section-desc">Wipes all open positions and today's trade history. Cannot be undone.</div>
+      <button class="btn btn--negative">Reset Paper Account</button>
+    </div>
+  `);
+
+  m.setSidebarContent('signals', `
+    <div class="modal-section">
+      <div class="modal-section-title">Signal Quality</div>
+      <div class="ff ff--horizontal">
+        <label class="ff-label">Min Tier</label>
+        <select class="ff-select">
+          <option>DEVELOPING</option>
+          <option selected>VALID</option>
+          <option>HIGH</option>
+          <option>TEXTBOOK</option>
+        </select>
+      </div>
+      <div class="ff ff--horizontal">
+        <label class="ff-label">Min Confidence</label>
+        <div class="ff-slider-wrap">
+          <input type="range" class="ff-slider" min="10" max="99" value="45"
+                 oninput="this.nextElementSibling.textContent=this.value+'%'">
+          <span class="ff-slider-value">45%</span>
+        </div>
+      </div>
+      <div class="ff ff--horizontal">
+        <label class="ff-label">ML Gate</label>
+        <label class="ff-toggle">
+          <input type="checkbox" class="ff-toggle-input" checked>
+          <div class="ff-toggle-track"><div class="ff-toggle-thumb"></div></div>
+          <span class="ff-toggle-label">P(win) ≥ 58%</span>
+        </label>
+      </div>
+    </div>
+  `);
+
+  m.setSidebarContent('exits', `
+    <div class="modal-section">
+      <div class="modal-section-title">Exit Rules</div>
+      <div class="ff ff--horizontal"><label class="ff-label">Stop Loss</label><div class="ff-input-wrap"><input type="number" class="ff-input" value="50"><span class="ff-suffix">%</span></div></div>
+      <div class="ff ff--horizontal"><label class="ff-label">Profit Target</label><div class="ff-input-wrap"><input type="number" class="ff-input" value="100"><span class="ff-suffix">%</span></div></div>
+      <div class="ff ff--horizontal"><label class="ff-label">Trailing Stop</label><div class="ff-input-wrap"><input type="number" class="ff-input" value="15"><span class="ff-suffix">%</span></div></div>
+      <div class="ff ff--horizontal"><label class="ff-label">Max Hold Time</label><div class="ff-input-wrap"><input type="number" class="ff-input" value="45"><span class="ff-suffix">min</span></div></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-title">Partial Exits</div>
+      <div class="ff ff--horizontal"><label class="ff-label">T1 Scale-out</label><span>34% @ +30%</span></div>
+      <div class="ff ff--horizontal"><label class="ff-label">T2 Scale-out</label><span>50% @ +60%</span></div>
+    </div>
+  `);
+
+  m.setSidebarContent('data', `
+    <div class="modal-section">
+      <div class="modal-section-title">Data Sources</div>
+      <div class="ff ff--horizontal"><label class="ff-label">ThetaData</label><span class="badge badge--dot badge--positive">Connected</span></div>
+      <div class="ff ff--horizontal"><label class="ff-label">Alpaca</label><span class="badge badge--dot badge--positive">Connected</span></div>
+      <div class="ff ff--horizontal"><label class="ff-label">Flow Engine</label><span class="badge badge--dot badge--warning">Degraded</span></div>
+    </div>
+  `);
+
+  m.setSidebarContent('display', `
+    <div class="modal-section">
+      <div class="modal-section-title">Display Preferences</div>
+      <div class="ff ff--horizontal"><label class="ff-label">Chart Theme</label>
+        <select class="ff-select"><option selected>Dark</option><option>Light (Soon)</option></select>
+      </div>
+      <div class="ff ff--horizontal"><label class="ff-label">Refresh Interval</label>
+        <div class="ff-input-wrap"><input type="number" class="ff-input" value="15"><span class="ff-suffix">sec</span></div>
+      </div>
+    </div>
+  `);
+
+  m.open();
+}
+
+function demoModalSlide() {
+  const m = new Modal({
+    title: 'Trade Detail',
+    subtitle: 'SPY 520C — BUY CALL',
+    size: 'slide',
+    footer: true,
+    footerSplit: true,
+    footerActions: [
+      { label: 'Close Position', variant: 'negative', onClick: () => { Toast.warning('Position closed'); m.close(); } },
+      { label: 'Done', onClick: () => m.close() },
+    ],
+  });
+  m.setContentHTML(`
+    <div class="modal-status-card modal-status-card--positive">
+      <div style="font-size:var(--font-2xs);color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">P&L</div>
+      <div style="font-size:var(--font-2xl);font-weight:700;color:var(--positive)">+$130.00</div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-title">Position Info</div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Entry</label><span>$1.45</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Current</label><span>$2.10</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Qty</label><span>2</span></div>
+      <div class="ff ff--horizontal ff--compact"><label class="ff-label">Hold Time</label><span>12m 34s</span></div>
+    </div>
+  `);
+  m.open();
+}
+</script>
+
+</body>
+</html>

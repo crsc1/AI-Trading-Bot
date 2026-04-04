@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0DTE Trading Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-0: #06060e;
+            --bg-1: #0a0a16;
+            --bg-2: #0f0f20;
+            --bg-3: #14142a;
+            --bg-hover: #1a1a38;
+            --border: #1e1e3a;
+            --border-active: #4488ff;
+            --text-1: #e8e8f0;
+            --text-2: #9898b0;
+            --text-3: #606078;
+            --green: #00d060;
+            --green-bg: rgba(0,208,96,0.12);
+            --red: #f04040;
+            --red-bg: rgba(240,64,64,0.12);
+            --blue: #4488ff;
+            --blue-bg: rgba(68,136,255,0.10);
+            --yellow: #ffaa00;
+            --yellow-bg: rgba(255,170,0,0.10);
+            --purple: #aa66ff;
+            --font: 'SF Mono','Menlo','Monaco','Consolas','Liberation Mono',monospace;
+        }
+
+        body {
+            background: var(--bg-0);
+            color: var(--text-1);
+            font-family: var(--font);
+            font-size: 11px;
+            line-height: 1.4;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── HEADER ─────────────────────────── */
+        .hdr {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 12px; height: 40px;
+            background: var(--bg-1); border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .hdr-left { display: flex; align-items: center; gap: 16px; }
+        .hdr-title { font-size: 12px; font-weight: 700; letter-spacing: 1px; color: var(--blue); }
+        .hdr-right { display: flex; align-items: center; gap: 10px; }
+
+        .kpi { text-align: center; padding: 0 10px; border-left: 1px solid var(--border); }
+        .kpi-label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-3); }
+        .kpi-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+        .countdown {
+            font-size: 12px; font-weight: 700; padding: 2px 8px;
+            border-radius: 3px; font-variant-numeric: tabular-nums;
+        }
+        .cd-ok { background: var(--green-bg); color: var(--green); }
+        .cd-warn { background: var(--yellow-bg); color: var(--yellow); }
+        .cd-danger { background: var(--red-bg); color: var(--red); }
+
+        .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 3px; }
+        .dot-on { background: var(--green); box-shadow: 0 0 4px var(--green); }
+        .dot-off { background: var(--red); }
+
+        /* ── METRICS ROW ────────────────────── */
+        .metrics {
+            display: flex; gap: 1px; padding: 4px 12px;
+            background: var(--bg-2); border-bottom: 1px solid var(--border);
+            flex-shrink: 0; overflow-x: auto;
+        }
+        .m-card {
+            background: var(--bg-1); border: 1px solid var(--border);
+            border-radius: 3px; padding: 3px 10px; min-width: 80px; text-align: center;
+        }
+        .m-label { font-size: 8px; text-transform: uppercase; color: var(--text-3); letter-spacing: 0.5px; }
+        .m-val { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+        /* ── TABS ───────────────────────────── */
+        .tabs {
+            display: flex; background: var(--bg-1);
+            border-bottom: 2px solid var(--border); flex-shrink: 0;
+        }
+        .tab-btn {
+            padding: 8px 20px; font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.8px;
+            color: var(--text-3); cursor: pointer;
+            border: none; border-bottom: 2px solid transparent;
+            margin-bottom: -2px; background: none; font-family: var(--font);
+            transition: all 0.1s;
+        }
+        .tab-btn:hover { color: var(--text-2); }
+        .tab-btn.on { color: var(--blue); border-bottom-color: var(--blue); }
+        .tab-count {
+            font-size: 8px; background: var(--blue); color: #fff;
+            padding: 0 4px; border-radius: 6px; margin-left: 5px;
+            font-weight: 700;
+        }
+
+        .panels { flex: 1; overflow: hidden; }
+        .panel { display: none; height: 100%; flex-direction: column; overflow: hidden; }
+        .panel.on { display: flex; }
+
+        /* ── TABLE ──────────────────────────── */
+        .tbl-wrap { flex: 1; overflow: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        thead { position: sticky; top: 0; z-index: 2; }
+        th {
+            padding: 6px 8px; text-align: left;
+            font-size: 9px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            color: var(--text-3); background: var(--bg-3);
+            border-bottom: 1px solid var(--border); white-space: nowrap;
+        }
+        td {
+            padding: 5px 8px; border-bottom: 1px solid var(--border);
+            white-space: nowrap; font-variant-numeric: tabular-nums;
+        }
+        tr:hover td { background: var(--bg-hover); }
+        .r { text-align: right; }
+        .pos { color: var(--green); }
+        .neg { color: var(--red); }
+        .dim { color: var(--text-3); }
+
+        /* ── BADGES ─────────────────────────── */
+        .badge {
+            display: inline-block; font-size: 9px; font-weight: 700;
+            padding: 1px 6px; border-radius: 3px; text-transform: uppercase;
+        }
+        .b-call { background: var(--green-bg); color: var(--green); }
+        .b-put { background: var(--red-bg); color: var(--red); }
+        .b-no { background: var(--bg-3); color: var(--text-3); }
+        .b-textbook { background: var(--green-bg); color: var(--green); }
+        .b-high { background: var(--blue-bg); color: var(--blue); }
+        .b-valid { background: var(--yellow-bg); color: var(--yellow); }
+        .b-developing { background: var(--bg-3); color: var(--text-3); }
+
+        /* ── AUTOTRADER BAR ─────────────────── */
+        .at-bar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 12px; background: var(--bg-3);
+            border-bottom: 1px solid var(--border); flex-shrink: 0;
+        }
+        .at-left { display: flex; align-items: center; gap: 8px; }
+
+        .btn {
+            padding: 4px 10px; border: 1px solid var(--border);
+            border-radius: 3px; background: var(--bg-1); color: var(--text-1);
+            font-family: var(--font); font-size: 10px; cursor: pointer;
+        }
+        .btn:hover { border-color: var(--blue); }
+        .btn-go { border-color: var(--green); color: var(--green); }
+        .btn-go:hover { background: var(--green-bg); }
+        .btn-stop { border-color: var(--red); color: var(--red); }
+        .btn-stop:hover { background: var(--red-bg); }
+        .btn-x {
+            padding: 1px 6px; font-size: 9px; background: none;
+            border: 1px solid var(--red); color: var(--red);
+            border-radius: 2px; cursor: pointer; font-family: var(--font);
+        }
+        .btn-x:hover { background: var(--red-bg); }
+
+        select.sel {
+            background: var(--bg-1); color: var(--text-1); border: 1px solid var(--border);
+            border-radius: 3px; padding: 3px 6px; font-family: var(--font); font-size: 10px;
+        }
+
+        /* ── SECTION DIVIDER ────────────────── */
+        .sec-hdr {
+            padding: 6px 12px; font-size: 9px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 1px;
+            color: var(--text-3); background: var(--bg-3);
+            border-bottom: 1px solid var(--border);
+            position: sticky; top: 0; z-index: 1;
+        }
+
+        /* ── SPLIT LAYOUT ───────────────────── */
+        .split { display: grid; grid-template-rows: 1fr 1fr; height: 100%; }
+        .split > div { overflow: auto; }
+        .split > div:first-child { border-bottom: 2px solid var(--border); }
+
+        /* ── EMPTY STATE ────────────────────── */
+        .empty {
+            display: flex; align-items: center; justify-content: center;
+            padding: 32px; color: var(--text-3); font-size: 12px;
+        }
+
+        /* ── PERF GRID ──────────────────────── */
+        .perf-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 8px; padding: 12px;
+        }
+        .perf-card {
+            background: var(--bg-1); border: 1px solid var(--border);
+            border-radius: 4px; padding: 12px;
+        }
+        .pc-label { font-size: 9px; color: var(--text-3); text-transform: uppercase; margin-bottom: 2px; }
+        .pc-val { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+        /* ── TOAST ─────────────────────────────── */
+        #toast-root { position:fixed; top:12px; right:12px; z-index:9999; display:flex; flex-direction:column; gap:6px; pointer-events:none; }
+        .t-toast { pointer-events:auto; padding:8px 14px; border-radius:6px; font-size:10px; font-weight:500; background:var(--bg-3); border:1px solid var(--border); box-shadow:0 4px 12px rgba(0,0,0,.5); display:flex; align-items:center; gap:8px; max-width:300px; animation:tIn .2s ease; }
+        .t-toast.success { border-left:3px solid var(--green); }
+        .t-toast.error   { border-left:3px solid var(--red); }
+        .t-toast.info    { border-left:3px solid var(--blue); }
+        .t-toast.warning { border-left:3px solid var(--yellow); }
+        .t-toast.fade    { animation:tOut .2s ease forwards; }
+        @keyframes tIn  { from{opacity:0;transform:translateX(16px)} to{opacity:1;transform:translateX(0)} }
+        @keyframes tOut { from{opacity:1} to{opacity:0;transform:translateX(16px)} }
+    </style>
+</head>
+<body>
+<div id="toast-root"></div>
+
+<!-- ═══ HEADER ═══════════════════════════════════════════════════════ -->
+<div class="hdr">
+    <div class="hdr-left">
+        <span class="hdr-title">0DTE TRADER</span>
+        <div class="kpi">
+            <div class="kpi-label">SPY</div>
+            <div class="kpi-val" id="h-price">--</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label">Day P&L</div>
+            <div class="kpi-val" id="h-pnl">$0</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label">Open</div>
+            <div class="kpi-val" id="h-open">0</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label">Win Rate</div>
+            <div class="kpi-val" id="h-wr">--</div>
+        </div>
+    </div>
+    <div class="hdr-right">
+        <span class="countdown cd-ok" id="h-exp">--:--:--</span>
+        <span id="h-conn"><span class="dot dot-off"></span>OFFLINE</span>
+    </div>
+</div>
+
+<!-- ═══ METRICS ══════════════════════════════════════════════════════ -->
+<div class="metrics">
+    <div class="m-card"><div class="m-label">Port. Delta</div><div class="m-val" id="m-delta">0</div></div>
+    <div class="m-card"><div class="m-label">Port. Theta</div><div class="m-val" id="m-theta">$0</div></div>
+    <div class="m-card"><div class="m-label">Buying Power</div><div class="m-val" id="m-bp">$5,000</div></div>
+    <div class="m-card"><div class="m-label">Loss Limit</div><div class="m-val" id="m-ll">$0/$150</div></div>
+    <div class="m-card"><div class="m-label">Trades Today</div><div class="m-val" id="m-tt">0</div></div>
+    <div class="m-card"><div class="m-label">Data</div><div class="m-val" id="m-src">--</div></div>
+    <div class="m-card"><div class="m-label">Last Signal</div><div class="m-val" id="m-last">--</div></div>
+</div>
+
+<!-- ═══ TABS ═════════════════════════════════════════════════════════ -->
+<div class="tabs">
+    <button class="tab-btn on" data-t="trading">Positions<span class="tab-count" id="tc-pos">0</span></button>
+    <button class="tab-btn" data-t="signals">Signals<span class="tab-count" id="tc-sig">0</span></button>
+    <button class="tab-btn" data-t="history">History</button>
+    <button class="tab-btn" data-t="perf">Performance</button>
+</div>
+
+<!-- ═══ PANELS ═══════════════════════════════════════════════════════ -->
+<div class="panels">
+
+<!-- ── POSITIONS / AUTOTRADER ─────────────────────────── -->
+<div class="panel on" id="p-trading">
+    <div class="at-bar">
+        <div class="at-left">
+            <span id="at-status"><span class="dot dot-off"></span> Autotrader OFF</span>
+            <button class="btn btn-go" id="at-btn" onclick="toggleAT()">Enable</button>
+            <select class="sel" id="at-mode" onchange="cfgPM({mode:this.value})">
+                <option value="simulation">Simulation</option>
+                <option value="alpaca_paper">Alpaca Paper</option>
+            </select>
+            <span class="dim">Min:</span>
+            <select class="sel" id="at-tier" onchange="cfgPM({min_tier:this.value})">
+                <option value="VALID">VALID</option>
+                <option value="HIGH">HIGH</option>
+                <option value="TEXTBOOK">TEXTBOOK</option>
+            </select>
+        </div>
+        <div><button class="btn btn-stop" onclick="closeAll()">Close All</button></div>
+    </div>
+
+    <div class="split">
+        <!-- Open Positions Table -->
+        <div>
+            <div class="sec-hdr">Open Positions</div>
+            <div class="tbl-wrap">
+                <table>
+                    <thead><tr>
+                        <th>ID</th>
+                        <th>Type</th>
+                        <th>Strike</th>
+                        <th>Tier</th>
+                        <th class="r">Qty</th>
+                        <th class="r">Entry</th>
+                        <th class="r">Current</th>
+                        <th class="r">P&L $</th>
+                        <th class="r">P&L %</th>
+                        <th class="r">&#916;</th>
+                        <th class="r">&#920;</th>
+                        <th class="r">IV</th>
+                        <th class="r">Hold</th>
+                        <th>Price Src</th>
+                        <th></th>
+                    </tr></thead>
+                    <tbody id="tb-pos"></tbody>
+                </table>
+                <div class="empty" id="em-pos">No open positions</div>
+            </div>
+        </div>
+
+        <!-- Autotrader Decisions Table -->
+        <div>
+            <div class="sec-hdr">Autotrader Decisions</div>
+            <div class="tbl-wrap">
+                <table>
+                    <thead><tr>
+                        <th>Time</th>
+                        <th>Action</th>
+                        <th>Reason</th>
+                        <th>Tier</th>
+                        <th class="r">Conf</th>
+                        <th>Direction</th>
+                    </tr></thead>
+                    <tbody id="tb-dec"></tbody>
+                </table>
+                <div class="empty" id="em-dec">No decisions yet</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── SIGNALS TABLE ──────────────────────────────────── -->
+<div class="panel" id="p-signals">
+    <div class="tbl-wrap">
+        <table>
+            <thead><tr>
+                <th>Time</th>
+                <th>ID</th>
+                <th>Direction</th>
+                <th>Tier</th>
+                <th class="r">Confidence</th>
+                <th class="r">Strike</th>
+                <th class="r">Entry $</th>
+                <th class="r">Target $</th>
+                <th class="r">Stop $</th>
+                <th class="r">Contracts</th>
+                <th>Data Source</th>
+                <th class="r">Factors</th>
+                <th>Top Factors</th>
+            </tr></thead>
+            <tbody id="tb-sig"></tbody>
+        </table>
+        <div class="empty" id="em-sig">Waiting for signals...</div>
+    </div>
+</div>
+
+<!-- ── HISTORY TABLE ──────────────────────────────────── -->
+<div class="panel" id="p-history">
+    <div class="tbl-wrap">
+        <table>
+            <thead><tr>
+                <th>Exit Date</th>
+                <th>ID</th>
+                <th>Type</th>
+                <th>Strike</th>
+                <th>Tier</th>
+                <th class="r">Entry $</th>
+                <th class="r">Exit $</th>
+                <th class="r">P&L $</th>
+                <th class="r">P&L %</th>
+                <th class="r">Hold Min</th>
+                <th>Exit Reason</th>
+                <th>Grade</th>
+                <th>Mode</th>
+            </tr></thead>
+            <tbody id="tb-hist"></tbody>
+        </table>
+        <div class="empty" id="em-hist">No trade history</div>
+    </div>
+</div>
+
+<!-- ── PERFORMANCE ────────────────────────────────────── -->
+<div class="panel" id="p-perf">
+    <div class="tbl-wrap">
+        <div class="perf-grid" id="perf-grid">
+            <div class="perf-card"><div class="pc-label">Total Trades</div><div class="pc-val" id="pv-total">0</div></div>
+            <div class="perf-card"><div class="pc-label">Win Rate</div><div class="pc-val" id="pv-wr">0%</div></div>
+            <div class="perf-card"><div class="pc-label">Net P&L</div><div class="pc-val" id="pv-net">$0</div></div>
+            <div class="perf-card"><div class="pc-label">Profit Factor</div><div class="pc-val" id="pv-pf">0</div></div>
+            <div class="perf-card"><div class="pc-label">Avg Win</div><div class="pc-val pos" id="pv-aw">$0</div></div>
+            <div class="perf-card"><div class="pc-label">Avg Loss</div><div class="pc-val neg" id="pv-al">$0</div></div>
+            <div class="perf-card"><div class="pc-label">Expectancy</div><div class="pc-val" id="pv-ex">$0</div></div>
+            <div class="perf-card"><div class="pc-label">Max Drawdown</div><div class="pc-val neg" id="pv-dd">$0</div></div>
+            <div class="perf-card"><div class="pc-label">Sharpe</div><div class="pc-val" id="pv-sh">0</div></div>
+            <div class="perf-card"><div class="pc-label">Avg Hold</div><div class="pc-val" id="pv-hold">0m</div></div>
+            <div class="perf-card"><div class="pc-label">W / L</div><div class="pc-val" id="pv-wl">0 / 0</div></div>
+            <div class="perf-card"><div class="pc-label">Best Trade</div><div class="pc-val pos" id="pv-best">$0</div></div>
+        </div>
+    </div>
+</div>
+
+</div><!-- /panels -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const txt = (id, v) => { const e=$(id); if(e) e.textContent=v; };
+const cls = (id, c) => { const e=$(id); if(e) e.className=c; };
+const pnl$ = v => (v>=0?'+':'')+('$'+Math.abs(v||0).toFixed(2));
+const pnlCls = v => v >= 0 ? 'pos' : 'neg';
+const fmtTime = ts => { try { return new Date(ts).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'}); } catch(e) { return '--'; }};
+const fmtDate = ts => { try { return new Date(ts).toLocaleDateString('en-US',{month:'short',day:'numeric'}); } catch(e) { return '--'; }};
+
+let atEnabled = false;
+
+// ─── Toast notifications ────────────────────────────────────────────────────
+let _toastSeq = 0;
+function toast(msg, type = 'info', ms = 3500) {
+    const root = document.getElementById('toast-root');
+    if (!root) return;
+    const id = 'tt' + (++_toastSeq);
+    const el = document.createElement('div');
+    el.className = `t-toast ${type}`;
+    el.id = id;
+    el.textContent = msg;
+    root.appendChild(el);
+    setTimeout(() => {
+        el.classList.add('fade');
+        setTimeout(() => el.remove(), 220);
+    }, ms);
+}
+
+async function api(url, opts) {
+    try {
+        const r = await fetch(url, opts);
+        if (!r.ok) return null;
+        return await r.json();
+    } catch(e) {
+        console.error('[API]', url, e);
+        return null;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB SWITCHING
+// ═══════════════════════════════════════════════════════════════
+document.querySelectorAll('.tab-btn').forEach(b => {
+    b.onclick = () => {
+        document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('on'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
+        b.classList.add('on');
+        $('p-'+b.dataset.t).classList.add('on');
+    };
+});
+
+// ═══════════════════════════════════════════════════════════════
+// POSITIONS
+// ═══════════════════════════════════════════════════════════════
+async function loadPositions() {
+    const d = await api('/api/pm/positions');
+    if (!d) return;
+
+    const pos = d.positions || [];
+    const sum = d.summary || {};
+
+    txt('h-open', pos.length);
+    txt('tc-pos', pos.length);
+    txt('h-pnl', pnl$(sum.total_unrealized_pnl));
+    cls('h-pnl', 'kpi-val '+pnlCls(sum.total_unrealized_pnl));
+    txt('m-delta', (sum.portfolio_delta||0).toFixed(1));
+    txt('m-theta', '$'+(sum.portfolio_theta||0).toFixed(2));
+
+    const tb = $('tb-pos');
+    const em = $('em-pos');
+
+    if (!pos.length) { tb.innerHTML=''; em.style.display='flex'; return; }
+    em.style.display='none';
+
+    tb.innerHTML = pos.map(p => {
+        const g = p.live_greeks||{};
+        const pc = pnlCls(p.unrealized_pnl);
+        const isCall = p.right==='C' || (p.option_type||'').toLowerCase().includes('call');
+        return `<tr>
+            <td class="dim">${(p.trade_id||'').slice(0,6)}</td>
+            <td><span class="badge ${isCall?'b-call':'b-put'}">${isCall?'CALL':'PUT'}</span></td>
+            <td>$${(p.strike||0).toFixed(0)}</td>
+            <td><span class="badge b-${(p.tier||'').toLowerCase()}">${p.tier||'--'}</span></td>
+            <td class="r">${p.quantity||1}</td>
+            <td class="r">$${(p.entry_price||0).toFixed(2)}</td>
+            <td class="r">$${(p.current_price||0).toFixed(2)}</td>
+            <td class="r ${pc}">${pnl$(p.unrealized_pnl)}</td>
+            <td class="r ${pc}">${((p.unrealized_pnl_pct||0)*100).toFixed(1)}%</td>
+            <td class="r">${g.delta!=null?g.delta.toFixed(3):'--'}</td>
+            <td class="r">${g.theta!=null?g.theta.toFixed(3):'--'}</td>
+            <td class="r">${g.iv!=null?(g.iv*100).toFixed(1)+'%':'--'}</td>
+            <td class="r">${(p.hold_minutes||0).toFixed(0)}m</td>
+            <td class="dim">${p.price_source||'--'}</td>
+            <td><button class="btn-x" onclick="exitPos('${p.trade_id}')">EXIT</button></td>
+        </tr>`;
+    }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SIGNALS TABLE
+// ═══════════════════════════════════════════════════════════════
+async function loadSignals() {
+    // The /api/signals/history returns a bare array
+    const data = await api('/api/signals/history?limit=40');
+    if (!data) return;
+
+    // Handle both array and {signals:[...]} formats
+    const sigs = Array.isArray(data) ? data : (data.signals || []);
+
+    txt('tc-sig', sigs.filter(s => s.signal !== 'NO_TRADE').length);
+
+    // Update last signal in metrics
+    if (sigs.length > 0) {
+        const last = sigs[sigs.length - 1];
+        const dir = last.signal || 'NO_TRADE';
+        txt('m-last', dir === 'NO_TRADE' ? 'SCANNING' : dir);
+    }
+
+    const tb = $('tb-sig');
+    const em = $('em-sig');
+
+    if (!sigs.length) { em.style.display='flex'; return; }
+    em.style.display='none';
+
+    // Reverse so newest is on top
+    tb.innerHTML = [...sigs].reverse().map(s => {
+        const dir = s.signal || 'NO_TRADE';
+        const isCall = dir.includes('CALL');
+        const isPut = dir.includes('PUT');
+        const dirBadge = isCall ? 'b-call' : isPut ? 'b-put' : 'b-no';
+        const dirLabel = dir === 'NO_TRADE' ? 'NO TRADE' : dir.replace('BUY_','');
+        const tier = s.tier || '';
+        const conf = s.confidence || 0;
+        const time = fmtTime(s.timestamp);
+        const src = s.trades_source || s.data_source || '--';
+
+        // Factors can be objects or strings
+        let factors = s.factors || [];
+        let factorNames = [];
+        if (factors.length > 0) {
+            if (typeof factors[0] === 'object') {
+                factorNames = factors.map(f => f.name || f.factor || '?');
+            } else {
+                factorNames = factors;
+            }
+        }
+        const topFactors = factorNames.slice(0, 4).join(', ');
+        const factorCount = s.confluence_count || factorNames.length;
+
+        return `<tr>
+            <td>${time}</td>
+            <td class="dim">${(s.id||'').slice(0,6)}</td>
+            <td><span class="badge ${dirBadge}">${dirLabel}</span></td>
+            <td><span class="badge b-${tier.toLowerCase()}">${tier||'--'}</span></td>
+            <td class="r" style="font-weight:700">${(conf*100).toFixed(1)}%</td>
+            <td class="r">${s.strike ? '$'+s.strike.toFixed(0) : '--'}</td>
+            <td class="r">${s.entry_price ? '$'+s.entry_price.toFixed(2) : '--'}</td>
+            <td class="r">${s.target_price ? '$'+s.target_price.toFixed(2) : '--'}</td>
+            <td class="r">${s.stop_price ? '$'+s.stop_price.toFixed(2) : '--'}</td>
+            <td class="r">${s.max_contracts || '--'}</td>
+            <td class="dim">${src}</td>
+            <td class="r">${factorCount}</td>
+            <td class="dim" title="${factorNames.join(', ')}">${topFactors || '--'}</td>
+        </tr>`;
+    }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUTOTRADER STATUS + DECISIONS TABLE
+// ═══════════════════════════════════════════════════════════════
+async function loadAutotrader() {
+    const d = await api('/api/pm/status');
+    if (!d) return;
+
+    atEnabled = d.enabled || false;
+    const statusEl = $('at-status');
+    const btnEl = $('at-btn');
+
+    if (atEnabled) {
+        statusEl.innerHTML = '<span class="dot dot-on"></span> Autotrader ON';
+        btnEl.textContent = 'Disable';
+        btnEl.className = 'btn btn-stop';
+    } else {
+        statusEl.innerHTML = '<span class="dot dot-off"></span> Autotrader OFF';
+        btnEl.textContent = 'Enable';
+        btnEl.className = 'btn btn-go';
+    }
+
+    // Connection status
+    const dh = d.data_health || {};
+    const theta = dh.thetadata || {};
+    if (theta.status === 'healthy') {
+        $('h-conn').innerHTML = '<span class="dot dot-on"></span>THETA';
+        txt('m-src', 'ThetaData');
+    } else if (theta.status === 'degraded') {
+        $('h-conn').innerHTML = '<span class="dot dot-off" style="background:var(--yellow)"></span>DEGRADED';
+        txt('m-src', 'Degraded');
+    }
+
+    // Decisions table
+    const decs = d.decisions || [];
+    const tb = $('tb-dec');
+    const em = $('em-dec');
+
+    if (!decs.length) { tb.innerHTML=''; em.style.display='flex'; return; }
+    em.style.display='none';
+
+    tb.innerHTML = decs.slice(0, 50).map(d => {
+        const time = fmtTime(d.timestamp);
+        const act = d.action || '';
+        let actCls = 'dim';
+        if (act.includes('ENTERED')) actCls = 'pos';
+        else if (act.includes('EXITED')) actCls = '';
+        else if (act === 'REJECTED') actCls = 'neg';
+        else if (act === 'SKIPPED') actCls = 'dim';
+
+        return `<tr>
+            <td class="dim">${time}</td>
+            <td class="${actCls}" style="font-weight:700">${act}</td>
+            <td>${d.reason || ''}</td>
+            <td>${d.signal_tier ? '<span class="badge b-'+d.signal_tier.toLowerCase()+'">'+d.signal_tier+'</span>' : '--'}</td>
+            <td class="r">${d.signal_confidence != null ? (d.signal_confidence*100).toFixed(1)+'%' : '--'}</td>
+            <td>${d.signal_direction || '--'}</td>
+        </tr>`;
+    }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HISTORY TABLE
+// ═══════════════════════════════════════════════════════════════
+async function loadHistory() {
+    const data = await api('/api/signals/trades?limit=100');
+    if (!data) return;
+
+    const trades = Array.isArray(data) ? data : (data.trades || []);
+    const tb = $('tb-hist');
+    const em = $('em-hist');
+
+    if (!trades.length) { tb.innerHTML=''; em.style.display='flex'; return; }
+    em.style.display='none';
+
+    tb.innerHTML = trades.map(t => {
+        const pnlV = t.pnl || 0;
+        const pnlP = t.pnl_pct || 0;
+        const pc = pnlCls(pnlV);
+        const exitDate = t.exit_time ? fmtDate(t.exit_time) + ' ' + fmtTime(t.exit_time) : '--';
+        let holdMin = '--';
+        if (t.entry_time && t.exit_time) {
+            holdMin = ((new Date(t.exit_time) - new Date(t.entry_time)) / 60000).toFixed(0);
+        }
+
+        return `<tr>
+            <td>${exitDate}</td>
+            <td class="dim">${(t.id||'').slice(0,6)}</td>
+            <td><span class="badge ${(t.option_type||'').includes('call')?'b-call':'b-put'}">${(t.option_type||'').toUpperCase()}</span></td>
+            <td>$${(t.strike||0).toFixed(0)}</td>
+            <td><span class="badge b-${(t.tier||'').toLowerCase()}">${t.tier||'--'}</span></td>
+            <td class="r">$${(t.entry_price||0).toFixed(2)}</td>
+            <td class="r">$${(t.exit_price||0).toFixed(2)}</td>
+            <td class="r ${pc}" style="font-weight:700">${pnl$(pnlV)}</td>
+            <td class="r ${pc}">${(pnlP*100).toFixed(1)}%</td>
+            <td class="r">${holdMin}m</td>
+            <td>${t.exit_reason||'--'}</td>
+            <td>${t.grade||'--'}</td>
+            <td class="dim">${t.mode||'sim'}</td>
+        </tr>`;
+    }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PERFORMANCE
+// ═══════════════════════════════════════════════════════════════
+async function loadPerf() {
+    const data = await api('/api/signals/scorecard');
+    if (!data) return;
+    const s = data.scorecard || data || {};
+
+    txt('pv-total', s.trades || 0);
+    txt('pv-wr', (s.win_rate||0).toFixed(1)+'%');
+    txt('pv-net', pnl$(s.net_pnl));
+    cls('pv-net', 'pc-val '+pnlCls(s.net_pnl));
+    txt('pv-pf', (s.profit_factor||0).toFixed(2));
+    txt('pv-aw', pnl$(s.avg_win));
+    txt('pv-al', pnl$(s.avg_loss));
+    txt('pv-ex', pnl$(s.expectancy));
+    txt('pv-dd', pnl$(s.max_drawdown));
+    txt('pv-sh', (s.sharpe||0).toFixed(2));
+    txt('pv-hold', (s.avg_hold_minutes||0).toFixed(0)+'m');
+    txt('pv-wl', (s.wins||0)+' / '+(s.losses||0));
+    txt('h-wr', (s.win_rate||0).toFixed(0)+'%');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PRICE + COUNTDOWN
+// ═══════════════════════════════════════════════════════════════
+async function loadPrice() {
+    const d = await api('/api/market?symbol=SPY');
+    if (d && d.spy) {
+        txt('h-price', '$'+(d.spy.price||d.spy.last||0).toFixed(2));
+    }
+}
+
+function tickCountdown() {
+    const now = new Date();
+    // Target: 4:00 PM local (approximate market close)
+    const close = new Date(); close.setHours(16,0,0,0);
+    const ms = close - now;
+    const el = $('h-exp');
+
+    if (ms <= 0) { txt('h-exp','EXPIRED'); el.className='countdown cd-danger'; return; }
+
+    const h = Math.floor(ms/3600000);
+    const m = Math.floor((ms%3600000)/60000);
+    const s = Math.floor((ms%60000)/1000);
+    txt('h-exp', h+'h '+String(m).padStart(2,'0')+'m '+String(s).padStart(2,'0')+'s');
+
+    if (h >= 2) el.className='countdown cd-ok';
+    else if (m >= 30 || h >= 1) el.className='countdown cd-warn';
+    else el.className='countdown cd-danger';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════
+async function toggleAT() {
+    const ep = atEnabled ? '/api/pm/disable' : '/api/pm/enable';
+    const result = await api(ep, {method:'POST'});
+    if (result === null) {
+        toast(`Autotrader ${atEnabled ? 'disable' : 'enable'} failed — server error`, 'error');
+        return;
+    }
+    toast(`Autotrader ${atEnabled ? 'disabled' : 'enabled'}`, atEnabled ? 'info' : 'success');
+    await loadAutotrader();
+}
+
+async function cfgPM(data) {
+    const result = await api('/api/pm/config', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+    });
+    if (result === null) toast('Config update failed', 'error');
+}
+
+async function exitPos(id) {
+    if (!confirm('Exit position '+id.slice(0,6)+'?')) return;
+    const result = await api('/api/pm/exit', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({trade_id:id})
+    });
+    if (result === null) {
+        toast('Exit order failed — check server logs', 'error');
+        return;
+    }
+    toast('Exit order sent', 'success');
+    await loadPositions();
+}
+
+async function closeAll() {
+    if (!confirm('Close ALL positions?')) return;
+    const result = await api('/api/pm/close-all', {method:'POST'});
+    if (result === null) {
+        toast('Close-all failed — check server logs', 'error');
+        return;
+    }
+    toast('Close-all order sent', 'success');
+    await loadPositions();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REFRESH LOOPS
+// ═══════════════════════════════════════════════════════════════
+async function fastLoop() {
+    await Promise.all([loadPositions(), loadAutotrader(), loadPrice()]);
+}
+
+async function slowLoop() {
+    await Promise.all([loadSignals(), loadHistory(), loadPerf()]);
+}
+
+setInterval(fastLoop, 3000);    // Positions + autotrader every 3s
+setInterval(slowLoop, 8000);    // Signals + history + perf every 8s
+setInterval(tickCountdown, 1000);
+
+// Initial load
+fastLoop();
+slowLoop();
+tickCountdown();
+
+console.log('[Dashboard] 0DTE Trading Dashboard v2 initialized');
+</script>
+</body>
+</html>
