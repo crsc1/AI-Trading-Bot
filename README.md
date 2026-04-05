@@ -49,17 +49,12 @@ python run_dashboard.py
 │   ├── api_routes.py   # REST endpoints (signals, trades, P&L, market)
 │   ├── signal_api.py   # Signal engine API bridge
 │   ├── pm_api.py       # Position manager API bridge
+│   ├── agents/         # AI agent layer (autonomous trader, LLM validator)
 │   └── static/         # Frontend (flow-dashboard.html + CSS/JS)
-├── engine/             # Core trading logic
-│   ├── confluence.py   # Multi-factor signal scoring
-│   ├── signal_engine.py# Signal generation + filtering
-│   └── paper_trader.py # Alpaca paper execution
-├── agents/             # AI agent layer
-│   ├── autonomous_trader.py  # Autonomous trade orchestrator
-│   └── llm_validator.py      # Claude-powered trade validation
-├── broker/             # Alpaca broker integration
+├── engine/             # Core trading logic (confluence, signals, risk)
 ├── config/             # Settings, environment config
 ├── data/               # ThetaData + market data providers
+├── docs/               # Architecture, setup guides, references
 ├── flow-engine/        # Rust WebSocket order flow engine
 ├── strategies/         # Trading strategy implementations
 ├── tests/              # Pytest suite
@@ -81,7 +76,7 @@ python run_dashboard.py
 
 **Rust flow engine** — High-performance WebSocket server for real-time order flow (sweeps, blocks, absorption detection, CVD). Sub-200ms latency.
 
-**Dashboard** — 5-tab professional UI: Candles (chart + sidebar widgets), Positions (open/closed/P&L), Combined (flow + chart overlay), Options Board (chain + greeks), AI Agent (autonomous trader controls).
+**Dashboard** — 8-tab professional UI: Charts, Flow, Candles, Options, Signals, AI Agent, Journal, and Settings. Dark-themed with real-time data, order flow visualization, and trade management.
 
 **Dynamic exit engine** — Partial profit-taking, trailing stops, time-based exits tuned for 0DTE theta decay.
 
@@ -101,6 +96,8 @@ pytest tests/ -v
 cd flow-engine && cargo run --release
 ```
 
+API docs are auto-generated at [localhost:8000/docs](http://localhost:8000/docs) when the server is running.
+
 ## Security
 
 - `.env` is gitignored — never commit API keys
@@ -114,10 +111,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
 
 | Doc | Purpose |
 |-----|---------|
-| `ARCHITECTURE.md` | System design and component interactions |
-| `MONEY_MACHINE_PLAN.md` | 12-step phased development roadmap |
-| `DASHBOARD_SETUP.md` | Dashboard integration guide |
-| `INSTALLATION.md` | Detailed setup instructions |
+| `docs/ARCHITECTURE.md` | System design and component interactions |
+| `docs/INSTALLATION.md` | Detailed setup instructions |
+| `docs/DASHBOARD_SETUP.md` | Dashboard integration guide |
 | `CONTRIBUTING.md` | Development workflow and standards |
 
 ## License

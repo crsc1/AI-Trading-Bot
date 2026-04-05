@@ -3,9 +3,9 @@ FastAPI application for SPX/SPY Options Trading Bot Dashboard
 Provides REST API, WebSocket real-time updates, and serves the web UI
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 import logging
@@ -56,6 +56,13 @@ app = FastAPI(
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATE_DIR = BASE_DIR / "static"
+
+# Custom 404 — redirect to dashboard instead of raw JSON
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return RedirectResponse(url="/")
 
 # Debug logging middleware (must be added BEFORE CORS so it wraps all requests)
 app.add_middleware(DebugLoggingMiddleware)

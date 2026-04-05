@@ -452,7 +452,7 @@ html,body{font-family:var(--font-mono);background:var(--bg0);color:var(--txt);fo
 
 /* ===== OUTER SHELL (left nav + main area) ===== */
 .app-shell{display:flex;height:100vh;overflow:hidden}
-.app-main{display:flex;flex-direction:column;flex:1;min-width:0;margin-left:var(--left-nav-w)}
+.app-main{display:flex;flex-direction:column;flex:1;min-width:0;margin-left:var(--left-nav-w);height:100vh;overflow:hidden}
 
 /* ===== UI GLOBAL: TOAST ===== */
 .ui-toast-container{position:fixed;top:44px;right:var(--space-xl);z-index:var(--z-toast);display:flex;flex-direction:column;gap:var(--space-sm);pointer-events:none}
@@ -5834,7 +5834,8 @@ function connectWS(){
 
   S.ws.onopen = () => {
     S.connected = true;
-    S._engineRetryMs = 3000; // Reset backoff on successful connect
+    S._engineRetryMs = 3000;
+    S._engineRetries = 0; // Reset backoff + retries on successful connect
     document.getElementById('dotEng').className = 'dot on';
     // Don't stop REST polling yet — verify engine is actually delivering ticks.
     // If no ticks arrive within 10s, the engine has stale data → fallback to REST.
@@ -5859,8 +5860,13 @@ function connectWS(){
   S.ws.onclose = () => {
     S.connected = false;
     document.getElementById('dotEng').className = 'dot off';
-    // Exponential backoff: 3s → 6s → 12s → max 30s to avoid spamming when engine is down
-    S._engineRetryMs = Math.min((S._engineRetryMs || 3000) * 2, 30000);
+    // Exponential backoff: 3s → 6s → 12s → … max 60s, stop after 10 attempts
+    S._engineRetries = (S._engineRetries || 0) + 1;
+    if(S._engineRetries > 10){
+      console.warn('Engine WS: gave up after 10 retries. Restart flow engine and reload page.');
+      return;
+    }
+    S._engineRetryMs = Math.min((S._engineRetryMs || 3000) * 2, 60000);
     setTimeout(connectWS, S._engineRetryMs);
   };
 
@@ -5971,6 +5977,8 @@ function connectDashboardWS(){
 
   dashWs.onopen = () => {
     _streamState.connected = true;
+    _streamState._retryMs = 3000;
+    _streamState._retries = 0;
     console.log('Dashboard WS connected (Alpaca stream relay)');
   };
 
@@ -5983,7 +5991,13 @@ function connectDashboardWS(){
 
   dashWs.onclose = () => {
     _streamState.connected = false;
-    setTimeout(connectDashboardWS, 5000);
+    _streamState._retries = (_streamState._retries || 0) + 1;
+    if(_streamState._retries > 10){
+      console.warn('Dashboard WS: gave up after 10 retries.');
+      return;
+    }
+    _streamState._retryMs = Math.min((_streamState._retryMs || 3000) * 2, 60000);
+    setTimeout(connectDashboardWS, _streamState._retryMs);
   };
 
   dashWs.onerror = () => {};
