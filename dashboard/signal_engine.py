@@ -132,6 +132,7 @@ class SignalEngine:
         bars_daily: Optional[List[Dict]] = None,
         chain: Optional[Dict] = None,
         account_balance: float = ACCOUNT_BALANCE,
+        trades_source: str = "options_flow",
     ) -> Dict[str, Any]:
         """
         Full analysis pipeline: levels -> flow -> context -> GEX/DEX -> confluence -> signal.
@@ -281,6 +282,7 @@ class SignalEngine:
                 agent_verdicts=agent_verdicts,
                 breadth_data=breadth_data,
                 vol_data=vol_data,
+                trades_source=trades_source,
             )
 
             # ── 6. If no trade, return early ──

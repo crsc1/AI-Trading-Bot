@@ -173,35 +173,49 @@ def score_pcr(
     signal_direction: str,
 ) -> Tuple[float, str]:
     """
-    Score put/call ratio as a contrarian indicator.
+    Score put/call ratio for 0DTE SPY options.
 
-    Extreme fear (high PCR) + bullish signal = contrarian buy
-    Extreme greed (low PCR) + bearish signal = contrarian sell
+    IMPORTANT: 0DTE SPY PCR is structurally >1.0 because of institutional
+    put hedging. Using absolute PCR as a contrarian indicator is wrong for
+    0DTE. Instead, we score the SKEW between volume and OI ratios:
+      - PCR_volume >> PCR_OI means NEW put buying (bearish flow today)
+      - PCR_volume << PCR_OI means NEW call buying (bullish flow today)
+    This measures TODAY's flow relative to existing positioning.
 
     Returns:
-        (score, explanation) where score is -0.2 to 0.5
+        (score, explanation) where score is -0.3 to 0.5
     """
-    pcr = analytics.pc_ratio_volume
+    pcr_vol = analytics.pc_ratio_volume
+    pcr_oi = analytics.pc_ratio_oi
+
+    # If we don't have OI data, PCR is unreliable for 0DTE
+    if pcr_oi <= 0 or pcr_vol <= 0:
+        return 0.0, f"PCR {pcr_vol:.2f} (insufficient data for 0DTE scoring)"
+
+    # Flow skew: how different is today's volume ratio from the OI baseline?
+    # Positive skew = more put buying today than baseline = bearish flow
+    # Negative skew = more call buying today than baseline = bullish flow
+    skew = pcr_vol - pcr_oi
 
     if signal_direction == "bullish":
-        if pcr > 1.2:
-            return 0.5, f"PCR {pcr:.2f} (extreme fear) — contrarian bullish"
-        elif pcr > 1.0:
-            return 0.2, f"PCR {pcr:.2f} (elevated fear) — slight bullish edge"
-        elif pcr < 0.7:
-            return -0.2, f"PCR {pcr:.2f} (extreme greed) — crowded long, caution"
-        return 0.0, f"PCR {pcr:.2f} (neutral)"
+        if skew < -0.3:
+            # Strong call buying today vs OI baseline — confirms bullish
+            return 0.4, f"PCR skew {skew:+.2f} (vol={pcr_vol:.2f} vs OI={pcr_oi:.2f}) — new call flow confirms bullish"
+        elif skew > 0.3:
+            # Strong put buying today — opposes bullish signal
+            return -0.3, f"PCR skew {skew:+.2f} (vol={pcr_vol:.2f} vs OI={pcr_oi:.2f}) — put flow opposes bullish"
+        return 0.0, f"PCR skew {skew:+.2f} (neutral flow)"
 
     elif signal_direction == "bearish":
-        if pcr < 0.7:
-            return 0.5, f"PCR {pcr:.2f} (extreme greed) — contrarian bearish"
-        elif pcr < 0.85:
-            return 0.2, f"PCR {pcr:.2f} (low fear) — slight bearish edge"
-        elif pcr > 1.2:
-            return -0.2, f"PCR {pcr:.2f} (extreme fear) — crowded short, caution"
-        return 0.0, f"PCR {pcr:.2f} (neutral)"
+        if skew > 0.3:
+            # Strong put buying today — confirms bearish
+            return 0.4, f"PCR skew {skew:+.2f} (vol={pcr_vol:.2f} vs OI={pcr_oi:.2f}) — new put flow confirms bearish"
+        elif skew < -0.3:
+            # Strong call buying today — opposes bearish signal
+            return -0.3, f"PCR skew {skew:+.2f} (vol={pcr_vol:.2f} vs OI={pcr_oi:.2f}) — call flow opposes bearish"
+        return 0.0, f"PCR skew {skew:+.2f} (neutral flow)"
 
-    return 0.0, f"PCR {pcr:.2f}"
+    return 0.0, f"PCR {pcr_vol:.2f}"
 
 
 # ============================================================================
@@ -216,38 +230,50 @@ def score_max_pain(
 ) -> Tuple[float, str]:
     """
     Score max pain gravitational pull.
-    Max pain is strongest on expiration day (0DTE).
+
+    Max pain is strongest on expiration day (0DTE). Historical analysis shows
+    max pain opposition is correct 61% of the time. When max pain opposes the
+    signal direction, it should be a strong veto (increased from -0.3 to -1.0).
 
     Returns:
-        (score, explanation) where score is -0.3 to 0.5
+        (score, explanation) where score is -1.0 to 0.5
     """
     mp = analytics.max_pain
     if mp <= 0 or spot <= 0:
         return 0.0, "No max pain data"
 
-    # Max pain pull is less relevant for non-0DTE
     if not is_0dte:
         return 0.0, f"Max pain ${mp:.0f} (non-0DTE, less relevant)"
 
     dist = spot - mp  # Positive = above max pain, negative = below
+    abs_dist = abs(dist)
+
+    # Scale opposition strength by distance from max pain
+    # Farther from max pain = stronger gravitational pull back
+    if abs_dist < 0.50:
+        # Near max pain — weak signal either way
+        return 0.1, f"Max pain ${mp:.0f}, price ${spot:.2f} near — weak pull"
 
     if signal_direction == "bullish":
-        if dist < -0.50:
-            # Below max pain, bullish signal pushes toward it → favorable
-            return 0.5, f"Max pain ${mp:.0f}, price ${spot:.2f} below — gravitational pull up"
-        elif dist > 1.0:
-            # Above max pain, bullish signal pushes further away → unfavorable
-            return -0.3, f"Max pain ${mp:.0f}, price ${spot:.2f} above — gravitational pull down"
-        return 0.1, f"Max pain ${mp:.0f}, price near — neutral pull"
+        if dist < 0:
+            # Below max pain, bullish pushes toward it — favorable
+            return 0.5, f"Max pain ${mp:.0f}, price ${spot:.2f} below — pull UP supports bullish"
+        else:
+            # Above max pain, bullish pushes away — strong opposition
+            # 61% correct when opposing. Scale by distance.
+            opp_strength = min(1.0, 0.5 + abs_dist * 0.05)
+            return -opp_strength, f"Max pain ${mp:.0f}, price ${spot:.2f} ${abs_dist:.1f} above — gravitational pull DOWN opposes bullish"
 
     elif signal_direction == "bearish":
-        if dist > 0.50:
-            # Above max pain, bearish signal pushes toward it → favorable
-            return 0.5, f"Max pain ${mp:.0f}, price ${spot:.2f} above — gravitational pull down"
-        elif dist < -1.0:
-            # Below max pain, bearish signal pushes further away → unfavorable
-            return -0.3, f"Max pain ${mp:.0f}, price ${spot:.2f} below — gravitational pull up"
-        return 0.1, f"Max pain ${mp:.0f}, price near — neutral pull"
+        if dist > 0:
+            # Above max pain, bearish pushes toward it — favorable
+            return 0.5, f"Max pain ${mp:.0f}, price ${spot:.2f} above — pull DOWN supports bearish"
+        else:
+            # Below max pain, bearish pushes away — strong opposition
+            opp_strength = min(1.0, 0.5 + abs_dist * 0.05)
+            return -opp_strength, f"Max pain ${mp:.0f}, price ${spot:.2f} ${abs_dist:.1f} below — gravitational pull UP opposes bearish"
+
+    return 0.0, f"Max pain ${mp:.0f}"
 
     return 0.0, f"Max pain ${mp:.0f}"
 

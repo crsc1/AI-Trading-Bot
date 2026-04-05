@@ -532,10 +532,12 @@ def get_pending_outcomes(max_age_hours: int = 2) -> List[Dict]:
     """
     Return outcome rows that still need a 15-min or 30-min check.
     Filters to signals created within max_age_hours (stale data is useless).
+    Includes entry_price and strike for dynamic profit threshold calculation.
     """
     conn = _get_conn()
     rows = conn.execute("""
-        SELECT o.*, s.factors FROM signal_outcomes o
+        SELECT o.*, s.factors, s.entry_price, s.strike, s.target_price, s.stop_price
+        FROM signal_outcomes o
         JOIN signals s ON s.id = o.signal_id
         WHERE (o.checked_15min = 0 OR o.checked_30min = 0)
           AND o.created_at > datetime('now', ?)

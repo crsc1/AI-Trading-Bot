@@ -168,7 +168,7 @@ class Config:
 
         # WebSocket streaming (ThetaData Terminal — Standard plan)
         self.THETA_WS_URL: str = _env("THETA_WS_URL", "ws://localhost:25520/v1/events")
-        self.THETA_STREAM_ENABLED: bool = _env_bool("THETA_STREAM_ENABLED", False)
+        self.THETA_STREAM_ENABLED: bool = _env_bool("THETA_STREAM_ENABLED", True)
 
         # Timeouts and retries
         self.THETA_REQUEST_TIMEOUT: float = _env_float("THETA_REQUEST_TIMEOUT", 8.0)

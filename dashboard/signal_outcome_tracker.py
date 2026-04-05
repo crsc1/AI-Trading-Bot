@@ -42,7 +42,10 @@ logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CHECK_INTERVAL_SECONDS = 300            # Run every 5 minutes
-MIN_MOVE_PCT = 0.05                     # Moves < 0.05% are noise — don't call correct/wrong
+MIN_PROFIT_PCT = 20.0                   # Minimum 20% option profit to count as "correct"
+SPREAD_COST = 0.05                      # Typical 0DTE bid/ask spread ($0.05)
+COMMISSION_PER_CONTRACT = 0.65          # Broker commission per contract
+FALLBACK_MIN_MOVE_PCT = 0.15           # If no option data: 0.15% SPY move (~$0.82)
 CHECKPOINT_15_MIN = 15
 CHECKPOINT_30_MIN = 30
 
@@ -62,30 +65,87 @@ def _is_market_hours() -> bool:
     return dt_time(9, 30) <= t <= dt_time(16, 30)  # slight buffer after close
 
 
-def _direction_correct(signal_direction: str, spy_at_signal: float, spy_now: float) -> Optional[int]:
+def _compute_min_spy_move(entry_price: float, spy_price: float) -> float:
     """
-    Determine if the signal's direction call was correct.
+    Compute the minimum SPY move (%) needed for a 0DTE option trade to
+    achieve MIN_PROFIT_PCT (20%) profit after spread and commission.
+
+    Math:
+      Option cost  = entry_price (ask) + spread_cost + commission
+      Target value = cost × (1 + MIN_PROFIT_PCT/100)
+      Option gain  = target_value - cost
+      SPY move     = option_gain / delta (assume ~0.35 for 0DTE near-ATM)
+      SPY move %   = spy_move / spy_price × 100
+
+    Example: $1.00 entry, $0.05 spread, $0.0065 commission
+      Cost = $1.0565, Target = $1.2678, Gain needed = $0.2113
+      SPY move = $0.2113 / 0.35 = $0.604
+      SPY move % = 0.604 / 550 × 100 = 0.11%
+    """
+    if entry_price <= 0 or spy_price <= 0:
+        return FALLBACK_MIN_MOVE_PCT
+
+    total_cost = entry_price + SPREAD_COST + (COMMISSION_PER_CONTRACT / 100)
+    target_value = total_cost * (1 + MIN_PROFIT_PCT / 100)
+    option_gain_needed = target_value - entry_price  # gain over entry (not cost)
+
+    # Approximate delta: cheaper options have lower delta, pricier = higher
+    # $0.30 option ≈ 0.15 delta, $1.00 ≈ 0.30, $3.00 ≈ 0.50
+    estimated_delta = min(0.55, max(0.10, entry_price * 0.15))
+
+    spy_move_dollars = option_gain_needed / estimated_delta if estimated_delta > 0 else 5.0
+    min_move_pct = (spy_move_dollars / spy_price) * 100
+
+    # Floor: at least 0.08% to filter pure noise
+    return max(0.08, min(min_move_pct, 1.0))
+
+
+def _direction_correct(
+    signal_direction: str,
+    spy_at_signal: float,
+    spy_now: float,
+    entry_price: float = 0.0,
+) -> Optional[int]:
+    """
+    Determine if the signal's direction call was profitable.
+
+    Uses dynamic threshold based on actual option entry price: how much
+    does SPY need to move for this specific option to gain MIN_PROFIT_PCT
+    (20%) after spread and commission?
 
     Returns:
-        1     — direction was correct (move exceeded MIN_MOVE_PCT threshold)
-        0     — direction was wrong
-        None  — move was too small to call (ambiguous)
+        1     — direction correct AND move large enough to profit
+        0     — direction wrong OR move too small to cover costs
+        None  — move was too small to evaluate (pure noise)
     """
     if spy_at_signal <= 0 or spy_now <= 0:
         return None
 
     move_pct = (spy_now - spy_at_signal) / spy_at_signal * 100
 
-    if abs(move_pct) < MIN_MOVE_PCT:
-        return None  # Noise — can't tell
+    # Dynamic threshold from option pricing, or fallback
+    min_move = _compute_min_spy_move(entry_price, spy_at_signal)
+
+    # Noise gate: moves below 40% of the profit threshold are ambiguous
+    noise_gate = min_move * 0.4
+    if abs(move_pct) < noise_gate:
+        return None
 
     direction_upper = signal_direction.upper()
-    if "CALL" in direction_upper or "BUY" in direction_upper:
-        return 1 if move_pct > 0 else 0
-    elif "PUT" in direction_upper or "SELL" in direction_upper:
-        return 1 if move_pct < 0 else 0
+    if "CALL" in direction_upper:
+        if move_pct >= min_move:
+            return 1  # Profitable call
+        elif move_pct <= -noise_gate:
+            return 0  # Wrong direction
+        return None  # Right direction but not enough to profit
+    elif "PUT" in direction_upper:
+        if move_pct <= -min_move:
+            return 1  # Profitable put
+        elif move_pct >= noise_gate:
+            return 0  # Wrong direction
+        return None  # Right direction but not enough to profit
 
-    return None  # Unknown direction format
+    return None
 
 
 class SignalOutcomeTracker:
@@ -171,6 +231,7 @@ class SignalOutcomeTracker:
                 signal_id = row["signal_id"]
                 direction = row["direction"]
                 factors_json = row.get("factors")
+                entry_price = row.get("entry_price") or 0.0
 
                 # ── 15-minute checkpoint ───────────────────────────────────
                 if age_minutes >= CHECKPOINT_15_MIN and not row["checked_15min"]:
@@ -178,7 +239,7 @@ class SignalOutcomeTracker:
                         (spy_now - spy_at_signal) / spy_at_signal * 100
                         if spy_at_signal > 0 else 0
                     )
-                    correct_15 = _direction_correct(direction, spy_at_signal, spy_now)
+                    correct_15 = _direction_correct(direction, spy_at_signal, spy_now, entry_price)
                     update_outcome_checkpoint(
                         signal_id, 15, spy_now, correct_15, move_pct
                     )
@@ -195,7 +256,7 @@ class SignalOutcomeTracker:
                         (spy_now - spy_at_signal) / spy_at_signal * 100
                         if spy_at_signal > 0 else 0
                     )
-                    correct_30 = _direction_correct(direction, spy_at_signal, spy_now)
+                    correct_30 = _direction_correct(direction, spy_at_signal, spy_now, entry_price)
                     update_outcome_checkpoint(
                         signal_id, 30, spy_now, correct_30, move_pct
                     )

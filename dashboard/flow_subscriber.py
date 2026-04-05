@@ -35,6 +35,10 @@ class FlowSubscriber:
     Connects to ws://localhost:8081/ws (Rust flow engine) and fires
     fast_evaluate() on PositionManager when a high-conviction event
     cluster is detected.
+
+    Also accumulates real tick data and flow events into a rolling buffer
+    that the signal pipeline can query via get_flow_state() to build
+    an OrderFlowState from actual market data instead of synthetic trades.
     """
 
     def __init__(self):
@@ -50,6 +54,20 @@ class FlowSubscriber:
         self._last_trigger_ts: float = 0.0
         self._trigger_count = 0
         self._connected = False
+
+        # ── Real flow data accumulation (for confluence scoring) ──
+        # Rolling buffer of real classified ticks from Rust engine (last 5 min)
+        self._ticks: deque = deque(maxlen=10000)
+        # Latest footprint snapshot
+        self._latest_footprint: Optional[dict] = None
+        # Latest CVD values
+        self._latest_cvd: Optional[dict] = None
+        # Rolling imbalance events
+        self._imbalances: deque = deque(maxlen=100)
+        # Large trade events
+        self._large_trades: deque = deque(maxlen=50)
+        # Absorption events (with held status)
+        self._absorption_events: deque = deque(maxlen=50)
 
     # ── Window helpers ────────────────────────────────────────────────────
 
@@ -94,11 +112,37 @@ class FlowSubscriber:
     def _handle_event(self, event: dict) -> Optional[dict]:
         """
         Route one deserialized FlowEvent.
-        Returns a trigger context dict if a fast condition fires, else None.
+        Accumulates all events for flow state. Returns a trigger context dict
+        if a fast condition fires, else None.
         """
         etype = event.get("type")
         now = time.monotonic()
 
+        # ── Accumulate all events for real flow state ──
+        if etype == "tick":
+            self._ticks.append({
+                "price": event.get("price", 0),
+                "size": event.get("size", 0),
+                "side": event.get("side", "unknown"),
+                "ts": now,
+            })
+
+        elif etype == "footprint":
+            self._latest_footprint = event
+
+        elif etype == "cvd":
+            self._latest_cvd = event
+
+        elif etype == "imbalance":
+            self._imbalances.append({**event, "_ts": now})
+
+        elif etype == "large_trade":
+            self._large_trades.append({**event, "_ts": now})
+
+        elif etype == "absorption":
+            self._absorption_events.append({**event, "_ts": now})
+
+        # ── Fast-path trigger detection (existing logic) ──
         if etype == "sweep":
             side = event.get("side", "")
             self._sweeps.append((now, side))
@@ -132,6 +176,80 @@ class FlowSubscriber:
             }
 
         return None
+
+    # ── Real flow state for confluence scoring ────────────────────────────
+
+    def get_real_trades(self, window_seconds: int = 300) -> list:
+        """
+        Return real classified ticks from the Rust engine for the last N seconds.
+        Format matches what analyze_order_flow() expects: {price, size, side, timestamp}.
+        Returns empty list if no real data available (Rust engine not connected).
+        """
+        if not self._connected or not self._ticks:
+            return []
+
+        cutoff = time.monotonic() - window_seconds
+        trades = []
+        for tick in self._ticks:
+            if tick["ts"] >= cutoff:
+                trades.append({
+                    "price": tick["price"],
+                    "size": tick["size"],
+                    "side": tick["side"],
+                    "timestamp": str(tick["ts"]),
+                    "exchange": "RUST_ENGINE",
+                })
+        return trades
+
+    def get_flow_context(self) -> Optional[dict]:
+        """
+        Return structured flow context from the Rust engine for enriching signals.
+        Includes latest CVD, footprint summary, recent imbalances, absorptions.
+        Returns None if Rust engine is not connected or no data.
+        """
+        if not self._connected:
+            return None
+
+        now = time.monotonic()
+        window = 300  # 5 minutes
+
+        # Count recent imbalances by side
+        recent_imbalances = [
+            e for e in self._imbalances if e.get("_ts", 0) > now - window
+        ]
+        imb_buy = sum(1 for e in recent_imbalances if e.get("side") == "buy")
+        imb_sell = sum(1 for e in recent_imbalances if e.get("side") == "sell")
+
+        # Recent absorptions (held only)
+        recent_absorptions = [
+            e for e in self._absorption_events
+            if e.get("_ts", 0) > now - window and e.get("held", False)
+        ]
+        abs_buy = sum(1 for e in recent_absorptions if e.get("side") == "bid")
+        abs_sell = sum(1 for e in recent_absorptions if e.get("side") == "ask")
+
+        # Recent large trades
+        recent_large = [
+            e for e in self._large_trades if e.get("_ts", 0) > now - window
+        ]
+        large_buy = sum(e.get("size", 0) for e in recent_large if e.get("side") == "buy")
+        large_sell = sum(e.get("size", 0) for e in recent_large if e.get("side") == "sell")
+
+        return {
+            "cvd": self._latest_cvd,
+            "footprint": self._latest_footprint,
+            "imbalance_buy_count": imb_buy,
+            "imbalance_sell_count": imb_sell,
+            "imbalance_stacked_max": max(
+                (e.get("stacked", 0) for e in recent_imbalances), default=0
+            ),
+            "absorption_bid_count": abs_buy,
+            "absorption_ask_count": abs_sell,
+            "large_trade_buy_vol": large_buy,
+            "large_trade_sell_vol": large_sell,
+            "tick_count": len(self._ticks),
+            "connected": True,
+        }
 
     # ── Main loop ─────────────────────────────────────────────────────────
 

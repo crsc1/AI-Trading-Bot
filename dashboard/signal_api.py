@@ -401,58 +401,6 @@ async def _fetch_live_quote(symbol: str = "SPY") -> Dict:
     return result
 
 
-async def _build_options_flow_trades(
-    calls: list, puts: list, underlying_price: float
-) -> list:
-    """
-    Convert options chain volume into synthetic trade events for the flow engine.
-
-    Call volume  → buy pressure  (market is paying for upside exposure)
-    Put volume   → sell pressure (market is paying for downside protection)
-
-    Each contract produces one synthetic trade sized by dollar premium flow:
-      size = volume × mid_price  (so expensive/ATM contracts count more than far OTM)
-
-    The underlying_price is used as the trade price so that price_trend
-    in analyze_order_flow() reflects the actual underlying, not option premiums.
-    We sort calls and puts alternately to create a realistic sequence.
-    """
-    entries = []
-    for c in calls:
-        vol = c.get("volume", 0) or 0
-        mid = c.get("mid", 0) or ((c.get("bid", 0) or 0) + (c.get("ask", 0) or 0)) / 2
-        if vol > 0:
-            # Weight by premium: 1 contract at $3.00 mid = 3x the flow of $1.00 mid
-            weighted_size = max(1, int(vol * max(0.01, mid)))
-            entries.append(("buy", weighted_size))
-
-    for p in puts:
-        vol = p.get("volume", 0) or 0
-        mid = p.get("mid", 0) or ((p.get("bid", 0) or 0) + (p.get("ask", 0) or 0)) / 2
-        if vol > 0:
-            weighted_size = max(1, int(vol * max(0.01, mid)))
-            entries.append(("sell", weighted_size))
-
-    if not entries:
-        return []
-
-    # Sort: interleave buys and sells in proportion (preserves flow ratio, creates sequence)
-    buys = sorted([e for e in entries if e[0] == "buy"], key=lambda x: -x[1])
-    sells = sorted([e for e in entries if e[0] == "sell"], key=lambda x: -x[1])
-    interleaved = []
-    bi, si = 0, 0
-    while bi < len(buys) or si < len(sells):
-        if bi < len(buys):
-            interleaved.append(buys[bi]); bi += 1
-        if si < len(sells):
-            interleaved.append(sells[si]); si += 1
-
-    price = underlying_price if underlying_price > 0 else 550.0
-    return [
-        {"timestamp": "", "price": price, "size": size, "side": side, "exchange": "OPRA"}
-        for side, size in interleaved
-    ]
-
 
 def _is_market_hours() -> bool:
     """
@@ -485,122 +433,41 @@ async def _run_analysis_cycle():
         if not _is_market_hours():
             return
 
-        # Track data source for display in the UI
-        _trades_source = "options_flow"
-
-        # ── Step 1: Get quote first (needed for options flow trade sizing) ──
+        # ── Step 1: Get quote ──
         quote = await _fetch_live_quote("SPY")
         if not quote or not quote.get("last"):
             logger.info("[SignalLoop] Waiting — no valid quote yet")
             return
         underlying_price = quote.get("last", 0)
 
-        # ── Step 2: PRIMARY — Options flow from ThetaData (OPTION.STANDARD) ──
-        # We are buying/selling options, so options flow IS the signal.
-        # Call volume = bullish premium flow, Put volume = bearish premium flow.
-        # No stock subscription needed — this uses what we already pay for.
+        # ── Step 2: Get REAL tick data from Rust flow engine ──
+        # The Rust engine receives ThetaData WebSocket ticks, classifies them
+        # using NBBO bid/ask aggression, and publishes structured events.
+        # This is the ONLY trade data source. No synthetic fallbacks.
+        # A bad signal from fake data is worse than no signal.
         trades = []
+        _trades_source = "rust_engine"
         try:
-            async with aiohttp.ClientSession() as session:
-                exp_today = datetime.now().strftime("%Y-%m-%d")
-                chain_url = f"{cfg.DASHBOARD_BASE_URL}/api/options/chain?root=SPY&exp={exp_today}"
-                async with session.get(chain_url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                    if resp.status == 200:
-                        chain_data = await resp.json()
-                        calls = chain_data.get("calls", [])
-                        puts = chain_data.get("puts", [])
-                        if calls or puts:
-                            trades = await _build_options_flow_trades(
-                                calls, puts, underlying_price
-                            )
-                            if trades:
-                                logger.info(
-                                    f"[SignalLoop] Options flow: {len(trades)} trades "
-                                    f"({sum(1 for t in trades if t['side']=='buy')}C / "
-                                    f"{sum(1 for t in trades if t['side']=='sell')}P) "
-                                    f"from ThetaData chain"
-                                )
+            from .flow_subscriber import flow_subscriber
+            real_trades = flow_subscriber.get_real_trades(window_seconds=300)
+            if real_trades and len(real_trades) >= 20:
+                trades = real_trades
+                buy_count = sum(1 for t in trades if t['side'] == 'buy')
+                sell_count = sum(1 for t in trades if t['side'] == 'sell')
+                logger.info(
+                    f"[SignalLoop] Real flow: {len(trades)} ticks from Rust engine "
+                    f"({buy_count}B / {sell_count}S)"
+                )
         except Exception as e:
-            logger.debug(f"[SignalLoop] Options flow fetch failed: {e}")
+            logger.debug(f"[SignalLoop] Rust engine trades unavailable: {e}")
 
-        # ── Step 3: Fallback — Alpaca SIP ticks (needs paid subscription) ──
-        if not trades or len(trades) < 5:
-            sip_trades = await _fetch_live_trades("SPY")
-            if sip_trades and len(sip_trades) >= 5:
-                trades = sip_trades
-                _trades_source = "sip"
-                logger.info(f"[SignalLoop] Using {len(trades)} Alpaca SIP ticks")
-
-        # ── Step 4: Fallback — tick store (WS cache, also needs SIP) ──
-        if not trades or len(trades) < 5:
-            try:
-                from .tick_store import get_ticks
-                import time as _time
-                end_ms = int(_time.time() * 1000)
-                start_ms = end_ms - (5 * 60 * 1000)
-                cached = get_ticks("SPY", start_ms, end_ms, limit=500)
-                if cached and len(cached) >= 5:
-                    trades = [
-                        {"timestamp": t.get("ts", ""), "price": t.get("price", 0),
-                         "size": t.get("size", 0), "side": t.get("side", "neutral"),
-                         "exchange": t.get("exchange", "")}
-                        for t in cached
-                    ]
-                    _trades_source = "tick_cache"
-                    logger.info(f"[SignalLoop] Using {len(trades)} cached ticks")
-            except Exception as e:
-                logger.debug(f"[SignalLoop] Tick store fallback failed: {e}")
-
-        # ── Step 5: Last resort — synthesize from 1m bars ──
-        if not trades or len(trades) < 5:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    bars_url = f"{cfg.DASHBOARD_BASE_URL}/api/bars?symbol=SPY&timeframe=1Min&limit=30"
-                    async with session.get(bars_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                        if resp.status == 200:
-                            bars_data = await resp.json()
-                            bars = bars_data.get("bars", [])
-                            synthetic = []
-                            for bar in bars:
-                                o = bar.get("open", bar.get("o", 0))
-                                h = bar.get("high", bar.get("h", 0))
-                                lo = bar.get("low", bar.get("l", 0))
-                                c = bar.get("close", bar.get("c", 0))
-                                v = bar.get("volume", bar.get("v", 0))
-                                t = bar.get("time", bar.get("t", bar.get("timestamp", "")))
-                                if not (o > 0 and c > 0 and v > 0):
-                                    continue
-                                body_pct = (c - o) / o if o > 0 else 0
-                                buy_ratio = max(0.2, min(0.8, 0.5 + body_pct * 15))
-                                buy_vol = int(v * buy_ratio)
-                                sell_vol = v - buy_vol
-                                prices = [o, (o + c) / 2, c, (o + h) / 2, (lo + c) / 2]
-                                sides = (["buy"] * 3 + ["sell"] * 2 if body_pct >= 0
-                                         else ["sell"] * 3 + ["buy"] * 2)
-                                vols = [buy_vol // 3, buy_vol // 3,
-                                        buy_vol - 2 * (buy_vol // 3),
-                                        sell_vol // 2, sell_vol - sell_vol // 2]
-                                for i in range(5):
-                                    if prices[i] > 0:
-                                        synthetic.append({
-                                            "timestamp": t, "price": round(prices[i], 4),
-                                            "size": max(1, vols[i]), "side": sides[i],
-                                            "exchange": "BAR",
-                                        })
-                            if len(synthetic) >= 5:
-                                trades = synthetic
-                                _trades_source = "bar_synthesis"
-                                logger.info(
-                                    f"[SignalLoop] Bar synthesis: {len(trades)} trades "
-                                    f"from {len(bars)} 1m bars"
-                                )
-            except Exception as e:
-                logger.debug(f"[SignalLoop] Bar-synthesis fallback failed: {e}")
-
-        if not trades or len(trades) < 5:
-            logger.info("[SignalLoop] Waiting — no trade data from any source")
-            return  # Not enough data yet
-        # quote was already fetched and validated at the top of the cycle
+        if not trades or len(trades) < 20:
+            logger.info(
+                "[SignalLoop] No real tick data — Rust flow engine not connected or "
+                "insufficient ticks. Ensure ThetaData Terminal is running and flow "
+                "engine is started (./start.sh). Skipping cycle."
+            )
+            return
 
         # If trading SPX, derive SPX price from SPY
         active_sym = get_active_symbol()
@@ -706,6 +573,7 @@ async def _run_analysis_cycle():
             bars_1m=market_data.get("bars_1m"),
             bars_daily=market_data.get("bars_daily"),
             chain=market_data.get("chain"),
+            trades_source=_trades_source,
         )
 
         # Enrich with context
@@ -765,8 +633,8 @@ async def _run_analysis_cycle():
                     direction=signal.get("signal", ""),
                     spy_price=underlying_price,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[SignalLoop] Outcome stub failed for {signal.get('id')}: {e}")
 
         elif len(signal_history) == 0 or signal_history[-1].get("signal") != "NO_TRADE":
             signal_history.append(signal)

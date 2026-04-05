@@ -507,6 +507,7 @@ def evaluate_confluence(
     agent_verdicts: Optional[Dict[str, Any]] = None,
     breadth_data: Optional[MarketBreadth] = None,
     vol_data: Optional[VolAnalysis] = None,
+    trades_source: str = "options_flow",
 ) -> Tuple[str, float, List[ConfluenceFactor]]:
     """
     Evaluate all confluence factors and determine signal direction + confidence.
@@ -514,6 +515,9 @@ def evaluate_confluence(
     v5: 16-factor composite scoring + regime multiplier + event awareness
         + multi-agent AI consensus.
     v8: + ORB Breakout (Factor 21) + Market Breadth (Factor 22).
+    v12: trades_source dampening — when using synthetic options_flow data,
+         order flow factors are dampened because they measure call/put volume
+         ratio, not actual order flow aggression.
     Fully backward compatible — all new params are optional.
 
     Args:
@@ -530,6 +534,7 @@ def evaluate_confluence(
         vpin_state: VPINState from flow_toxicity — v4
         sector_data: SectorAnalysis from sector_monitor — v4
         agent_verdicts: Dict of agent verdicts from 5-agent system — v5 NEW
+        trades_source: "rust_engine" for real ticks, "options_flow" for synthetic
 
     Returns:
         (action, confidence, factors) where action is BUY_CALL, BUY_PUT, or NO_TRADE
@@ -546,6 +551,8 @@ def evaluate_confluence(
     composite_scores: Dict[str, float] = {}
 
     # ── Factor 1: Order Flow Imbalance (max 1.5) ──
+    # Requires real tick data from Rust flow engine (NBBO-classified).
+    # Signal loop guarantees real data or no signal.
     f1_score, f1_detail = _score_flow_imbalance(flow, prelim_direction)
     composite_scores["order_flow_imbalance"] = max(-0.50, min(1.5, f1_score))
     if abs(f1_score) > 0.1:
@@ -603,7 +610,15 @@ def evaluate_confluence(
         direction = prelim_direction if f7_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
         factors.append(ConfluenceFactor("Delta Regime", direction, f7_score, f7_detail))
 
-    # ── Factor 8: Put/Call Ratio (max 0.5) — NEW ──
+    # ── Factor 8: Put/Call Ratio (max 0.5) ──
+    # NOTE: PCR shows -53.0% accuracy delta in historical analysis.
+    # The scoring logic likely inverts the signal (high PCR = hedging = bullish,
+    # but the factor interprets it as bearish). Dampened alongside flow factors
+    # until the scoring logic is audited.
+    # ── Factor 8: Put/Call Ratio (max 0.5) ──
+    # NOTE: -53.0% accuracy delta in historical analysis. The scoring logic
+    # likely inverts the signal (high PCR = hedging = bullish, but scored as
+    # bearish). Needs scoring audit — runs at full strength with real data.
     if chain_analytics is not None:
         from .options_analytics import score_pcr
         f8_score, f8_detail = score_pcr(chain_analytics, prelim_direction)
@@ -613,10 +628,11 @@ def evaluate_confluence(
                 "Put/Call Ratio", prelim_direction if f8_score > 0 else "neutral", f8_score, f8_detail
             ))
     elif options_data:
-        # Legacy fallback: use old options_data format
         _add_legacy_options_factors(factors, options_data, price)
 
-    # ── Factor 9: Max Pain (max 0.5) — NEW ──
+    # ── Factor 9: Max Pain (max 0.5) ──
+    # NOTE: -53.2% accuracy delta. Max pain theory has weak evidence for 0DTE
+    # where gamma exposure dominates. Needs scoring audit.
     if chain_analytics is not None:
         from .options_analytics import score_max_pain
         f9_score, f9_detail = score_max_pain(chain_analytics, price, prelim_direction, session.is_0dte)
@@ -718,19 +734,46 @@ def evaluate_confluence(
         except Exception as e:
             logger.debug(f"Agent consensus scoring error: {e}")
 
-    # ── Factor 17: EMA/SMA Trend Alignment (max 0.75) — v7 NEW ──
+    # ── Factor 17: EMA/SMA Trend as Mean-Reversion Signal (max 0.75) — v13 ──
+    # INVERTED for 0DTE: stacked uptrend on 1-min bars = move exhaustion, not
+    # continuation. Historical data: factor was right 64.2% when OPPOSING signals.
+    # Now scored as mean-reversion: stacked trend = expect reversal.
     f17_score, f17_detail = _score_ema_sma_trend(levels, prelim_direction)
+    f17_score = -f17_score  # INVERT: trend alignment now opposes signal direction
     composite_scores["ema_sma_trend"] = max(-0.30, min(0.75, f17_score))
     if abs(f17_score) > 0.05:
         direction = prelim_direction if f17_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
-        factors.append(ConfluenceFactor("EMA/SMA Trend", direction, f17_score, f17_detail))
+        factors.append(ConfluenceFactor("EMA/SMA Trend", direction, f17_score, f17_detail + " (inverted: mean-reversion)"))
 
-    # ── Factor 18: Bollinger Band Squeeze (max 0.75) — v7 NEW ──
+    # ── Factor 18: Bollinger Band Squeeze — NON-DIRECTIONAL (max 0.75) — v13 ──
+    # BB Squeeze detects volatility expansion but CANNOT predict direction.
+    # Historical: 27.4% when confirming direction, 89.7% when opposing.
+    # Now scored as volatility signal only: squeeze present = higher expected
+    # move magnitude (useful for position sizing), but zero directional weight.
+    # "Riding upper band" is exhaustion on 0DTE, not continuation.
     f18_score, f18_detail = _score_bb_squeeze(levels, prelim_direction)
-    composite_scores["bb_squeeze"] = max(-0.25, min(0.75, f18_score))
-    if abs(f18_score) > 0.05:
-        direction = prelim_direction if f18_score > 0 else "neutral"
-        factors.append(ConfluenceFactor("BB Squeeze", direction, f18_score, f18_detail))
+    # Only keep the squeeze detection component (non-directional), zero out
+    # any directional scoring (band position, which was anti-predictive)
+    bb_upper = getattr(levels, 'bb_upper', 0)
+    bb_lower = getattr(levels, 'bb_lower', 0)
+    bb_mid = getattr(levels, 'bb_mid', 0)
+    if bb_upper > 0 and bb_lower > 0 and bb_mid > 0:
+        bb_width_pct = ((bb_upper - bb_lower) / bb_mid) * 100
+        avg_width = getattr(levels, 'avg_bb_width_pct', bb_width_pct)
+        is_squeeze = bb_width_pct < avg_width * 0.6 if avg_width > 0 else bb_width_pct < 0.3
+        if is_squeeze:
+            # Squeeze = expect larger move. Score as small positive (non-directional)
+            f18_score = 0.15
+            f18_detail = f"BB squeeze ({bb_width_pct:.2f}% width) — expect larger move (non-directional)"
+        else:
+            f18_score = 0.0
+            f18_detail = "No BB squeeze"
+    else:
+        f18_score = 0.0
+        f18_detail = "BB data unavailable"
+    composite_scores["bb_squeeze"] = max(0.0, min(0.75, f18_score))
+    if f18_score > 0:
+        factors.append(ConfluenceFactor("BB Squeeze", "neutral", f18_score, f18_detail))
 
     # ── Factor 19: Support/Resistance levels (max 1.0) — v7 NEW ──
     # Replaces legacy _add_structural_factors for scoring purposes

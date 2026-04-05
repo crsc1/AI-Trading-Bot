@@ -56,9 +56,17 @@ BASELINE_WEIGHTS = {
     "flow_toxicity": 0.5,
     "sector_divergence": 0.5,
     "agent_consensus": 1.5,
+    # v6: align with config.py FACTOR_WEIGHTS_BASELINE (was missing 7 factors)
+    "ema_sma_trend": 0.75,
+    "bb_squeeze": 0.75,
+    "support_resistance": 1.0,
+    "candle_pattern": 0.5,
+    "orb_breakout": 1.25,
+    "market_breadth": 1.0,
+    "vol_edge": 0.75,
 }
 
-TOTAL_WEIGHT_BUDGET = sum(BASELINE_WEIGHTS.values())  # 13.75
+TOTAL_WEIGHT_BUDGET = sum(BASELINE_WEIGHTS.values())  # 19.75
 
 # Learning parameters
 DEFAULT_LEARNING_RATE = 0.03      # How fast weights adapt (0.01 = slow, 0.10 = fast)
