@@ -4,6 +4,9 @@
 
 let _replayInitialized = false;
 let _replayData = null;
+let _replayAllSignals = [];
+let _replayRendered = 0;
+const _REPLAY_PAGE_SIZE = 50;
 
 function initReplayTab(){
   if(!_replayInitialized){
@@ -103,7 +106,18 @@ function renderReplayTimeline(signals){
     return;
   }
 
-  const cards = signals.map(sig => {
+  // Reset pagination state
+  _replayAllSignals = signals;
+  _replayRendered = 0;
+  timeline.innerHTML = '';
+  _renderReplayBatch();
+}
+
+function _renderReplayBatch(){
+  const timeline = document.getElementById('replayTimeline');
+  const batch = _replayAllSignals.slice(_replayRendered, _replayRendered + _REPLAY_PAGE_SIZE);
+
+  const cards = batch.map(sig => {
     // Time
     const ts = sig.timestamp || '';
     const timePart = ts.includes('T') ? ts.split('T')[1].substring(0, 8) : ts.substring(11, 19);
@@ -194,5 +208,21 @@ function renderReplayTimeline(signals){
       </div>`;
   });
 
-  timeline.innerHTML = cards.join('');
+  // Remove existing "Show more" button before appending
+  const oldBtn = document.getElementById('replayShowMore');
+  if(oldBtn) oldBtn.remove();
+
+  timeline.insertAdjacentHTML('beforeend', cards.join(''));
+  _replayRendered += batch.length;
+
+  const remaining = _replayAllSignals.length - _replayRendered;
+  if(remaining > 0){
+    const btn = document.createElement('button');
+    btn.id = 'replayShowMore';
+    btn.className = 'bar-btn';
+    btn.style.cssText = 'width:100%;margin-top:var(--space-sm);padding:var(--space-sm)';
+    btn.textContent = 'Show more (' + remaining + ' remaining)';
+    btn.onclick = function(){ _renderReplayBatch(); };
+    timeline.appendChild(btn);
+  }
 }
