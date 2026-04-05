@@ -653,7 +653,7 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
   <div class="sym-select relative">
     <input type="text" id="symInput" value="SPY" placeholder="Ticker..."
       class="font-bold uppercase"
-      style="width:72px;background:var(--bg3);color:var(--text-primary);border:1px solid var(--acc);font-size:var(--font-lg);padding:var(--space-2xs) var(--space-md);border-radius:var(--radius-sm);font-family:inherit"
+      style="width:80px;background:var(--bg3);color:var(--text-primary);border:1px solid var(--acc);font-size:var(--font-lg);padding:var(--space-xs) var(--space-md);border-radius:var(--radius-sm);font-family:inherit;min-height:28px"
       onkeydown="if(event.key==='Enter'){setSym(this.value.toUpperCase().trim());this.blur();}"
       onfocus="this.select();showSearch()" oninput="searchTicker(this.value)" onblur="setTimeout(()=>hideSearch(),200)">
     <div id="symResults" class="u-hidden absolute rounded-md overflow-y-auto bg-1 border" style="top:100%;left:0;width:280px;max-height:200px;z-index:100;margin-top:2px"></div>
