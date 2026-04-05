@@ -156,7 +156,7 @@
   --icon-sm: 14px;
   --icon-md: 18px;
   --icon-lg: 24px;
-  --ln-btn-size: 40px;        /* Left nav button size */
+  --ln-btn-size: 44px;        /* Left nav button size (44px min touch target) */
   --chart-min-h: 100px;       /* Minimum chart height */
 
   /* Visual containment */

@@ -47,7 +47,7 @@ html,body{font-family:var(--font-mono);background:var(--bg0);color:var(--txt);fo
 .tab-btn.active{color:#fff;background:var(--bg0)}
 
 /* Shared small button styles (bar-btn used in toolbars etc) */
-.bar-btn{padding:var(--space-xs) var(--space-sm);font-size:var(--font-sm);font-weight:600;cursor:pointer;border:1px solid var(--brd);border-radius:var(--radius-sm);background:none;color:var(--dim);font-family:inherit}
+.bar-btn{padding:var(--space-xs) var(--space-sm);font-size:var(--font-sm);font-weight:600;cursor:pointer;border:1px solid var(--brd);border-radius:var(--radius-sm);background:none;color:var(--dim);font-family:inherit;min-height:28px;min-width:28px}
 .bar-btn.active{background:var(--acc);color:#fff;border-color:var(--acc)}
 .bar-btn:hover:not(.active){color:var(--txt);background:var(--bg3)}
 .dot{width:6px;height:6px;border-radius:var(--radius-round);display:inline-block}
@@ -337,7 +337,7 @@ html,body{font-family:var(--font-mono);background:var(--bg0);color:var(--txt);fo
 /* Toolbar strip */
 .toolbar{display:flex;align-items:center;height:var(--toolbar-h);padding:0 var(--space-md);background:var(--bg1);border-bottom:1px solid var(--brd);gap:var(--space-2xs);flex-shrink:0}
 .toolbar.toolbar-wrap{height:auto;min-height:var(--toolbar-h);flex-wrap:wrap;padding:var(--space-2xs) var(--space-md);gap:var(--space-2xs) var(--space-sm)}
-.tb-btn{padding:var(--space-2xs) var(--space-md);color:var(--dim);cursor:pointer;border-radius:var(--radius-sm);font-size:var(--font-sm);font-weight:600;text-transform:uppercase;letter-spacing:.3px;border:none;background:none;font-family:inherit}
+.tb-btn{padding:var(--space-xs) var(--space-md);color:var(--dim);cursor:pointer;border-radius:var(--radius-sm);font-size:var(--font-sm);font-weight:600;text-transform:uppercase;letter-spacing:.3px;border:none;background:none;font-family:inherit;min-height:28px}
 .tb-btn:hover{color:var(--txt);background:var(--bg3)}
 .tb-btn.active{color:#fff;background:var(--acc)}
 .tb-sep{width:1px;height:14px;background:var(--brd);margin:0 var(--space-2xs)}
@@ -1135,9 +1135,9 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
         <!-- Trade Mode Selector -->
         <div class="flex items-center gap-xs px-md py-xs">
           <span class="text-2xs text-muted uppercase tracking-wide font-semibold">Mode:</span>
-          <button class="bar-btn active text-2xs font-semibold rounded-sm border cursor-pointer" id="modeScalp" onclick="setTradeMode('scalp')" style="padding:2px 8px;background:rgba(38,166,154,0.15);color:var(--grn)">SCALP</button>
-          <button class="bar-btn text-2xs font-semibold rounded-sm border cursor-pointer text-secondary" id="modeStandard" onclick="setTradeMode('standard')" style="padding:2px 8px;background:none">STANDARD</button>
-          <button class="bar-btn text-2xs font-semibold rounded-sm border cursor-pointer text-secondary" id="modeSwing" onclick="setTradeMode('swing')" style="padding:2px 8px;background:none">SWING</button>
+          <button class="bar-btn active text-2xs font-semibold rounded-sm border cursor-pointer" id="modeScalp" onclick="setTradeMode('scalp')" style="padding:4px 8px;background:rgba(38,166,154,0.15);color:var(--grn)">SCALP</button>
+          <button class="bar-btn text-2xs font-semibold rounded-sm border cursor-pointer text-secondary" id="modeStandard" onclick="setTradeMode('standard')" style="padding:4px 8px;background:none">STANDARD</button>
+          <button class="bar-btn text-2xs font-semibold rounded-sm border cursor-pointer text-secondary" id="modeSwing" onclick="setTradeMode('swing')" style="padding:4px 8px;background:none">SWING</button>
           <span class="text-2xs text-secondary ml-auto" id="modeDesc">Quick scalp 10m</span>
         </div>
         <!-- Equity Curve -->
