@@ -11,7 +11,7 @@ const NAV_CONFIG = {
   options:   { tab: 'options',   sidebar: 'market',     showSidebar: true  },
   agent:     { tab: 'agent',     sidebar: null,         showSidebar: false },
   // Sidebar-only nav items (no tab change, just switch sidebar panel)
-  signals:   { tab: null,        sidebar: 'signals',    showSidebar: true  },
+  signals:   { tab: 'combined',  sidebar: 'signals',    showSidebar: true  },
   journal:   { tab: 'combined',  sidebar: 'journal',    showSidebar: true  },
   settings:  { tab: null,        sidebar: 'settings',   showSidebar: true  },
 };
