@@ -154,26 +154,26 @@ function renderReplayTimeline(signals){
     // Top factors
     const factors = sig.top_factors || [];
     const factorsHtml = factors.length > 0
-      ? factors.map(f => `<span style="background:var(--bg3);padding:1px 6px;border-radius:var(--radius-sm);font-size:var(--font-2xs);color:var(--text-secondary)">${esc(f)}</span>`).join(' ')
-      : '<span style="color:var(--mut);font-size:var(--font-2xs)">No factors</span>';
+      ? factors.map(f => `<span class="replay-factor-tag">${esc(f)}</span>`).join(' ')
+      : '<span class="replay-factor-tag" style="color:var(--mut)">No factors</span>';
 
     return `
-      <div style="display:flex;gap:var(--space-md);align-items:flex-start;padding:var(--space-sm) var(--space-md);border:1px solid var(--brd);border-radius:var(--radius-md);background:var(--surface-0);margin-bottom:var(--space-xs)">
+      <div class="replay-card">
         <!-- Time column -->
-        <div style="min-width:65px;flex-shrink:0">
-          <div style="font-size:var(--font-sm);font-weight:600;color:var(--text-primary);font-variant-numeric:tabular-nums">${esc(timePart)}</div>
-          <div style="font-size:var(--font-2xs);color:var(--mut);margin-top:2px">SPY ${spyPrice ? spyPrice.toFixed(2) : '--'}</div>
+        <div class="replay-time">
+          <div class="replay-time-ts">${esc(timePart)}</div>
+          <div class="replay-time-spy">SPY ${spyPrice ? spyPrice.toFixed(2) : '--'}</div>
         </div>
 
         <!-- Direction + Tier -->
-        <div style="min-width:120px;flex-shrink:0;display:flex;flex-direction:column;gap:3px">
+        <div class="replay-meta">
           <div>${UI.badge(dirLabel, dirVariant)} ${UI.badge(tier, tierVariant)}</div>
-          <div style="font-size:var(--font-2xs);color:var(--mut)">Conf: ${conf}%</div>
+          <div class="replay-time-spy">Conf: ${conf}%</div>
         </div>
 
         <!-- 15m / 30m outcomes -->
-        <div style="min-width:160px;flex-shrink:0">
-          <div style="display:flex;gap:var(--space-md);font-size:var(--font-xs)">
+        <div class="replay-outcomes">
+          <div class="replay-outcomes-row">
             <div>
               <span style="color:var(--mut);font-size:var(--font-2xs)">15m:</span>
               ${arrow(dc15)} <span style="color:${moveColor(m15)};font-variant-numeric:tabular-nums">${fmtMove(m15)}</span>
@@ -187,7 +187,7 @@ function renderReplayTimeline(signals){
         </div>
 
         <!-- Factors + P&L -->
-        <div style="flex:1;min-width:0">
+        <div class="replay-factors">
           <div style="display:flex;gap:4px;flex-wrap:wrap">${factorsHtml}</div>
           ${pnlHtml ? `<div style="margin-top:4px">${pnlHtml}</div>` : ''}
         </div>

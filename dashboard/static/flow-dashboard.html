@@ -587,6 +587,17 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
 .ln-btn{position:relative}
 .ln-btn::after{content:attr(title);position:absolute;left:100%;top:50%;transform:translateY(-50%);margin-left:8px;padding:4px 8px;background:var(--bg1);border:1px solid var(--brd);border-radius:var(--radius-sm);color:var(--txt);font-size:var(--font-xs);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity 0.15s;z-index:100}
 .ln-btn:hover::after{opacity:1;transition-delay:0.3s}
+
+/* ===== Replay card layout ===== */
+.replay-card{display:flex;gap:var(--space-md);align-items:flex-start;padding:var(--space-sm) var(--space-md);border:1px solid var(--brd);border-radius:var(--radius-md);background:var(--surface-0);margin-bottom:var(--space-xs)}
+.replay-time{min-width:65px;flex-shrink:0}
+.replay-time-ts{font-size:var(--font-sm);font-weight:600;color:var(--text-primary);font-variant-numeric:tabular-nums}
+.replay-time-spy{font-size:var(--font-2xs);color:var(--mut);margin-top:2px}
+.replay-meta{min-width:120px;flex-shrink:0;display:flex;flex-direction:column;gap:3px}
+.replay-outcomes{min-width:160px;flex-shrink:0}
+.replay-outcomes-row{display:flex;gap:var(--space-md);font-size:var(--font-xs)}
+.replay-factors{flex:1;min-width:0}
+.replay-factor-tag{background:var(--bg3);padding:1px 6px;border-radius:var(--radius-sm);font-size:var(--font-2xs);color:var(--text-secondary)}
 </style>
 </head>
 <body>
