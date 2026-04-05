@@ -50,21 +50,33 @@ class SentimentAgent(BaseAgent):
                 factors.append(f"Fear ({fg}) — bearish sentiment")
                 bearish_weight += 0.10
 
-        # 2. VIX regime
-        vix = await self._fetch_vix()
-        if vix > 0:
-            self._last_vix = vix
-            if vix > 30:
-                factors.append(f"VIX {vix:.1f} — extreme fear, market stressed")
-                bearish_weight += 0.20
-            elif vix > 22:
-                factors.append(f"VIX {vix:.1f} — elevated volatility")
+        # 2. IV Rank (replaces VIX proxy — uses actual option IV history)
+        try:
+            from dashboard.api_routes import get_iv_percentile
+            iv_data = await get_iv_percentile("SPY", 0.20)  # current_iv placeholder; function fetches live
+            iv_rank = iv_data.get("iv_rank", 0)
+            iv_pct = iv_data.get("iv_percentile", 0)
+            if iv_rank > 0.80:
+                factors.append(f"IV Rank {iv_rank:.0%} — options expensive, contrarian bullish")
+                bullish_weight += 0.15
+            elif iv_rank > 0.60:
+                factors.append(f"IV Rank {iv_rank:.0%} — elevated volatility")
                 bearish_weight += 0.10
-            elif vix < 14:
-                factors.append(f"VIX {vix:.1f} — complacency, low volatility")
+            elif iv_rank < 0.20:
+                factors.append(f"IV Rank {iv_rank:.0%} — low vol, complacency")
                 bullish_weight += 0.10
             else:
-                factors.append(f"VIX {vix:.1f} — normal range")
+                factors.append(f"IV Rank {iv_rank:.0%} — normal range")
+        except Exception:
+            # Fallback to VIXY proxy if ThetaData unavailable
+            vix = await self._fetch_vix()
+            if vix > 0:
+                if vix > 30:
+                    factors.append(f"VIX proxy {vix:.1f} — extreme fear")
+                    bearish_weight += 0.20
+                elif vix < 14:
+                    factors.append(f"VIX proxy {vix:.1f} — low vol")
+                    bullish_weight += 0.10
 
         # 3. Put/Call ratio from our options data
         pcr = await self._fetch_pcr()
@@ -89,10 +101,10 @@ class SentimentAgent(BaseAgent):
         net = bullish_weight - bearish_weight
         if net > 0.1:
             direction = Direction.BULLISH
-            confidence = min(0.7, bullish_weight)
+            confidence = min(0.85, bullish_weight)
         elif net < -0.1:
             direction = Direction.BEARISH
-            confidence = min(0.7, bearish_weight)
+            confidence = min(0.85, bearish_weight)
         else:
             direction = Direction.NEUTRAL
             confidence = 0.0
@@ -153,18 +165,38 @@ class SentimentAgent(BaseAgent):
         return self._last_vix  # Return cached value
 
     async def _fetch_pcr(self) -> float:
-        """Fetch Put/Call ratio from our options snapshot."""
+        """Fetch Put/Call ratio across near-term expirations (not just today)."""
         try:
-            # Get today's expiry
-            from datetime import date
-            today = date.today().strftime("%Y-%m-%d")
+            from datetime import date, timedelta as td
 
+            # Fetch the next 3 expirations and aggregate P/C ratio
             async with aiohttp.ClientSession() as session:
-                url = f"{API_BASE}/api/options/snapshot?root=SPY&exp={today}"
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                # First get available expirations
+                exp_resp = await session.get(
+                    f"{API_BASE}/api/options/expirations?root=SPY",
+                    timeout=aiohttp.ClientTimeout(total=5),
+                )
+                expirations = []
+                if exp_resp.status == 200:
+                    exp_data = await exp_resp.json()
+                    expirations = exp_data.get("expirations", [])[:3]  # Next 3 expirations
+
+                if not expirations:
+                    # Fallback: just use today
+                    expirations = [date.today().strftime("%Y-%m-%d")]
+
+                total_call_vol = 0
+                total_put_vol = 0
+                for exp in expirations:
+                    url = f"{API_BASE}/api/options/snapshot?root=SPY&exp={exp}"
+                    resp = await session.get(url, timeout=aiohttp.ClientTimeout(total=5))
                     if resp.status == 200:
                         data = await resp.json()
-                        return data.get("pc_ratio", 0)
+                        total_call_vol += data.get("call_volume", 0)
+                        total_put_vol += data.get("put_volume", 0)
+
+                if total_call_vol > 0:
+                    return round(total_put_vol / total_call_vol, 3)
         except Exception as e:
             logger.debug(f"P/C ratio error: {e}")
         return 0

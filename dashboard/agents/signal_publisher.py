@@ -237,6 +237,22 @@ class SignalPublisher(BaseAgent):
         else:
             return None
 
+        # ── Conflict detection ──
+        # If strong agents disagree, raise the bar
+        if bullish_agents and bearish_agents:
+            # Check if any high-weight agent is on the losing side
+            losing_side = bearish_agents if action == "BUY_CALL" else bullish_agents
+            losing_weight = sum(AGENT_WEIGHTS.get(a, 0.10) for a in losing_side)
+            if losing_weight >= 0.25:  # 25%+ weight disagreeing
+                # Raise confidence threshold — need stronger conviction
+                required_conf = MIN_WEIGHTED_CONFIDENCE * 1.5  # 0.35 → 0.525
+                if weighted_conf < required_conf:
+                    logger.info(
+                        f"[Publisher] Conflicting agents: {bullish_agents} vs {bearish_agents} "
+                        f"— conf {weighted_conf:.2f} < raised threshold {required_conf:.2f}"
+                    )
+                    return None
+
         # Check minimum confidence
         if weighted_conf < MIN_WEIGHTED_CONFIDENCE:
             return None

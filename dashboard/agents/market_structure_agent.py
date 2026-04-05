@@ -153,7 +153,39 @@ class MarketStructureAgent(BaseAgent):
                 factors.append(f"Below Pivot (${pivot:.2f})")
                 bearish_weight += 0.05
 
-        # ── 5. Trend detection from rolling prices ──
+        # ── 5. GEX Levels (dealer hedging structure) ──
+        gex_data = levels.get("gex", {})
+        if not gex_data:
+            # Try fetching from the main levels endpoint — it may include gex
+            pass
+        call_wall = levels.get("call_wall") or gex_data.get("call_wall", 0)
+        put_wall = levels.get("put_wall") or gex_data.get("put_wall", 0)
+        gex_flip = levels.get("gex_flip") or gex_data.get("gex_flip", 0)
+
+        if call_wall > 0 and price > 0:
+            dist_to_call_wall = (call_wall - price) / price * 100
+            if dist_to_call_wall < 0.2:  # Within 0.2% of call wall
+                factors.append(f"At Call Wall ${call_wall:.2f} — dealer resistance, bearish pressure")
+                bearish_weight += 0.15
+            elif dist_to_call_wall < 0.5:
+                factors.append(f"Near Call Wall ${call_wall:.2f} ({dist_to_call_wall:.1f}% away)")
+
+        if put_wall > 0 and price > 0:
+            dist_to_put_wall = (price - put_wall) / price * 100
+            if dist_to_put_wall < 0.2:
+                factors.append(f"At Put Wall ${put_wall:.2f} — dealer support, bullish pressure")
+                bullish_weight += 0.15
+            elif dist_to_put_wall < 0.5:
+                factors.append(f"Near Put Wall ${put_wall:.2f} ({dist_to_put_wall:.1f}% away)")
+
+        if gex_flip > 0 and price > 0:
+            if price > gex_flip:
+                factors.append(f"Above GEX flip ${gex_flip:.2f} — positive gamma (dampening)")
+            else:
+                factors.append(f"Below GEX flip ${gex_flip:.2f} — negative gamma (amplifying)")
+                # Negative gamma means bigger moves — widen expectations
+
+        # ── 6. Trend detection from rolling prices ──
         if len(self._trend_prices) >= 10:
             first_avg = sum(self._trend_prices[:5]) / 5
             last_avg = sum(self._trend_prices[-5:]) / 5
@@ -166,7 +198,7 @@ class MarketStructureAgent(BaseAgent):
                 factors.append(f"Strong downtrend (${trend_change:.2f} over {len(self._trend_prices)} samples)")
                 bearish_weight += 0.15
 
-        # ── 6. Previous day close ──
+        # ── 7. Previous day close ──
         prev_close = levels.get("prev_close", 0)
         if prev_close > 0 and price > 0:
             gap = price - prev_close
@@ -177,7 +209,7 @@ class MarketStructureAgent(BaseAgent):
                 else:
                     factors.append(f"Gap down {gap_pct:.2f}% from prev close ${prev_close:.2f}")
 
-        # ── 7. Session quality ──
+        # ── 8. Session quality ──
         quality = session_data.get("session_quality", 0.5)
         if quality < 0.3:
             factors.append(f"Low-quality session ({phase.replace('_', ' ')}) — reduce sizing")

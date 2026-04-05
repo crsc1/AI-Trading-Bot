@@ -33,15 +33,30 @@ class PriceFlowAgent(BaseAgent):
 
     async def analyze(self) -> AgentVerdict:
         """Fetch recent trades and analyze order flow patterns."""
+        from dashboard.confluence import get_active_symbol
+        sym = get_active_symbol()
+
         async with aiohttp.ClientSession() as session:
             # Fetch recent trades (last 5 min)
             resp = await session.get(
-                f"{API_BASE}/api/orderflow/trades/recent?symbol=SPY&limit=500&minutes=5",
+                f"{API_BASE}/api/orderflow/trades/recent?symbol={sym}&limit=500&minutes=5",
                 timeout=aiohttp.ClientTimeout(total=5),
             )
             if resp.status != 200:
                 return self._neutral("Failed to fetch trade data")
             data = await resp.json()
+
+            # ── Sweep detection (fetch inside session) ──
+            sweep_data = {}
+            try:
+                sweep_resp = await session.get(
+                    f"{API_BASE}/api/signals/sweeps",
+                    timeout=aiohttp.ClientTimeout(total=3),
+                )
+                if sweep_resp.status == 200:
+                    sweep_data = await sweep_resp.json()
+            except Exception:
+                pass  # Sweep data is a bonus, not required
 
         trades = data.get("trades", [])
         if len(trades) < 20:
@@ -152,6 +167,21 @@ class PriceFlowAgent(BaseAgent):
         if exhausted:
             factors.append(f"Volume exhaustion (ratio {vol_ratio:.2f})")
             confidence += 0.10
+
+        # ── Sweep detection ──
+        sweeps_info = sweep_data.get("sweeps", {})
+        call_sweeps = sweeps_info.get("bullish_count", 0)
+        put_sweeps = sweeps_info.get("bearish_count", 0)
+        if call_sweeps > put_sweeps and call_sweeps >= 2:
+            factors.append(f"{call_sweeps} call sweeps vs {put_sweeps} put sweeps — bullish flow")
+            if direction == Direction.NEUTRAL:
+                direction = Direction.BULLISH
+            confidence += 0.20
+        elif put_sweeps > call_sweeps and put_sweeps >= 2:
+            factors.append(f"{put_sweeps} put sweeps vs {call_sweeps} call sweeps — bearish flow")
+            if direction == Direction.NEUTRAL:
+                direction = Direction.BEARISH
+            confidence += 0.20
 
         confidence = min(1.0, confidence)
 
