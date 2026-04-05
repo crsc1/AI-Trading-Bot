@@ -582,6 +582,11 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
 .flow-tooltip .tt-val-sell{color:var(--red);font-weight:600}
 .flow-tooltip .tt-val-delta{font-weight:600}
 .flow-tooltip .tt-time{color:var(--dim);font-size:var(--font-xs);margin-top:var(--space-2xs);border-top:1px solid var(--border-medium);padding-top:var(--space-2xs)}
+
+/* Left-nav CSS-only tooltips (appear right of button on hover with 300ms delay) */
+.ln-btn{position:relative}
+.ln-btn::after{content:attr(title);position:absolute;left:100%;top:50%;transform:translateY(-50%);margin-left:8px;padding:4px 8px;background:var(--bg1);border:1px solid var(--brd);border-radius:var(--radius-sm);color:var(--txt);font-size:var(--font-xs);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity 0.15s;z-index:100}
+.ln-btn:hover::after{opacity:1;transition-delay:0.3s}
 </style>
 </head>
 <body>
