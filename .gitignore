@@ -76,3 +76,4 @@ SIGNAL_PLACEMENT_COMPARE.html
 *.tmp
 *.bak
 *.orig
+.gstack/
