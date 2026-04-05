@@ -156,6 +156,9 @@ def _build_prompt(
         mkt_block = {
             "price": market_context.get("price"),
             "iv": market_context.get("iv"),
+            "iv_rank": market_context.get("iv_rank"),
+            "iv_percentile": market_context.get("iv_percentile"),
+            "liquidity_score": market_context.get("liquidity_score"),
             "regime": market_context.get("regime"),
             "session_phase": market_context.get("session_phase"),
             "vpin": market_context.get("vpin"),

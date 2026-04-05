@@ -321,6 +321,19 @@ class SignalPublisher(BaseAgent):
             if not strike_info.get("entry_price") or strike_info["entry_price"] <= 0:
                 return None
 
+            # Liquidity gate: reject strikes with poor spread quality
+            try:
+                from dashboard.api_routes import get_spread_analysis
+                right = "C" if action == "BUY_CALL" else "P"
+                exp_str = today.replace("-", "")
+                spread_data = await get_spread_analysis(options_root, exp_str, strike_info["strike"], right, exp_str)
+                liq_score = spread_data.get("liquidity_score")
+                if liq_score is not None and liq_score < 30:
+                    logger.warning(f"[Publisher] Strike {strike_info['strike']} liquidity too low ({liq_score}/100) — skipping")
+                    return None
+            except Exception as e:
+                logger.debug(f"[Publisher] Spread analysis unavailable, skipping gate: {e}")
+
             # Build MarketLevels for risk calc
             ml = MarketLevels()
             ml.realized_vol = levels.get("realized_vol", 15)

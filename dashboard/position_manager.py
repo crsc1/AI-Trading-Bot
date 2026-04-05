@@ -571,6 +571,21 @@ class PositionManager:
                                 mkt_ctx = await data_router.get_quote(sym)
                             except Exception:
                                 pass
+                            # Enrich with ThetaData IV rank + spread quality
+                            try:
+                                from .api_routes import get_iv_percentile, get_spread_analysis
+                                sig_iv = signal.get("option_iv") or signal.get("options_analytics", {}).get("atm_iv", 0)
+                                if sig_iv:
+                                    iv_data = await get_iv_percentile(signal.get("symbol", "SPY"), sig_iv)
+                                    mkt_ctx["iv_rank"] = iv_data.get("iv_rank")
+                                    mkt_ctx["iv_percentile"] = iv_data.get("iv_percentile")
+                                if signal.get("strike") and signal.get("expiry"):
+                                    right = "C" if signal.get("signal") == "BUY_CALL" else "P"
+                                    exp_str = signal["expiry"].replace("-", "")
+                                    sp_data = await get_spread_analysis(signal.get("symbol", "SPY"), exp_str, signal["strike"], right, exp_str)
+                                    mkt_ctx["liquidity_score"] = sp_data.get("liquidity_score")
+                            except Exception:
+                                pass
                             recent_trades = get_trade_history(limit=5)
                             open_pos = get_open_trades()
                             await llm_validator.validate_signal_async(
@@ -718,6 +733,21 @@ class PositionManager:
                 try:
                     sym = candidate.get("symbol", "SPY")
                     mkt_ctx = await data_router.get_quote(sym)
+                except Exception:
+                    pass
+                # Enrich with ThetaData IV rank + spread quality
+                try:
+                    from .api_routes import get_iv_percentile, get_spread_analysis
+                    sig_iv = candidate.get("option_iv") or candidate.get("options_analytics", {}).get("atm_iv", 0)
+                    if sig_iv:
+                        iv_data = await get_iv_percentile(candidate.get("symbol", "SPY"), sig_iv)
+                        mkt_ctx["iv_rank"] = iv_data.get("iv_rank")
+                        mkt_ctx["iv_percentile"] = iv_data.get("iv_percentile")
+                    if candidate.get("strike") and candidate.get("expiry"):
+                        right = "C" if candidate.get("signal") == "BUY_CALL" else "P"
+                        exp_str = candidate["expiry"].replace("-", "")
+                        sp_data = await get_spread_analysis(candidate.get("symbol", "SPY"), exp_str, candidate["strike"], right, exp_str)
+                        mkt_ctx["liquidity_score"] = sp_data.get("liquidity_score")
                 except Exception:
                     pass
                 asyncio.ensure_future(

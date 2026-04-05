@@ -965,7 +965,21 @@ class AutonomousTrader:
             regime_dict = regime.to_dict() if hasattr(regime, 'to_dict') else {}
             # vix_percentile is 0-100 (where current VIX sits vs 30-day range)
             vix_pct = regime_dict.get('vix_percentile', 30)
-            iv_rank = vix_pct / 100.0  # Normalize to 0-1
+
+            # Try ThetaData real IV rank; fall back to VIX proxy
+            try:
+                from .api_routes import get_iv_percentile
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as pool:
+                        iv_data = pool.submit(asyncio.run, get_iv_percentile(self._symbol, vix_pct / 100.0)).result(timeout=5)
+                else:
+                    iv_data = loop.run_until_complete(get_iv_percentile(self._symbol, vix_pct / 100.0))
+                iv_rank = iv_data.get("iv_rank", vix_pct / 100.0)
+            except Exception:
+                iv_rank = vix_pct / 100.0  # Fallback to VIX proxy
 
             if iv_rank >= 0.81:
                 return 0.0   # Extreme vol — skip entirely

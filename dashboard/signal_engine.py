@@ -259,6 +259,14 @@ class SignalEngine:
                 except Exception as e:
                     logger.debug(f"Vol analysis failed: {e}")
 
+            # ── 4l. IV Rank veto via ThetaData (v11) ──
+            iv_rank_value = None
+            if chain_analytics and chain_analytics.iv_rank is not None:
+                iv_rank_value = chain_analytics.iv_rank / 100.0  # normalize 0-100 → 0-1
+            if iv_rank_value is not None and iv_rank_value > 0.80:
+                logger.info(f"[SignalEngine] IV rank veto: {iv_rank_value:.0%} > 80% — options overpriced, skipping")
+                return self._no_trade(f"IV rank {iv_rank_value:.0%} exceeds 80% threshold — options overpriced")
+
             # ── 5. Evaluate confluence (v10: 23-factor + regime + events + agents) ──
             action, confidence, factors = evaluate_confluence(
                 flow, levels, session, options_data,
@@ -352,6 +360,26 @@ class SignalEngine:
                     gex_data=gex_data,
                     chain_analytics=chain_analytics,
                 )
+
+            # ── 7c. Spread quality / liquidity gate (v11: ThetaData) ──
+            try:
+                from .api_routes import get_spread_analysis
+                import asyncio
+                expiry_str = strike_info.get("expiry", _get_nearest_expiry()).replace("-", "")
+                right = "C" if action == "BUY_CALL" else "P"
+                loop = asyncio.get_event_loop()
+                spread_data = loop.run_until_complete(
+                    get_spread_analysis(self.symbol, expiry_str, strike_info["strike"], right, expiry_str)
+                ) if not loop.is_running() else {}
+                liq_score = spread_data.get("liquidity_score")
+                avg_spread = spread_data.get("avg_spread", 0)
+                mid_price = strike_info.get("entry_price", 1)
+                spread_pct = (avg_spread / mid_price * 100) if mid_price > 0 else 0
+                if liq_score is not None and (liq_score < 30 or spread_pct > 5.0):
+                    logger.warning(f"[SignalEngine] Liquidity gate: score={liq_score}, spread={spread_pct:.1f}% — skipping")
+                    return self._no_trade(f"Poor liquidity: score={liq_score}/100, spread={spread_pct:.1f}% of mid")
+            except Exception as e:
+                logger.debug(f"[SignalEngine] Spread analysis unavailable, skipping gate: {e}")
 
             # Signal passed all gates!
             self._last_diagnostics = {
