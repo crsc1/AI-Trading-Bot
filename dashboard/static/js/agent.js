@@ -388,6 +388,16 @@ async function loadAgentPerf(){
     _setText('agPvSh', (s.sharpe||0).toFixed(2));
     _setText('agPvHold', (s.avg_hold_minutes||0).toFixed(0) + 'm');
     _setText('agPvWl', (s.wins||0) + ' / ' + (s.losses||0));
+
+    // Render equity curve (same data source as Positions tab)
+    try{
+      const tradesResp = await fetch('/api/signals/trades?limit=500');
+      if(tradesResp.ok){
+        const tradesData = await tradesResp.json();
+        const closed = (tradesData.trades || []).filter(t => t.exit_time);
+        renderEquityChart(_buildEquityCurve(closed));
+      }
+    } catch(e2){ console.debug('[Agent] Equity curve load failed:', e2); }
   } catch(e){ console.debug('[Agent] Perf load failed:', e); }
 }
 
