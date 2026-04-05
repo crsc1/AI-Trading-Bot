@@ -163,7 +163,12 @@ class Config:
         # ═══════════════════════════════════════════════════════════════════
 
         self.THETA_BASE_URL: str = _env("THETA_BASE_URL", "http://localhost:25503")
+        self.THETA_V2_BASE_URL: str = _env("THETA_V2_BASE_URL", "http://localhost:25510")
         self.THETA_ENABLED: bool = _env_bool("THETA_ENABLED", True)
+
+        # WebSocket streaming (ThetaData Terminal — Standard plan)
+        self.THETA_WS_URL: str = _env("THETA_WS_URL", "ws://localhost:25520/v1/events")
+        self.THETA_STREAM_ENABLED: bool = _env_bool("THETA_STREAM_ENABLED", False)
 
         # Timeouts and retries
         self.THETA_REQUEST_TIMEOUT: float = _env_float("THETA_REQUEST_TIMEOUT", 8.0)

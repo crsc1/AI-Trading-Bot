@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 THETA_BASE = cfg.THETA_BASE_URL
+THETA_V2_BASE = cfg.THETA_V2_BASE_URL
 ENGINE_BASE = cfg.FLOW_ENGINE_HTTP_URL
 
 # Alpaca API config
@@ -1131,3 +1132,452 @@ async def search_symbols(q: str = Query(..., min_length=1, max_length=10)):
     ][:20]
 
     return {"results": matches}
+
+
+# ============================================================================
+# IMPLIED VOLATILITY — ThetaData v2 historical IV
+# ============================================================================
+
+@router.get("/api/theta/iv/history")
+async def get_iv_history(
+    root: str = "SPY",
+    exp: str = None,       # YYYYMMDD
+    strike: float = None,  # dollars, we convert to 1/10th cent
+    right: str = "C",
+    start_date: str = None,  # YYYYMMDD
+    end_date: str = None,    # YYYYMMDD
+    interval: int = 60000,   # 1-minute default
+):
+    """
+    Fetch historical implied volatility from ThetaData v2 API.
+
+    Strike is in dollars (e.g. 170.0) — converted to 1/10th cent for the API.
+    Dates default to last 30 days if not provided.
+    """
+    if not exp or strike is None:
+        return {"error": "exp (YYYYMMDD) and strike (dollars) are required", "data": []}
+
+    # Default date range: last 30 days
+    today = datetime.now()
+    if not end_date:
+        end_date = today.strftime("%Y%m%d")
+    if not start_date:
+        start_date = (today - timedelta(days=30)).strftime("%Y%m%d")
+
+    # Convert strike from dollars to 1/10th cent (multiply by 1000)
+    strike_tenth_cent = int(strike * 1000)
+
+    params = {
+        "root": root,
+        "exp": int(exp),
+        "strike": strike_tenth_cent,
+        "right": right.upper(),
+        "start_date": int(start_date),
+        "end_date": int(end_date),
+        "ivl": interval,
+        "rth": "true",
+    }
+
+    data = await _theta_fetch_with_retry(
+        f"{THETA_V2_BASE}/v2/hist/option/implied_volatility",
+        params=params,
+        max_retries=3,
+        base_timeout=8.0,
+    )
+
+    if not data or not data.get("response"):
+        return {"root": root, "strike": strike, "right": right, "data": [], "source": "thetadata_v2"}
+
+    # Response fields per ThetaData docs:
+    # [ms_of_day, bid, bid_implied_vol, midpoint, implied_vol, ask, ask_implied_vol,
+    #  iv_error, ms_of_day2, underlying_price, date]
+    rows = data["response"]
+    result = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) < 11:
+            continue
+        ms_of_day = row[0]
+        date_int = row[10]
+        # Build timestamp from date + ms_of_day
+        ds = str(int(date_int))
+        if len(ds) != 8:
+            continue
+        hours = ms_of_day // 3_600_000
+        minutes = (ms_of_day % 3_600_000) // 60_000
+        seconds = (ms_of_day % 60_000) // 1000
+        timestamp = f"{ds[:4]}-{ds[4:6]}-{ds[6:8]}T{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+        result.append({
+            "timestamp": timestamp,
+            "bid_iv": row[2],
+            "mid_iv": row[4],
+            "ask_iv": row[6],
+            "underlying_price": row[9],
+            "date": f"{ds[:4]}-{ds[4:6]}-{ds[6:8]}",
+        })
+
+    return {
+        "root": root,
+        "strike": strike,
+        "right": right,
+        "exp": exp,
+        "interval": interval,
+        "count": len(result),
+        "data": result,
+        "source": "thetadata_v2",
+    }
+
+
+async def get_iv_percentile(root: str, current_iv: float, lookback_days: int = 252) -> dict:
+    """
+    Calculate IV rank and IV percentile for a given root symbol.
+
+    Fetches IV history for the ATM option over the lookback period and computes:
+      - iv_rank: (current - min) / (max - min)
+      - iv_percentile: % of days where IV was lower than current
+      - iv_high, iv_low, iv_mean: summary stats
+
+    Uses a near-term ATM call as the reference contract.
+    """
+    today = datetime.now()
+    end_date = today.strftime("%Y%m%d")
+    start_date = (today - timedelta(days=lookback_days)).strftime("%Y%m%d")
+
+    # Get current SPY price for ATM strike via Alpaca (reuse existing pattern)
+    atm_strike = None
+    if ALPACA_KEY:
+        try:
+            url = f"{ALPACA_DATA_URL}/v2/stocks/{root}/quotes/latest"
+            async with aiohttp.ClientSession(headers=ALPACA_HEADERS) as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=3.0)) as resp:
+                    if resp.status == 200:
+                        qdata = await resp.json()
+                        quote = qdata.get("quote", qdata)
+                        mid = (quote.get("ap", 0) + quote.get("bp", 0)) / 2
+                        if mid > 0:
+                            atm_strike = round(mid)
+        except Exception:
+            pass
+
+    if not atm_strike:
+        return {"error": "Could not determine ATM strike", "iv_rank": None, "iv_percentile": None}
+
+    # Find the nearest expiration (use existing expirations endpoint logic)
+    exp_data = await _theta_fetch_with_retry(
+        f"{THETA_BASE}/v3/option/list/expirations",
+        params={"symbol": root},
+        max_retries=2,
+        base_timeout=5.0,
+    )
+    nearest_exp = None
+    if exp_data and exp_data.get("response"):
+        today_int = int(today.strftime("%Y%m%d"))
+        for row in exp_data["response"]:
+            candidates = row if isinstance(row, list) else [row]
+            for d in candidates:
+                d_int = int(d)
+                if d_int >= today_int:
+                    if nearest_exp is None or d_int < nearest_exp:
+                        nearest_exp = d_int
+
+    if not nearest_exp:
+        return {"error": "No expiration found", "iv_rank": None, "iv_percentile": None}
+
+    # Fetch historical IV using the v2 API (daily interval for percentile calc)
+    strike_tenth_cent = int(atm_strike * 1000)
+    params = {
+        "root": root,
+        "exp": nearest_exp,
+        "strike": strike_tenth_cent,
+        "right": "C",
+        "start_date": int(start_date),
+        "end_date": int(end_date),
+        "ivl": 0,  # end-of-day ticks
+        "rth": "true",
+    }
+
+    data = await _theta_fetch_with_retry(
+        f"{THETA_V2_BASE}/v2/hist/option/implied_volatility",
+        params=params,
+        max_retries=3,
+        base_timeout=10.0,
+    )
+
+    if not data or not data.get("response"):
+        return {"error": "No IV history available", "iv_rank": None, "iv_percentile": None}
+
+    # Extract daily mid-IV values (one per unique date)
+    daily_ivs = {}
+    for row in data["response"]:
+        if not isinstance(row, list) or len(row) < 11:
+            continue
+        iv = row[4]  # midpoint implied_vol
+        date_int = row[10]
+        if iv is not None and iv > 0:
+            daily_ivs[date_int] = iv  # last value per date wins
+
+    iv_values = list(daily_ivs.values())
+    if not iv_values:
+        return {"error": "No valid IV data points", "iv_rank": None, "iv_percentile": None}
+
+    iv_high = max(iv_values)
+    iv_low = min(iv_values)
+    iv_mean = sum(iv_values) / len(iv_values)
+
+    # IV Rank: where current IV sits in the min-max range
+    iv_range = iv_high - iv_low
+    iv_rank = ((current_iv - iv_low) / iv_range) if iv_range > 0 else 0.5
+
+    # IV Percentile: % of days where IV was lower than current
+    days_below = sum(1 for v in iv_values if v < current_iv)
+    iv_percentile = days_below / len(iv_values)
+
+    return {
+        "iv_rank": round(iv_rank, 4),
+        "iv_percentile": round(iv_percentile, 4),
+        "iv_high": round(iv_high, 6),
+        "iv_low": round(iv_low, 6),
+        "iv_mean": round(iv_mean, 6),
+        "lookback_days": lookback_days,
+        "data_points": len(iv_values),
+    }
+
+
+# ============================================================================
+# THETADATA v2 — Historical Option Quotes
+# ============================================================================
+
+async def get_spread_analysis(
+    root: str, exp: str, strike: float, right: str, date: str,
+) -> dict:
+    """
+    Fetch 1-minute quote data for a single day and return spread statistics.
+
+    Args:
+        root: Underlying symbol (e.g. "SPY")
+        exp: Expiration date YYYYMMDD
+        strike: Strike price in dollars (e.g. 420.0)
+        right: "C" or "P"
+        date: Date YYYYMMDD to analyze
+
+    Returns dict with: avg_spread, max_spread, min_spread, avg_bid_size,
+    avg_ask_size, liquidity_score (0-100).
+    """
+    strike_thetadata = int(strike * 1000)
+
+    data = await _theta_fetch_with_retry(
+        f"{THETA_V2_BASE}/v2/hist/option/quote",
+        params={
+            "root": root,
+            "exp": int(exp),
+            "strike": strike_thetadata,
+            "right": right.upper(),
+            "start_date": int(date),
+            "end_date": int(date),
+            "ivl": 60000,  # 1-minute bars
+            "rth": "true",
+        },
+        max_retries=3,
+        base_timeout=8.0,
+    )
+
+    response = data.get("response", [])
+    # v2 response is a list of arrays:
+    # [ms_of_day, bid_size, bid_exchange, bid, bid_condition,
+    #  ask_size, ask_exchange, ask, ask_condition, date]
+    empty_result = {
+        "avg_spread": 0, "max_spread": 0, "min_spread": 0,
+        "avg_bid_size": 0, "avg_ask_size": 0, "liquidity_score": 0,
+        "sample_count": 0,
+    }
+    if not response or not isinstance(response, list):
+        return empty_result
+
+    spreads = []
+    bid_sizes = []
+    ask_sizes = []
+    mid_sum = 0.0
+
+    for row in response:
+        if not isinstance(row, list) or len(row) < 10:
+            continue
+        bid = row[3]
+        ask = row[7]
+        bid_size = row[1]
+        ask_size = row[5]
+        if bid is None or ask is None or bid <= 0 or ask <= 0:
+            continue
+        spreads.append(round(ask - bid, 4))
+        bid_sizes.append(bid_size)
+        ask_sizes.append(ask_size)
+        mid_sum += (bid + ask) / 2
+
+    if not spreads:
+        return empty_result
+
+    n = len(spreads)
+    avg_spread = round(sum(spreads) / n, 4)
+    max_spread = round(max(spreads), 4)
+    min_spread = round(min(spreads), 4)
+    avg_bid_size = round(sum(bid_sizes) / n, 1)
+    avg_ask_size = round(sum(ask_sizes) / n, 1)
+
+    # Liquidity score: 0-100 based on tight spread + high size
+    # Spread component (0-50): tighter = better; 10%+ of mid = 0 pts
+    avg_mid = mid_sum / n
+    spread_pct = avg_spread / max(avg_mid, 0.01)
+    spread_score = max(0, min(50, 50 * (1 - spread_pct / 0.10)))
+
+    # Size component (0-50): higher avg size = better; 100+ contracts = max
+    avg_size = (avg_bid_size + avg_ask_size) / 2
+    size_score = max(0, min(50, 50 * min(avg_size / 100, 1.0)))
+
+    liquidity_score = round(spread_score + size_score)
+
+    return {
+        "avg_spread": avg_spread,
+        "max_spread": max_spread,
+        "min_spread": min_spread,
+        "avg_bid_size": avg_bid_size,
+        "avg_ask_size": avg_ask_size,
+        "liquidity_score": liquidity_score,
+        "sample_count": n,
+    }
+
+
+@router.get("/api/theta/quotes/history")
+async def get_option_quote_history(
+    root: str = "SPY",
+    exp: str = None,       # YYYYMMDD
+    strike: float = None,  # dollars (e.g. 420.0)
+    right: str = "C",
+    start_date: str = None,  # YYYYMMDD
+    end_date: str = None,    # YYYYMMDD
+    interval: int = 60000,   # 1min default (ms)
+):
+    """
+    Fetch historical option quote data from ThetaData v2 API.
+
+    Converts strike from dollars to 1/10th cent format.
+    Returns clean JSON with bid/ask, spread, and midpoint.
+    """
+    if strike is None or exp is None:
+        return {"error": "Both 'exp' (YYYYMMDD) and 'strike' (dollars) are required"}
+
+    # Default date range: last 5 days → today
+    today = datetime.now()
+    if end_date is None:
+        end_date = today.strftime("%Y%m%d")
+    if start_date is None:
+        start_date = (today - timedelta(days=5)).strftime("%Y%m%d")
+
+    # Convert strike from dollars to 1/10th cent (ThetaData format)
+    strike_thetadata = int(strike * 1000)
+
+    data = await _theta_fetch_with_retry(
+        f"{THETA_V2_BASE}/v2/hist/option/quote",
+        params={
+            "root": root,
+            "exp": int(exp),
+            "strike": strike_thetadata,
+            "right": right.upper(),
+            "start_date": int(start_date),
+            "end_date": int(end_date),
+            "ivl": interval,
+            "rth": "true",
+        },
+        max_retries=3,
+        base_timeout=8.0,
+    )
+
+    meta = {
+        "root": root, "exp": exp, "strike": strike, "right": right,
+        "start_date": start_date, "end_date": end_date,
+        "interval_ms": interval, "source": "thetadata_v2",
+    }
+
+    if not data:
+        return {"quotes": [], "meta": {**meta, "count": 0}}
+
+    # v2 response format — each row is:
+    # [ms_of_day, bid_size, bid_exchange, bid, bid_condition,
+    #  ask_size, ask_exchange, ask, ask_condition, date]
+    response = data.get("response", [])
+    if not response:
+        return {"quotes": [], "meta": {**meta, "count": 0}}
+
+    quotes = []
+    for row in response:
+        if not isinstance(row, list) or len(row) < 10:
+            continue
+
+        ms_of_day = row[0]
+        bid_size = row[1]
+        bid = row[3]
+        ask_size = row[5]
+        ask = row[7]
+        date_val = row[9]
+
+        if bid is None or ask is None:
+            continue
+
+        spread = round(ask - bid, 4) if bid > 0 and ask > 0 else 0
+        mid = round((bid + ask) / 2, 4) if bid > 0 and ask > 0 else 0
+
+        # Convert ms_of_day to HH:MM:SS
+        if isinstance(ms_of_day, (int, float)) and ms_of_day > 0:
+            total_seconds = int(ms_of_day / 1000)
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            seconds = total_seconds % 60
+            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        else:
+            time_str = str(ms_of_day)
+
+        # Format date YYYYMMDD → YYYY-MM-DD
+        date_str = str(date_val) if date_val else ""
+        if len(date_str) == 8 and date_str.isdigit():
+            date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+
+        quotes.append({
+            "timestamp": f"{date_str}T{time_str}" if date_str else time_str,
+            "bid": bid,
+            "bid_size": bid_size,
+            "ask": ask,
+            "ask_size": ask_size,
+            "spread": spread,
+            "mid": mid,
+            "date": date_str,
+        })
+
+    return {"quotes": quotes, "meta": {**meta, "count": len(quotes)}}
+
+
+@router.get("/api/theta/quotes/spread-analysis")
+async def get_spread_analysis_endpoint(
+    root: str = "SPY",
+    exp: str = None,       # YYYYMMDD
+    strike: float = None,  # dollars
+    right: str = "C",
+    date: str = None,      # YYYYMMDD (single day)
+):
+    """
+    Analyze bid/ask spread quality for a specific option on a given day.
+
+    Returns spread statistics and a liquidity score (0-100).
+    """
+    if strike is None or exp is None:
+        return {"error": "Both 'exp' (YYYYMMDD) and 'strike' (dollars) are required"}
+
+    if date is None:
+        date = datetime.now().strftime("%Y%m%d")
+
+    analysis = await get_spread_analysis(root, exp, strike, right, date)
+
+    return {
+        "analysis": analysis,
+        "meta": {
+            "root": root, "exp": exp, "strike": strike,
+            "right": right, "date": date, "source": "thetadata_v2",
+        },
+    }

@@ -27,6 +27,7 @@ from dashboard.signal_api import (
 from dashboard.websocket_handler import ConnectionManager
 from dashboard.orderflow_api import include_orderflow_api
 from dashboard.alpaca_ws import alpaca_stream
+from dashboard.theta_stream import theta_stream
 from dashboard.agents.api import router as agents_router, start_agents, stop_agents
 from dashboard.pm_api import router as pm_router, init_position_manager
 from dashboard.position_manager import PositionManager
@@ -236,6 +237,35 @@ async def startup_event():
         await alpaca_stream.start(symbols)
         logger.info(f"Alpaca SIP stream started for: {symbols}")
 
+    # ── ThetaData WebSocket streaming (opt-in via THETA_STREAM_ENABLED) ──
+    if cfg.THETA_STREAM_ENABLED:
+        logger.info("ThetaData WebSocket streaming enabled — starting...")
+        theta_stream.ws_url = cfg.THETA_WS_URL
+
+        # Broadcast theta quote events to dashboard WebSocket clients
+        async def broadcast_theta_quote(event: dict):
+            await manager.broadcast(event)
+
+        # Broadcast theta trade events (for sweep detection / order flow)
+        async def broadcast_theta_trade(event: dict):
+            await manager.broadcast(event)
+
+        # Broadcast connection status changes
+        async def broadcast_theta_status(event: dict):
+            await manager.broadcast(event)
+
+        theta_stream.on_quote(broadcast_theta_quote)
+        theta_stream.on_trade(broadcast_theta_trade)
+        theta_stream.on_status(broadcast_theta_status)
+
+        await theta_stream.connect()
+        logger.info(f"ThetaData WS stream started — {cfg.THETA_WS_URL}")
+    else:
+        logger.info(
+            "ThetaData WS streaming disabled (set THETA_STREAM_ENABLED=true to enable). "
+            "REST polling continues as primary data source."
+        )
+
     # Start the 5-agent orchestration system
     start_agents()
     logger.info("Agent orchestration system started (5 agents active)")
@@ -311,6 +341,7 @@ async def shutdown_event():
     await outcome_tracker.stop()
     flush_ticks()  # Flush any buffered ticks to SQLite before exit
     await alpaca_stream.stop()
+    await theta_stream.disconnect()
     logger.info("Dashboard shutdown complete.")
 
 
@@ -449,6 +480,29 @@ async def stream_start():
 async def stream_stop():
     """Stop the Alpaca SIP WebSocket stream (use before starting Rust engine)."""
     await alpaca_stream.stop()
+    return {"status": "stopped"}
+
+
+@app.get("/api/theta-stream/stats")
+async def theta_stream_stats():
+    """Return ThetaData WebSocket stream stats."""
+    return theta_stream.get_stats()
+
+
+@app.post("/api/theta-stream/start")
+async def theta_stream_start():
+    """Manually start the ThetaData WebSocket stream."""
+    if theta_stream.running:
+        return {"status": "already_running", "connected": theta_stream.connected}
+    theta_stream.ws_url = cfg.THETA_WS_URL
+    await theta_stream.connect()
+    return {"status": "started", "ws_url": cfg.THETA_WS_URL}
+
+
+@app.post("/api/theta-stream/stop")
+async def theta_stream_stop():
+    """Stop the ThetaData WebSocket stream."""
+    await theta_stream.disconnect()
     return {"status": "stopped"}
 
 
