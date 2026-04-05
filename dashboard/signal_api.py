@@ -1935,9 +1935,7 @@ async def get_signal_replay(
         if traded_only:
             where_clauses.append("s.was_traded = 1")
 
-        where_sql = " AND ".join(where_clauses)
-
-        rows = conn.execute(f"""
+        query = """
             SELECT
                 s.*,
                 o.spy_price_at_signal,
@@ -1958,9 +1956,10 @@ async def get_signal_replay(
             FROM signals s
             LEFT JOIN signal_outcomes o ON o.signal_id = s.id
             LEFT JOIN trades t ON t.signal_id = s.id
-            WHERE {where_sql}
+            WHERE """ + " AND ".join(where_clauses) + """
             ORDER BY s.timestamp ASC
-        """, params).fetchall()
+        """
+        rows = conn.execute(query, params).fetchall()
 
         signals = []
         spy_prices = []
