@@ -13,6 +13,7 @@ const NAV_CONFIG = {
   // Sidebar-only nav items (no tab change, just switch sidebar panel)
   signals:   { tab: 'combined',  sidebar: 'signals',    showSidebar: true  },
   journal:   { tab: 'combined',  sidebar: 'journal',    showSidebar: true  },
+  replay:    { tab: 'replay',   sidebar: null,          showSidebar: false },
   settings:  { tab: null,        sidebar: 'settings',   showSidebar: true  },
 };
 
@@ -53,6 +54,7 @@ function navTo(nav){
 
   // Tab-specific init hooks
   if(nav === 'agent') startAgentTab();
+  if(nav === 'replay') initReplayTab();
 }
 
 function _updateSessionLabel(){

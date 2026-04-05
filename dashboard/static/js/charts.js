@@ -251,7 +251,7 @@ function setTab(tab){
   S.activeTab = tab;
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab===tab));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  const panelMap = {combined:'tabCombined', flow:'tabFlow', candles:'tabCandles', options:'tabOptions', agent:'tabAgent'};
+  const panelMap = {combined:'tabCombined', flow:'tabFlow', candles:'tabCandles', options:'tabOptions', agent:'tabAgent', replay:'tabReplay'};
   document.getElementById(panelMap[tab])?.classList.add('active');
 
   // Resize charts after tab switch — two passes:

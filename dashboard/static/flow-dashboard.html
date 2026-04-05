@@ -642,6 +642,11 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
     <span class="ln-label">Journal</span>
   </button>
 
+  <button class="ln-btn" data-nav="replay" onclick="navTo('replay')" title="Signal Replay">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    <span class="ln-label">Replay</span>
+  </button>
+
   <div class="ln-spacer"></div>
 
   <button class="ln-btn" data-nav="settings" onclick="openSettingsModal()" title="Settings">
@@ -1110,6 +1115,66 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
     </div><!-- /sub-tab panels -->
   </div><!-- /tabAgent -->
 
+  <!-- TAB 6: Signal Replay -->
+  <div class="tab-panel flex-col overflow-hidden" id="tabReplay" style="padding:0">
+
+    <!-- Header controls -->
+    <div class="toolbar flex-shrink-0 flex-wrap gap-md" id="replayToolbar">
+      <label class="text-2xs text-muted uppercase tracking-wide font-semibold">Date</label>
+      <select id="replayDatePicker" class="bar-btn text-xs" style="padding:4px 8px;background:var(--bg3);color:var(--text-primary);border:1px solid var(--brd);border-radius:var(--radius-sm);min-width:130px" onchange="loadReplay()">
+        <option value="">Loading...</option>
+      </select>
+      <span class="sep">|</span>
+      <label class="text-2xs text-muted uppercase tracking-wide font-semibold">Direction</label>
+      <select id="replayDirFilter" class="bar-btn text-xs" style="padding:4px 8px;background:var(--bg3);color:var(--text-primary);border:1px solid var(--brd);border-radius:var(--radius-sm)" onchange="loadReplay()">
+        <option value="">All</option>
+        <option value="BUY_CALL">Calls</option>
+        <option value="BUY_PUT">Puts</option>
+      </select>
+      <span class="sep">|</span>
+      <label class="text-2xs text-muted uppercase tracking-wide font-semibold">Tier</label>
+      <select id="replayTierFilter" class="bar-btn text-xs" style="padding:4px 8px;background:var(--bg3);color:var(--text-primary);border:1px solid var(--brd);border-radius:var(--radius-sm)" onchange="loadReplay()">
+        <option value="">All</option>
+        <option value="DEVELOPING">Developing</option>
+        <option value="VALID">Valid</option>
+        <option value="STRONG">Strong</option>
+        <option value="EXCEPTIONAL">Exceptional</option>
+      </select>
+      <span class="sep">|</span>
+      <span class="text-xs font-bold" id="replayAccuracyBadge" style="padding:4px 10px;border-radius:var(--radius-sm);background:var(--bg3)">--% accuracy</span>
+    </div>
+
+    <!-- Summary cards row -->
+    <div class="flex-shrink-0 flex gap-sm flex-wrap p-md" id="replaySummaryCards" style="padding-bottom:0">
+      <div class="imb-card" style="flex:1;min-width:110px;border-color:var(--brd);background:var(--surface-0);text-align:center">
+        <div class="text-2xs text-muted uppercase tracking-wide">Total Signals</div>
+        <div class="text-lg font-bold" id="rsTotalSignals">--</div>
+      </div>
+      <div class="imb-card" style="flex:1;min-width:110px;border-color:var(--brd);background:var(--surface-0);text-align:center">
+        <div class="text-2xs text-muted uppercase tracking-wide">Correct (15m)</div>
+        <div class="text-lg font-bold text-positive" id="rsCorrect15">--</div>
+      </div>
+      <div class="imb-card" style="flex:1;min-width:110px;border-color:var(--brd);background:var(--surface-0);text-align:center">
+        <div class="text-2xs text-muted uppercase tracking-wide">Correct (30m)</div>
+        <div class="text-lg font-bold text-positive" id="rsCorrect30">--</div>
+      </div>
+      <div class="imb-card" style="flex:1;min-width:110px;border-color:var(--brd);background:var(--surface-0);text-align:center">
+        <div class="text-2xs text-muted uppercase tracking-wide">Accuracy (30m)</div>
+        <div class="text-lg font-bold" id="rsAccuracy30">--%</div>
+      </div>
+      <div class="imb-card" style="flex:1;min-width:110px;border-color:var(--brd);background:var(--surface-0);text-align:center">
+        <div class="text-2xs text-muted uppercase tracking-wide">Avg Move (30m)</div>
+        <div class="text-lg font-bold" id="rsAvgMove">--%</div>
+      </div>
+    </div>
+
+    <!-- Signal timeline (scrollable) -->
+    <div class="flex-1 overflow-auto p-md" id="replayTimeline" style="padding-top:var(--space-sm)">
+      <div class="empty-msg">Select a date to replay signals...</div>
+    </div>
+
+  </div><!-- /tabReplay -->
+
 </div>
 
 <!-- ===== SIDEBAR (v2: switchable panels + resizable) ===== -->
@@ -1350,6 +1415,7 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
 <script src="/static/js/trading.js"></script>
 <script src="/static/js/agent.js"></script>
 <script src="/static/js/settings.js"></script>
+<script src="/static/js/replay.js"></script>
 <script src="/static/js/boot.js"></script>
 
 <!-- ===== KEYBOARD SHORTCUTS OVERLAY ===== -->
