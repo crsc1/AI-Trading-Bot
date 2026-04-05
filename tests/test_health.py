@@ -3,7 +3,7 @@ Test suite for basic health checks and endpoint availability.
 
 Tests:
 - GET /health returns 200 with proper response
-- GET / redirects to /flow
+- GET / serves the dashboard HTML
 - GET /flow returns HTML
 - GET /debug returns HTML
 """
@@ -22,21 +22,25 @@ async def test_get_health(async_client):
 
 
 @pytest.mark.asyncio
-async def test_get_health_missing_endpoint(async_client):
-    """Test that missing /health still works if it's an alias."""
-    # The app might not have /health, but let's verify graceful handling
-    response = await async_client.get("/nonexistent")
-    assert response.status_code in [404, 200]  # Either 404 or handled
+async def test_nonexistent_page_redirects(async_client):
+    """Test that unknown pages redirect to dashboard."""
+    response = await async_client.get("/nonexistent", follow_redirects=False)
+    assert response.status_code in [307, 302, 301]
 
 
 @pytest.mark.asyncio
-async def test_get_root_redirect(async_client):
-    """Test that GET / redirects to /flow."""
-    response = await async_client.get("/", follow_redirects=False)
-    # Should be a redirect
-    assert response.status_code in [301, 302, 307]
-    # Check redirect location
-    assert "location" in response.headers or response.status_code == 307
+async def test_nonexistent_api_returns_404(async_client):
+    """Test that unknown API routes return 404 JSON, not redirect."""
+    response = await async_client.get("/api/nonexistent")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_root_serves_dashboard(async_client):
+    """Test that GET / serves the dashboard HTML directly."""
+    response = await async_client.get("/")
+    assert response.status_code == 200
+    assert "html" in response.text.lower()
 
 
 @pytest.mark.asyncio
@@ -62,17 +66,14 @@ async def test_get_debug_returns_html(async_client):
 @pytest.mark.asyncio
 async def test_static_files_accessible(async_client):
     """Test that static files directory is properly mounted."""
-    # This may return 404 if file doesn't exist, but path should be accessible
     response = await async_client.get("/static/")
-    # Should not throw an error; status varies
+    # Static paths return 404 JSON (not redirect) when file not found
     assert response.status_code in [200, 404, 301, 302]
 
 
 @pytest.mark.asyncio
 async def test_websocket_endpoint_exists(async_client):
     """Test that WebSocket endpoint is registered."""
-    # Can't directly test WS with httpx, but we can verify it's not a 404 on a GET
-    # Actually WebSocket endpoints return 426 on GET
     response = await async_client.get("/ws")
-    # WS endpoints typically return 426 Upgrade Required or 400 on GET
+    # WS endpoints return 404 JSON (not redirect), 426, or 400 on GET
     assert response.status_code in [426, 400, 404, 200]

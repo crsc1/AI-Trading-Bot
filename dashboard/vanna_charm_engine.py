@@ -448,19 +448,19 @@ def score_vanna_alignment(
         explain = f"Strong vanna support: dealer buying pressure ({vc.vanna_regime})"
     elif is_bullish and pressure > 0.1:
         score = 0.4
-        explain = f"Moderate vanna support: mild bullish dealer flow"
+        explain = "Moderate vanna support: mild bullish dealer flow"
     elif not is_bullish and pressure < -0.3:
         score = 0.75
         explain = f"Strong vanna support: dealer selling pressure ({vc.vanna_regime})"
     elif not is_bullish and pressure < -0.1:
         score = 0.4
-        explain = f"Moderate vanna support: mild bearish dealer flow"
+        explain = "Moderate vanna support: mild bearish dealer flow"
     elif abs(pressure) < 0.1:
         score = 0.0
         explain = "Vanna neutral — no directional dealer flow"
     else:
         score = -0.25
-        explain = f"Vanna opposing: dealer flow against trade direction"
+        explain = "Vanna opposing: dealer flow against trade direction"
 
     return score, explain
 
@@ -499,6 +499,6 @@ def score_charm_pressure(
     else:
         score = -0.25 * weight_mult
         score = max(score, -0.25)
-        explain = f"Charm opposing: dealer flow against trade direction"
+        explain = "Charm opposing: dealer flow against trade direction"
 
     return round(score, 3), explain

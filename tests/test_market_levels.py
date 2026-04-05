@@ -10,9 +10,7 @@ Tests:
 - Edge cases: empty data, single bar, missing fields
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict
+from datetime import datetime, timezone
 
 from dashboard.market_levels import (
     MarketLevels,

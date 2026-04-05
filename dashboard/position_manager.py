@@ -17,17 +17,16 @@ import asyncio
 import aiohttp
 import json
 import logging
-import os
 import time
 import uuid
-from datetime import datetime, timezone, timedelta, time as dt_time
+from datetime import datetime, timezone, time as dt_time
 from collections import deque
-from typing import Optional, Dict, List, Any, Callable
+from typing import Optional, Dict, List, Callable
 
 from .signal_db import (
     store_signal, mark_signal_traded, mark_signal_rejected,
     store_trade, close_trade, get_open_trades, get_trade_history,
-    get_todays_trades, compute_scorecard,
+    get_todays_trades,
 )
 from . import data_router
 from .config import cfg
@@ -282,7 +281,7 @@ class RiskManager:
         """
         Pre-entry risk check. Returns rejection reason or None if OK.
         """
-        now_et = datetime.now(ET)
+        datetime.now(ET)
 
         # Circuit breaker
         if daily_pnl <= -self.max_daily_loss:
@@ -965,7 +964,7 @@ class PositionManager:
             # Get IV vs Realized Vol analysis
             try:
                 from .vol_analyzer import analyze_vol
-                from .options_analytics import analyze_options, OptionsAnalytics
+                from .options_analytics import analyze_options
                 chain_for_vol = await data_router.get_options_chain("SPY")
                 if chain_for_vol and bars_1m:
                     calls_v = chain_for_vol.get("calls", [])

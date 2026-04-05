@@ -23,7 +23,6 @@ No Alpaca interaction whatsoever.
 
 import logging
 import aiohttp
-import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
@@ -219,7 +218,7 @@ async def _fetch_option_trades(
 
     # Calculate start time (milliseconds since midnight ET)
     now = datetime.now(timezone.utc)
-    start_time = now - timedelta(minutes=lookback_minutes)
+    now - timedelta(minutes=lookback_minutes)
 
     try:
         async with aiohttp.ClientSession() as session:

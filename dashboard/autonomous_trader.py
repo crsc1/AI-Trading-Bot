@@ -38,10 +38,10 @@ import asyncio
 import logging
 import json
 from datetime import datetime, timezone, time as dt_time
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Callable
 from collections import deque
 
-from .signal_db import get_open_trades, get_todays_trades, close_trade
+from .signal_db import get_open_trades, get_todays_trades
 from .trade_grader import grade_trade
 from .config import cfg
 
@@ -464,7 +464,7 @@ class AutonomousTrader:
         if strike_source == "estimated_fallback":
             self.decisions.record(
                 "REVALIDATE",
-                f"Signal uses estimated strike — fetching live chain to validate",
+                "Signal uses estimated strike — fetching live chain to validate",
                 signal,
             )
             validated = await self._revalidate_strike(signal)
@@ -695,7 +695,7 @@ class AutonomousTrader:
         # Compute gains from entry and from peak
         peak_gain_pct = ((peak_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
         current_gain_pct = pnl_pct
-        peak_dollar_gain = (peak_price - entry_price) * 100 * trade.get("quantity", 1)
+        (peak_price - entry_price) * 100 * trade.get("quantity", 1)
 
         # Target / stop from signal (override with tier-adaptive if signal didn't set them)
         target_price = self._get_signal_target(trade)
@@ -1051,7 +1051,8 @@ class TrainingDataCollector:
         self._init_db()
 
     def _init_db(self):
-        import sqlite3, os
+        import sqlite3
+        import os
         os.makedirs(self._db_dir, exist_ok=True)
         conn = sqlite3.connect(self._db_path)
         conn.executescript("""
@@ -1128,7 +1129,7 @@ class TrainingDataCollector:
             conn = sqlite3.connect(self._db_path)
 
             factors = signal.get("factors", [])
-            indicators = signal.get("indicators", {})
+            signal.get("indicators", {})
             levels = signal.get("levels", {})
             options = signal.get("options_analytics", {})
 

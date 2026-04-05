@@ -26,10 +26,9 @@ Data: Computed from trade data we already receive (Alpaca trades + ThetaData).
 """
 
 import logging
-import math
 from collections import deque
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +168,6 @@ class VPINCalculator:
         if self._last_mid <= 0 or price <= 0:
             return 0.5  # Unknown → split
 
-        mid = self._last_mid
         spread = self._last_ask - self._last_bid
 
         if spread <= 0:

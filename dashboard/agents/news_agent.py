@@ -22,7 +22,6 @@ import aiohttp
 import logging
 import os
 import re
-import json as _json
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional, Tuple
 from .base import BaseAgent, AgentVerdict, Direction

@@ -20,15 +20,13 @@ Does NOT interfere with Alpaca live trading or modify any existing
 Alpaca positions/orders not created by this module.
 """
 
-import uuid
 import logging
 import aiohttp
-import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 
 from .signal_db import store_signal, mark_signal_traded, mark_signal_rejected, store_trade, close_trade
-from .signal_validator import validate_signal, ValidationResult
+from .signal_validator import validate_signal
 from .confluence import ACCOUNT_BALANCE
 from .config import cfg
 

@@ -11,10 +11,8 @@ Usage:
 """
 
 import logging
-from datetime import datetime, timezone, time as dt_time
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, List
 
-from .config import cfg
 
 logger = logging.getLogger("session_gate")
 
@@ -226,11 +224,11 @@ class SessionGate:
         Check there's no high-impact event within 30 minutes.
         Uses event data from the signal's risk_management or session context.
         """
-        risk_mgmt = signal.get("risk_management", {})
+        signal.get("risk_management", {})
 
         # Check if event calendar flagged suppress_entries
         # (event_calendar.py already computes this)
-        session = signal.get("session", {})
+        signal.get("session", {})
 
         # The signal doesn't carry event_context directly, but confluence
         # already factors it in. We can check the factors list for event impact.
@@ -251,7 +249,7 @@ class SessionGate:
         During midday, volume typically drops — elevated volume means something
         is happening at this price level.
         """
-        total_volume = indicators.get("total_volume", 0)
+        indicators.get("total_volume", 0)
 
         # If we have large trades and they show a clear bias, that's volume confirmation
         large_trades = indicators.get("large_trades", 0)

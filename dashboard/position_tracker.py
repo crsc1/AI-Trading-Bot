@@ -17,11 +17,10 @@ Exit decisions are returned to the caller (paper_trader) for execution.
 """
 
 import logging
-import math
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any
 
-from .signal_db import get_open_trades, close_trade
+from .signal_db import get_open_trades
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +261,6 @@ class PositionTracker:
         Called periodically during position monitoring.
         """
         from .signal_db import _get_conn
-        import json
 
         conn = _get_conn()
         row = conn.execute(
@@ -441,9 +439,9 @@ class PositionTracker:
             greeks = {}
 
         delta = greeks.get("delta") or 0
-        gamma = greeks.get("gamma") or 0
+        greeks.get("gamma") or 0
         theta = greeks.get("theta") or 0
-        vega = greeks.get("vega") or 0
+        greeks.get("vega") or 0
 
         entry_price = trade.get("entry_price", 0)
         strike = trade.get("strike", 0)
@@ -469,7 +467,6 @@ class PositionTracker:
         if current_underlying > 0 and strike > 0:
             # Rough underlying move since entry
             # This is an approximation since we don't store entry underlying price
-            estimated_underlying_move = 0  # Would need entry underlying to compute
             days_held = hold_minutes / (60 * 6.5)  # Trading hours per day
 
             result["theta_pnl"] = round(theta * days_held * 100 * quantity, 2) if theta else None

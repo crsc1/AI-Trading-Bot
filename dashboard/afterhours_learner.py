@@ -22,10 +22,9 @@ import json
 import logging
 import os
 import sqlite3
-from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, time as dt_time, timedelta, date
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -586,7 +585,7 @@ class AfterHoursLearner:
                 f"Excellent profit factor {report.profit_factor:.2f} — "
                 f"avg win ${report.avg_win:.2f} is {report.avg_win / abs(report.avg_loss):.1f}x avg loss"
                 if report.avg_loss != 0 else
-                f"Excellent profit factor — no losses today"
+                "Excellent profit factor — no losses today"
             )
 
         return insights

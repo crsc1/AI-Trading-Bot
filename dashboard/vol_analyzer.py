@@ -360,7 +360,6 @@ def score_vol_edge(
     if vol.data_quality == "insufficient":
         return 0.0, "IV/RV data insufficient"
 
-    ratio = vol.iv_rv_ratio
     regime = vol.vol_regime
     score = 0.0
     details = []

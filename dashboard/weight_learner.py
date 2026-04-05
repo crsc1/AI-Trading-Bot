@@ -28,7 +28,7 @@ import logging
 import os
 import sqlite3
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from copy import deepcopy
 
 logger = logging.getLogger(__name__)

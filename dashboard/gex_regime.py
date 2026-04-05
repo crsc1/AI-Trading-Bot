@@ -26,8 +26,8 @@ Data flow:
 """
 
 import logging
-from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +212,7 @@ def get_regime_profile(
 
             # Near call wall (< 20% away) → cap upside targets for calls
             if pos_in_range < 0.20:
-                proximity_factor = 1.0 - pos_in_range  # 0.8 to 1.0
+                1.0 - pos_in_range  # 0.8 to 1.0
                 # Reduce target by up to 20% when right at wall
                 wall_reduction = 0.80 + 0.20 * (pos_in_range / 0.20)
                 profile.target_mult *= wall_reduction
@@ -220,7 +220,6 @@ def get_regime_profile(
 
             # Near put wall (> 80% toward put wall) → cap downside targets for puts
             elif pos_in_range > 0.80:
-                proximity_factor = pos_in_range
                 wall_reduction = 0.80 + 0.20 * ((1.0 - pos_in_range) / 0.20)
                 profile.target_mult *= wall_reduction
                 profile.detail += f" | Near put wall (${put_wall:.0f})"
@@ -266,7 +265,7 @@ def apply_regime_to_risk(
     risk_params["_pre_regime_max_hold"] = risk_params.get("max_hold_minutes", 0)
     risk_params["_pre_regime_contracts"] = risk_params.get("max_contracts", 1)
 
-    entry = risk_params.get("target_price", 0) / (1 + float(risk_params.get("target_pct", "+50%").strip('%+')) / 100) if "target_pct" in risk_params else 0
+    risk_params.get("target_price", 0) / (1 + float(risk_params.get("target_pct", "+50%").strip('%+')) / 100) if "target_pct" in risk_params else 0
 
     # ── Adjust exit parameters ──
     # Adjust target_pct and stop_pct (the % values used by position_manager)
@@ -277,7 +276,7 @@ def apply_regime_to_risk(
     risk_params["max_hold_minutes"] = max(3, int(max_hold * profile.max_hold_mult))
 
     # Adjust target_price and stop_price
-    entry_price = risk_params.get("pct_target", 0) / (1 + 0.5) if risk_params.get("pct_target") else 0
+    risk_params.get("pct_target", 0) / (1 + 0.5) if risk_params.get("pct_target") else 0
 
     # More direct: adjust via pct_target and pct_stop which are absolute prices
     pct_target = risk_params.get("pct_target", 0)

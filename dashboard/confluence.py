@@ -25,8 +25,8 @@ except ImportError:
 
 from .market_levels import MarketLevels
 from .market_internals import MarketBreadth, score_market_breadth
-from .gex_regime import RegimeProfile, get_regime_profile, apply_regime_to_risk
-from .vol_analyzer import VolAnalysis, analyze_vol, score_vol_edge, apply_vol_to_risk
+from .gex_regime import get_regime_profile, apply_regime_to_risk
+from .vol_analyzer import VolAnalysis, score_vol_edge, apply_vol_to_risk
 from .config import cfg
 
 logger = logging.getLogger(__name__)
@@ -835,7 +835,7 @@ def evaluate_confluence(
     # ━━━━ AGGREGATE: determine direction and confidence ━━━━
     bullish_weight = sum(f.weight for f in factors if f.direction == "bullish")
     bearish_weight = sum(f.weight for f in factors if f.direction == "bearish")
-    neutral_mod = sum(f.weight for f in factors if f.direction == "neutral")
+    sum(f.weight for f in factors if f.direction == "neutral")
 
     bullish_count = sum(1 for f in factors if f.direction == "bullish")
     bearish_count = sum(1 for f in factors if f.direction == "bearish")
@@ -1075,9 +1075,9 @@ def _score_cvd_divergence(flow: OrderFlowState, direction: str) -> Tuple[float, 
     elif flow.divergence == "bearish" and direction == "bearish":
         return 1.0, f"Bearish divergence — price {flow.price_trend} but CVD {flow.cvd_trend} (hidden selling)"
     elif flow.divergence == "bullish" and direction == "bearish":
-        return -0.5, f"Bullish divergence contradicts bearish signal"
+        return -0.5, "Bullish divergence contradicts bearish signal"
     elif flow.divergence == "bearish" and direction == "bullish":
-        return -0.5, f"Bearish divergence contradicts bullish signal"
+        return -0.5, "Bearish divergence contradicts bullish signal"
 
     # No divergence — check if CVD confirms direction
     if direction == "bullish" and flow.cvd_trend == "rising":
@@ -1158,20 +1158,20 @@ def _score_delta_regime(flow: OrderFlowState, direction: str) -> Tuple[float, st
             score = min(1.0, 0.5 + abs(accel) * 0.001)
             return score, f"CVD accelerating upward ({accel:+.0f}) — bullish momentum building"
         elif flow.cvd_trend == "rising" and accel <= 0:
-            return 0.3, f"CVD rising but decelerating — momentum fading"
+            return 0.3, "CVD rising but decelerating — momentum fading"
         elif accel < 0 and flow.cvd_trend == "falling":
-            return -1.0, f"CVD accelerating downward — strong headwind for bullish"
-        return 0.0, f"CVD neutral regime"
+            return -1.0, "CVD accelerating downward — strong headwind for bullish"
+        return 0.0, "CVD neutral regime"
 
     elif direction == "bearish":
         if accel < 0 and flow.cvd_trend == "falling":
             score = min(1.0, 0.5 + abs(accel) * 0.001)
             return score, f"CVD accelerating downward ({accel:+.0f}) — bearish momentum building"
         elif flow.cvd_trend == "falling" and accel >= 0:
-            return 0.3, f"CVD falling but decelerating — momentum fading"
+            return 0.3, "CVD falling but decelerating — momentum fading"
         elif accel > 0 and flow.cvd_trend == "rising":
-            return -1.0, f"CVD accelerating upward — strong headwind for bearish"
-        return 0.0, f"CVD neutral regime"
+            return -1.0, "CVD accelerating upward — strong headwind for bearish"
+        return 0.0, "CVD neutral regime"
 
     return 0.0, "No delta regime signal"
 
@@ -1547,7 +1547,7 @@ def _score_orb_breakout(
         if above_orb and direction == "bullish":
             # Bullish breakout aligned with prelim direction
             breakout_dist = price - orb_high
-            breakout_pct = breakout_dist / orb_width if orb_width > 0 else 0
+            breakout_dist / orb_width if orb_width > 0 else 0
 
             # Base score: confirmed breakout
             score += 0.50
@@ -1596,10 +1596,10 @@ def _score_orb_breakout(
         elif above_orb and direction == "bearish":
             # Breakout opposes our direction — headwind
             score -= 0.30
-            details.append(f"Above ORB high but bearish direction — opposing breakout")
+            details.append("Above ORB high but bearish direction — opposing breakout")
         elif below_orb and direction == "bullish":
             score -= 0.30
-            details.append(f"Below ORB low but bullish direction — opposing breakdown")
+            details.append("Below ORB low but bullish direction — opposing breakdown")
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # B) S/R MODE — ORB levels act as support/resistance all day
@@ -1617,7 +1617,7 @@ def _score_orb_breakout(
                 details.append(f"Holding above {orb_source} ORB high ${orb_high:.2f} — trend continuation")
             elif direction == "bearish":
                 score -= 0.15
-                details.append(f"Price above ORB high opposes bearish")
+                details.append("Price above ORB high opposes bearish")
 
         # Price holding below ORB after earlier breakdown
         elif price < orb_low - proximity:
@@ -1626,7 +1626,7 @@ def _score_orb_breakout(
                 details.append(f"Holding below {orb_source} ORB low ${orb_low:.2f} — trend continuation")
             elif direction == "bullish":
                 score -= 0.15
-                details.append(f"Price below ORB low opposes bullish")
+                details.append("Price below ORB low opposes bullish")
 
         # Price testing ORB high from below (resistance) or bouncing off it
         elif dist_to_high <= proximity:
@@ -1707,7 +1707,7 @@ def _score_candle_pattern(
             details.append(f"{bullish_bars}/5 green bars oppose bearish")
 
     # Volume exhaustion on last bar (tiny body, big wicks)
-    last_bar = recent[-1]
+    recent[-1]
     body = abs(closes[-1] - opens[-1])
     total_range = highs[-1] - lows[-1] if highs[-1] > lows[-1] else 0.001
     body_ratio = body / total_range
@@ -1954,7 +1954,6 @@ def select_strike(
     # Auto-trader will re-validate with live chain before placing orders.
     # This keeps the signal pipeline flowing for learning/logging even when
     # ThetaData is temporarily unreachable.
-    import math
 
     # Estimate ATM-ish strike (round to nearest $1 for SPY)
     if action == "BUY_CALL":

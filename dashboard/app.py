@@ -57,10 +57,10 @@ BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATE_DIR = BASE_DIR / "static"
 
-# Custom 404 — redirect to dashboard instead of raw JSON
+# Custom 404 — redirect browser requests to dashboard, keep JSON for API/WS/static
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
-    if request.url.path.startswith("/api/"):
+    if request.url.path.startswith(("/api/", "/ws", "/static/")):
         return JSONResponse(status_code=404, content={"detail": "Not Found"})
     return RedirectResponse(url="/")
 
@@ -156,7 +156,7 @@ async def startup_event():
             if not ts_ms:
                 # Parse ISO timestamp to ms
                 try:
-                    from datetime import datetime, timezone
+                    from datetime import datetime
                     ts_str = event.get("timestamp", "")
                     if ts_str:
                         dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))

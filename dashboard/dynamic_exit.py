@@ -92,7 +92,7 @@ def score_momentum(position: Dict, flow: Optional[Dict],
     details = []
 
     direction = _position_direction(position)
-    pnl_pct = position.get("unrealized_pnl_pct", 0)
+    position.get("unrealized_pnl_pct", 0)
 
     if flow:
         cvd_trend = flow.get("cvd_trend", "neutral")
@@ -127,7 +127,7 @@ def score_momentum(position: Dict, flow: Optional[Dict],
     # Price overextension from VWAP (mean reversion risk)
     if levels:
         price = levels.get("current_price", 0)
-        vwap = levels.get("vwap", 0)
+        levels.get("vwap", 0)
         vwap_2u = levels.get("vwap_upper_2", 0)
         vwap_2l = levels.get("vwap_lower_2", 0)
 
@@ -192,7 +192,7 @@ def score_greeks(position: Dict,
     live_greeks = position.get("live_greeks", {})
     entry_greeks = position.get("greeks_at_entry", {})
     greeks_pnl = position.get("greeks_pnl", {})
-    hold_minutes = position.get("hold_minutes", 0)
+    position.get("hold_minutes", 0)
 
     # Theta acceleration — 0DTE theta accelerates sharply after 2 PM
     theta = live_greeks.get("theta")

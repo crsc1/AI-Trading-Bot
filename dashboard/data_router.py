@@ -20,7 +20,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, Any
 
 from .config import cfg
 
@@ -62,7 +62,7 @@ _health = {
 
 def get_health() -> Dict:
     """Return health stats for all providers."""
-    now = time.time()
+    time.time()
     result = {}
     for provider, stats in _health.items():
         status = "unknown"
@@ -559,7 +559,6 @@ def _compute_greeks(
     """Compute Greeks via Black-Scholes. Returns empty dict on failure."""
     try:
         from utils.greeks import calculate_greeks, calculate_iv
-        import math
 
         # Time to expiry in years
         exp_dt = datetime.strptime(expiration, "%Y-%m-%d").replace(

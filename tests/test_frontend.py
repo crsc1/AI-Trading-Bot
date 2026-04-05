@@ -11,9 +11,8 @@ Tests use Playwright to load the dashboard HTML and verify:
 """
 
 import pytest
-import asyncio
 from pathlib import Path
-from playwright.async_api import async_playwright, expect
+from playwright.async_api import async_playwright
 
 # Path to the dashboard HTML file
 DASHBOARD_PATH = Path(__file__).parent.parent / "dashboard" / "static" / "flow-dashboard.html"

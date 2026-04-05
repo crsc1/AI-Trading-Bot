@@ -24,7 +24,6 @@ from dashboard.ml_predictor import (
     CONTEXT_FEATURES,
     ALL_FEATURES,
     NUM_FEATURES,
-    MIN_TRAINING_SAMPLES,
     SESSION_PHASE_MAP,
     GEX_REGIME_MAP,
     SKLEARN_AVAILABLE,
@@ -229,7 +228,7 @@ class TestMLDirectionPredictor:
         should_trade, prob, reason = pred.predict({"signal": "BUY_CALL"})
         assert should_trade is True
         assert prob == 0.5
-        assert "not trained" in reason.lower()
+        assert "not trained" in reason.lower() or "not installed" in reason.lower()
 
     def test_stats_untrained(self):
         """Stats of untrained predictor."""

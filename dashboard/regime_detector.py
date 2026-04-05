@@ -22,7 +22,7 @@ import logging
 import aiohttp
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 from .config import cfg
 

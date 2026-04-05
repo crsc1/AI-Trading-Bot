@@ -32,10 +32,8 @@ import logging
 import os
 import pickle
 import sqlite3
-from datetime import datetime, timezone, timedelta, time as dt_time
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
-from copy import deepcopy
-import math
 
 logger = logging.getLogger(__name__)
 

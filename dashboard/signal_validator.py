@@ -18,8 +18,8 @@ All checks are independent; any single failure vetoes the trade.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta, timezone, time as dt_time
+from typing import Dict, List, Optional
+from datetime import datetime, timedelta, timezone
 import logging
 
 try:
@@ -30,7 +30,6 @@ except ImportError:
 
 from .confluence import (
     ACCOUNT_BALANCE,
-    RISK_TABLE,
     ZERO_DTE_HARD_STOP,
     MIN_TRADE_CONFIDENCE,
 )

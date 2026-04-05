@@ -40,7 +40,7 @@ from pydantic import BaseModel
 from datetime import datetime, timezone, time as dt_time
 from datetime import timedelta
 from typing import Optional, List, Dict, Any
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import logging
 from collections import deque
 
@@ -66,7 +66,7 @@ from .vanna_charm_engine import calculate_vanna_charm
 from .regime_detector import detect_regime
 from .event_calendar import get_event_context
 from .sweep_detector import detect_sweeps
-from .flow_toxicity import VPINCalculator, compute_vpin_from_trades
+from .flow_toxicity import compute_vpin_from_trades
 from .sector_monitor import analyze_sectors
 from .market_internals import analyze_breadth
 from .paper_trader import PaperTrader
@@ -1366,7 +1366,6 @@ def _enrich_greeks_locally(options: list, spot: float, r: float = 0.045):
     Derives IV from bid/ask mid price, then computes delta and gamma.
     Modifies entries in-place. Returns count of enriched options.
     """
-    import math
     enriched = 0
     now = datetime.now(timezone.utc)
 
@@ -1443,7 +1442,7 @@ async def get_gex_analysis():
 
         # Greeks source: ThetaData first_order provides delta/theta/vega/rho/IV.
         # Gamma requires Pro (greeks/all) — local BS fallback used for gamma only.
-        chain_src = chain.get("source", "unknown")
+        chain.get("source", "unknown")
         greeks_source = "local_bs"  # default; overridden below if Greeks arrived pre-computed
         calls_missing = sum(1 for c in calls if c.get("gamma") is None)
         puts_missing = sum(1 for p in puts if p.get("gamma") is None)

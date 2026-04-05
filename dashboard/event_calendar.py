@@ -31,7 +31,7 @@ import logging
 import aiohttp
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone, time as dt_time
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -399,5 +399,5 @@ def score_event_context(
 
     else:
         if ctx.high_impact_today:
-            return 0.9, f"Event day: high-impact events scheduled — slight caution"
+            return 0.9, "Event day: high-impact events scheduled — slight caution"
         return 1.0, "No events — normal operation"

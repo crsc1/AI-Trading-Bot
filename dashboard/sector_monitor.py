@@ -20,7 +20,7 @@ import logging
 import aiohttp
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)

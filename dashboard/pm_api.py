@@ -8,15 +8,13 @@ Mount at /api/pm in the main FastAPI app.
 """
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import logging
 
-from .position_manager import PositionManager, ExitRules, RiskManager
+from .position_manager import PositionManager
 from . import data_router
 from .signal_db import (
-    get_open_trades, get_trade_history, get_todays_trades, compute_scorecard,
-    get_outcome_stats, get_llm_verdict_stats, get_persisted_verdicts,
+    get_open_trades, get_trade_history, get_todays_trades, get_outcome_stats, get_llm_verdict_stats, get_persisted_verdicts,
 )
 from . import llm_validator
 from .signal_outcome_tracker import outcome_tracker
@@ -325,7 +323,7 @@ async def validate_signal_now(body: Dict[str, Any]):
     Returns verdict_id — poll /api/pm/llm/verdicts to see the result.
     """
     import uuid as _uuid
-    from .signal_db import get_open_trades, get_trade_history
+    from .signal_db import get_open_trades
     from . import data_router as _dr
 
     signal = body.get("signal", body)  # Accept bare signal or {signal: ...}
@@ -388,7 +386,7 @@ async def get_signal_stats(lookback_days: int = Query(default=30, ge=1, le=90)):
     # Weight learner drift summary
     weight_drift = {}
     try:
-        pm = get_pm()
+        get_pm()
         from .signal_api import weight_learner as _wl
         ws = _wl.status()
         drifts = ws.get("weight_changes", {})

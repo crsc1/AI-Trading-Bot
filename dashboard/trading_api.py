@@ -12,7 +12,6 @@ from fastapi import APIRouter, Query
 from datetime import datetime, timezone
 import logging
 import aiohttp
-import os
 from .config import cfg
 
 logger = logging.getLogger(__name__)

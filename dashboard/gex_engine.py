@@ -28,8 +28,7 @@ Data flow:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple
-import math
+from typing import List, Dict, Tuple
 import logging
 
 logger = logging.getLogger(__name__)

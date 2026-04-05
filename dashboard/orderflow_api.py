@@ -23,7 +23,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import logging
 import aiohttp
-import os
 from .config import cfg
 
 logger = logging.getLogger(__name__)

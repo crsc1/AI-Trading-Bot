@@ -28,14 +28,11 @@ Also computes rolling scorecard metrics:
 import math
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from .signal_db import (
     get_trade_history,
-    get_todays_trades,
     compute_scorecard,
-    store_daily_scorecard,
-    close_trade,
 )
 
 logger = logging.getLogger(__name__)
@@ -442,7 +439,7 @@ def compute_advanced_scorecard(
         trades = get_trade_history(limit=500)
 
     # Filter to lookback window
-    cutoff = datetime.now(timezone.utc).isoformat()[:10]  # Today
+    datetime.now(timezone.utc).isoformat()[:10]  # Today
     # For simplicity, use all provided trades (caller can pre-filter)
 
     basic = compute_scorecard(trades)

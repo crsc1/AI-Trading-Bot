@@ -24,10 +24,9 @@ this is triggered from signal_api.py after each analysis cycle.
 
 import asyncio
 import logging
-from datetime import datetime, timezone, timedelta, time as dt_time
+from datetime import datetime, timezone, time as dt_time
 from typing import Optional, TYPE_CHECKING
 
-from .config import cfg
 from . import data_router
 from .signal_db import (
     get_pending_outcomes,

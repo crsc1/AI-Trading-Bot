@@ -11,9 +11,7 @@ Tests:
 - calculate_risk() at different confidence levels
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta, time as dt_time
-from typing import List, Dict
+from datetime import datetime
 
 from dashboard.confluence import (
     OrderFlowState,
@@ -25,7 +23,6 @@ from dashboard.confluence import (
     select_strike,
     calculate_risk,
 )
-from dashboard.market_levels import MarketLevels
 
 
 class TestOrderFlowAnalysis:
