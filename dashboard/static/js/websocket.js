@@ -10,6 +10,8 @@ function connectWS(){
     S._engineRetryMs = 3000;
     S._engineRetries = 0; // Reset backoff + retries on successful connect
     document.getElementById('dotEng').className = 'dot on';
+    const lblEng = document.getElementById('lblEng');
+    if(lblEng){ lblEng.textContent = 'Connected'; lblEng.style.color = 'var(--grn)'; }
     // Don't stop REST polling yet — verify engine is actually delivering ticks.
     // If no ticks arrive within 10s, the engine has stale data → fallback to REST.
     if(S._staleCheckTimer) clearTimeout(S._staleCheckTimer);
@@ -33,6 +35,8 @@ function connectWS(){
   S.ws.onclose = () => {
     S.connected = false;
     document.getElementById('dotEng').className = 'dot off';
+    const lblEngOff = document.getElementById('lblEng');
+    if(lblEngOff){ lblEngOff.textContent = 'Disconnected'; lblEngOff.style.color = 'var(--dim)'; }
     // Exponential backoff: 3s → 6s → 12s → … max 60s, stop after 10 attempts
     S._engineRetries = (S._engineRetries || 0) + 1;
     if(S._engineRetries > 10){
@@ -295,15 +299,21 @@ function handleStreamEvent(ev){
     if(ev.status === 'connected'){
       document.getElementById('dotData').className = 'dot on';
       document.getElementById('lblData').textContent = ev.data_source || 'LIVE WS';
+      const lblDS = document.getElementById('lblDataStatus');
+      if(lblDS){ lblDS.textContent = 'Connected'; lblDS.style.color = 'var(--grn)'; }
       // Stop REST polling since we have WebSocket streaming now
       stopRestPolling();
     } else if(ev.status === 'proxy_blocked'){
       // Network proxy blocks WS — REST polling is the fallback
       document.getElementById('dotData').className = 'dot dim';
       document.getElementById('lblData').textContent = 'REST polling (WS blocked)';
+      const lblDS2 = document.getElementById('lblDataStatus');
+      if(lblDS2){ lblDS2.textContent = 'Degraded'; lblDS2.style.color = 'var(--ylw)'; }
       console.warn('Alpaca WS blocked by proxy — using REST polling for price updates');
     } else if(ev.status === 'disconnected'){
       document.getElementById('dotData').className = 'dot dim';
+      const lblDS3 = document.getElementById('lblDataStatus');
+      if(lblDS3){ lblDS3.textContent = 'Disconnected'; lblDS3.style.color = 'var(--dim)'; }
     }
   }
   else if(t === 'trade_correction' || t === 'trade_cancel'){

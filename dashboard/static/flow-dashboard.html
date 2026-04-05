@@ -681,9 +681,9 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
     </div>
   </div>
   <div class="rt">
-    <span class="dot off" id="dotEng"></span><span class="meta">Engine</span>
-    <span class="dot off" id="dotData"></span><span class="meta" id="lblData">Data</span>
-    <span class="dot off" id="dotPipeline"></span><span class="meta cursor-pointer" id="lblPipeline" style="text-decoration:underline dotted" title="Click for signal pipeline diagnostics" onclick="showPipelineDiag()">Pipeline</span>
+    <span class="dot off" id="dotEng"></span><span class="meta">Engine</span><span class="meta" id="lblEng" style="color:var(--dim);font-size:var(--font-2xs);margin-left:2px">Disconnected</span>
+    <span class="dot off" id="dotData"></span><span class="meta" id="lblData">Data</span><span class="meta" id="lblDataStatus" style="color:var(--dim);font-size:var(--font-2xs);margin-left:2px">Disconnected</span>
+    <span class="dot off" id="dotPipeline"></span><span class="meta cursor-pointer" id="lblPipeline" style="text-decoration:underline dotted" title="Click for signal pipeline diagnostics" onclick="showPipelineDiag()">Pipeline</span><span class="meta" id="lblPipelineStatus" style="color:var(--dim);font-size:var(--font-2xs);margin-left:2px">Idle</span>
     <span class="sep">|</span>
     <span class="meta text-warning font-semibold" id="sessionLabel"></span>
     <span class="sep">|</span>
