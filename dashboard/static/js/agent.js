@@ -103,7 +103,7 @@ function _renderAgentDecisions(decisions){
       sortable: true,
       resizable: true,
       stickyHeader: true,
-      emptyMessage: 'Waiting for auto-trader...',
+      emptyMessage: 'Waiting for auto-trader... Loading...',
       columns: [
         { key:'_ts', label:'Time', width:70, render:(v)=>`<span style="color:var(--text-muted)">${v}</span>` },
         { key:'action', label:'Action', width:100, render:(v)=>`<span style="color:${_actionColors[v]||'var(--text-muted)'};font-weight:var(--font-bold)">${esc(v)}</span>` },

@@ -38,8 +38,16 @@ const UI = {
   },
 
   // --- Empty state ---
-  empty(text = 'No data'){
-    return `<div class="empty-msg">${esc(text)}</div>`;
+  // variant: 'empty' (default), 'loading', 'error'
+  empty(text = 'No data', variant = 'empty'){
+    const icons = {
+      loading: '<div class="loading-dots" style="display:inline-flex;gap:3px;margin-right:6px;vertical-align:middle"><span></span><span></span><span></span></div>',
+      empty: '<span style="color:var(--mut);margin-right:4px">&#8212;</span>',
+      error: '<span style="color:var(--red);margin-right:4px">&#9888;</span>',
+    };
+    const icon = icons[variant] || icons.empty;
+    const suffix = variant === 'loading' ? ' Loading...' : variant === 'error' ? ' <span style="color:var(--acc);cursor:pointer;text-decoration:underline" onclick="location.reload()">Retry</span>' : '';
+    return `<div class="empty-msg empty-${esc(variant)}">${icon}${esc(text)}${suffix}</div>`;
   },
 
   // --- Tooltip (global singleton) ---

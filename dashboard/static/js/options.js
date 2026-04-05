@@ -68,7 +68,7 @@ async function loadOptionsBoard(){
     const snap = await snapR.json();
 
     if(chain.error && !chain.calls?.length && !chain.puts?.length){
-      grid.innerHTML=UI.empty(chain.error);
+      grid.innerHTML=UI.empty(chain.error, 'error');
       return;
     }
 
@@ -168,7 +168,7 @@ async function loadOptionsBoard(){
     }
 
   }catch(e){
-    grid.innerHTML = UI.empty('Error: ' + e.message);
+    grid.innerHTML = UI.empty('Error: ' + e.message, 'error');
   }
 }
 

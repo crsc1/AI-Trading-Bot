@@ -274,7 +274,7 @@ function renderEquityChart(points){
   const wrap = document.getElementById('equityChartWrap');
   if(!wrap) return; // Guard against missing DOM element
   if(!points.length){
-    wrap.innerHTML = UI.empty('No portfolio history — equity curve builds as trades close');
+    wrap.innerHTML = UI.empty('No portfolio history — equity curve builds as trades close', 'empty');
     return;
   }
   if(!equityChart){
