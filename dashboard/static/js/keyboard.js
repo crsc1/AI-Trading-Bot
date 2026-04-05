@@ -15,9 +15,10 @@ function handleKey(e){
     case 'h': case 'H': setDraw('hline'); break;
     case 't': case 'T': setDraw('trend'); break;
     case 'f': case 'F': setDraw('fib'); break;
-    case 'Escape': S.drawMode=null;S.drawClicks=[];document.querySelectorAll('.draw-mode').forEach(el=>el.style.display='none');document.querySelectorAll('#btnHLine,#btnTrend,#btnFib').forEach(b=>b.classList.remove('active'));break;
+    case 'Escape': {const kb=document.getElementById('kbShortcutsOverlay');if(kb&&kb.style.display==='flex'){kb.style.display='none';break;}S.drawMode=null;S.drawClicks=[];document.querySelectorAll('.draw-mode').forEach(el=>el.style.display='none');document.querySelectorAll('#btnHLine,#btnTrend,#btnFib').forEach(b=>b.classList.remove('active'));break;}
     case 'r': case 'R': combCandleChart?.timeScale().fitContent();fullCandleChart?.timeScale().fitContent();break;
     case 'c': case 'C': {const syms=['SPY','SPX','QQQ','AAPL','TSLA','NVDA','AMZN'];const i=(syms.indexOf(S.sym)+1)%syms.length;setSym(syms[i]);break;}
+    case '?': toggleShortcutsHelp(); break;
     // Nav shortcuts (Alt+number)
     case 'F1': e.preventDefault(); navTo('combined'); break;
     case 'F2': e.preventDefault(); navTo('flow'); break;
@@ -25,5 +26,12 @@ function handleKey(e){
     case 'F4': e.preventDefault(); navTo('options'); break;
     case 'F5': e.preventDefault(); navTo('agent'); switchAgentTab('positions'); break;
   }
+}
+
+function toggleShortcutsHelp(){
+  let overlay = document.getElementById('kbShortcutsOverlay');
+  if(!overlay) return;
+  const isVisible = overlay.style.display === 'flex';
+  overlay.style.display = isVisible ? 'none' : 'flex';
 }
 

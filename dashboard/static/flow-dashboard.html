@@ -1351,5 +1351,23 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
 <script src="/static/js/agent.js"></script>
 <script src="/static/js/settings.js"></script>
 <script src="/static/js/boot.js"></script>
+
+<!-- ===== KEYBOARD SHORTCUTS OVERLAY ===== -->
+<div id="kbShortcutsOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--bg2);border:1px solid var(--brd);border-radius:var(--radius-md);padding:24px 32px;min-width:340px;max-width:420px;font-family:var(--font-mono);color:var(--txt)">
+    <div style="font-size:var(--font-lg);font-weight:700;margin-bottom:16px;color:#fff">Keyboard Shortcuts</div>
+    <table style="width:100%;border-collapse:collapse;font-size:var(--font-sm)">
+      <tr><td style="padding:4px 12px 4px 0;color:var(--acc);font-weight:600;white-space:nowrap">1 – 5</td><td style="padding:4px 0;color:var(--dim)">Timeframe (1m, 5m, 15m, 30m, 1H)</td></tr>
+      <tr><td style="padding:4px 12px 4px 0;color:var(--acc);font-weight:600">C</td><td style="padding:4px 0;color:var(--dim)">Cycle ticker (SPY, SPX, QQQ ...)</td></tr>
+      <tr><td style="padding:4px 12px 4px 0;color:var(--acc);font-weight:600">E / S / B</td><td style="padding:4px 0;color:var(--dim)">Toggle EMA / SMA / Bollinger</td></tr>
+      <tr><td style="padding:4px 12px 4px 0;color:var(--acc);font-weight:600">H / T / F</td><td style="padding:4px 0;color:var(--dim)">Draw H-line / Trend / Fibonacci</td></tr>
+      <tr><td style="padding:4px 12px 4px 0;color:var(--acc);font-weight:600">R</td><td style="padding:4px 0;color:var(--dim)">Fit chart to screen</td></tr>
+      <tr><td style="padding:4px 12px 4px 0;color:var(--acc);font-weight:600">Esc</td><td style="padding:4px 0;color:var(--dim)">Cancel drawing / close panel</td></tr>
+      <tr><td style="padding:4px 12px 4px 0;color:var(--acc);font-weight:600">F1 – F5</td><td style="padding:4px 0;color:var(--dim)">Switch tabs</td></tr>
+      <tr><td style="padding:4px 12px 4px 0;color:var(--acc);font-weight:600">?</td><td style="padding:4px 0;color:var(--dim)">This help panel</td></tr>
+    </table>
+    <div style="margin-top:16px;font-size:var(--font-xs);color:var(--mut);text-align:center">Press <span style="color:var(--acc)">Esc</span> or click outside to close</div>
+  </div>
+</div>
 </body>
 </html>
