@@ -97,11 +97,11 @@
      8-step modular scale based on 9px base (dashboard's default).
      Usage: font-size: var(--font-sm);
   ──────────────────────────────────────────────────────────────────────── */
-  --font-2xs: 7px;          /* Tiny annotations, timestamps */
-  --font-xs: 8px;           /* Labels, metadata, badges */
-  --font-sm: 9px;           /* Default body / table text */
-  --font-base: 10px;        /* Emphasized body text */
-  --font-md: 11px;          /* Section titles, toolbar text */
+  --font-2xs: 8px;          /* Tiny annotations, timestamps */
+  --font-xs: 9px;           /* Labels, metadata, badges */
+  --font-sm: 10px;          /* Default body / table text */
+  --font-base: 11px;        /* Emphasized body text */
+  --font-md: 12px;          /* Section titles, toolbar text */
   --font-lg: 12px;          /* Panel headers */
   --font-xl: 13px;          /* Major headings */
   --font-2xl: 15px;         /* Hero metrics, large numbers */
