@@ -657,6 +657,7 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
       onkeydown="if(event.key==='Enter'){setSym(this.value.toUpperCase().trim());this.blur();}"
       onfocus="this.select();showSearch()" oninput="searchTicker(this.value)" onblur="setTimeout(()=>hideSearch(),200)">
     <div id="symResults" class="u-hidden absolute rounded-md overflow-y-auto bg-1 border" style="top:100%;left:0;width:280px;max-height:200px;z-index:100;margin-top:2px"></div>
+    <button class="bar-btn text-2xs" onclick="setSym(S.sym==='SPY'?'SPX':'SPY')" title="Toggle SPY ↔ SPX" style="padding:4px 6px;margin-left:4px;min-height:28px">SPY↔SPX</button>
   </div>
   <div class="price-block">
     <span class="price-lg" id="hPrice">--</span>

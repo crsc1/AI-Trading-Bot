@@ -17,7 +17,7 @@ function handleKey(e){
     case 'f': case 'F': setDraw('fib'); break;
     case 'Escape': S.drawMode=null;S.drawClicks=[];document.querySelectorAll('.draw-mode').forEach(el=>el.style.display='none');document.querySelectorAll('#btnHLine,#btnTrend,#btnFib').forEach(b=>b.classList.remove('active'));break;
     case 'r': case 'R': combCandleChart?.timeScale().fitContent();fullCandleChart?.timeScale().fitContent();break;
-    case 'c': case 'C': {const syms=['SPY','QQQ','AAPL','TSLA','NVDA','AMZN'];const i=(syms.indexOf(S.sym)+1)%syms.length;setSym(syms[i]);break;}
+    case 'c': case 'C': {const syms=['SPY','SPX','QQQ','AAPL','TSLA','NVDA','AMZN'];const i=(syms.indexOf(S.sym)+1)%syms.length;setSym(syms[i]);break;}
     // Nav shortcuts (Alt+number)
     case 'F1': e.preventDefault(); navTo('combined'); break;
     case 'F2': e.preventDefault(); navTo('flow'); break;
