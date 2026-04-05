@@ -1903,177 +1903,176 @@ async def get_signal_replay(
         import json as _j
 
         conn = _get_conn()
+        try:
+            # Get available dates
+            date_rows = conn.execute("""
+                SELECT DISTINCT DATE(timestamp) as d FROM signals
+                WHERE timestamp IS NOT NULL
+                ORDER BY d DESC
+            """).fetchall()
+            available_dates = [r["d"] for r in date_rows if r["d"]]
 
-        # Get available dates
-        date_rows = conn.execute("""
-            SELECT DISTINCT DATE(timestamp) as d FROM signals
-            WHERE timestamp IS NOT NULL
-            ORDER BY d DESC
-        """).fetchall()
-        available_dates = [r["d"] for r in date_rows if r["d"]]
+            # Default to most recent date
+            if not date and available_dates:
+                date = available_dates[0]
+            elif not date:
+                return {"signals": [], "summary": {}, "price_range": {}, "available_dates": []}
 
-        # Default to most recent date
-        if not date and available_dates:
-            date = available_dates[0]
-        elif not date:
-            conn.close()
-            return {"signals": [], "summary": {}, "price_range": {}, "available_dates": []}
+            # Build query with filters
+            where_clauses = ["DATE(s.timestamp) = ?"]
+            params: list = [date]
 
-        # Build query with filters
-        where_clauses = ["DATE(s.timestamp) = ?"]
-        params: list = [date]
+            if direction:
+                where_clauses.append("s.direction = ?")
+                params.append(direction)
+            if tier:
+                where_clauses.append("s.tier = ?")
+                params.append(tier)
+            if min_confidence > 0:
+                where_clauses.append("s.confidence >= ?")
+                params.append(min_confidence)
+            if traded_only:
+                where_clauses.append("s.was_traded = 1")
 
-        if direction:
-            where_clauses.append("s.direction = ?")
-            params.append(direction)
-        if tier:
-            where_clauses.append("s.tier = ?")
-            params.append(tier)
-        if min_confidence > 0:
-            where_clauses.append("s.confidence >= ?")
-            params.append(min_confidence)
-        if traded_only:
-            where_clauses.append("s.was_traded = 1")
+            query = """
+                SELECT
+                    s.*,
+                    o.spy_price_at_signal,
+                    o.spy_price_15min,
+                    o.spy_price_30min,
+                    o.move_pct_15min,
+                    o.move_pct_30min,
+                    o.direction_correct_15,
+                    o.direction_correct_30,
+                    t.entry_time as trade_entry_time,
+                    t.exit_time as trade_exit_time,
+                    t.entry_price as trade_entry_price,
+                    t.exit_price as trade_exit_price,
+                    t.pnl as trade_pnl,
+                    t.exit_reason as trade_exit_reason,
+                    t.strike as trade_strike,
+                    t.option_type as trade_option_type
+                FROM signals s
+                LEFT JOIN signal_outcomes o ON o.signal_id = s.id
+                LEFT JOIN trades t ON t.signal_id = s.id
+                WHERE """ + " AND ".join(where_clauses) + """
+                ORDER BY s.timestamp ASC
+            """
+            rows = conn.execute(query, params).fetchall()
 
-        query = """
-            SELECT
-                s.*,
-                o.spy_price_at_signal,
-                o.spy_price_15min,
-                o.spy_price_30min,
-                o.move_pct_15min,
-                o.move_pct_30min,
-                o.direction_correct_15,
-                o.direction_correct_30,
-                t.entry_time as trade_entry_time,
-                t.exit_time as trade_exit_time,
-                t.entry_price as trade_entry_price,
-                t.exit_price as trade_exit_price,
-                t.pnl as trade_pnl,
-                t.exit_reason as trade_exit_reason,
-                t.strike as trade_strike,
-                t.option_type as trade_option_type
-            FROM signals s
-            LEFT JOIN signal_outcomes o ON o.signal_id = s.id
-            LEFT JOIN trades t ON t.signal_id = s.id
-            WHERE """ + " AND ".join(where_clauses) + """
-            ORDER BY s.timestamp ASC
-        """
-        rows = conn.execute(query, params).fetchall()
+            signals = []
+            spy_prices = []
+            total = 0
+            correct_15 = 0
+            correct_30 = 0
+            move_15_sum = 0.0
+            move_30_sum = 0.0
+            move_15_count = 0
+            move_30_count = 0
+            by_direction: Dict[str, Dict] = {}
+            by_tier: Dict[str, Dict] = {}
+            conf_sum = 0.0
 
-        signals = []
-        spy_prices = []
-        total = 0
-        correct_15 = 0
-        correct_30 = 0
-        move_15_sum = 0.0
-        move_30_sum = 0.0
-        move_15_count = 0
-        move_30_count = 0
-        by_direction: Dict[str, Dict] = {}
-        by_tier: Dict[str, Dict] = {}
-        conf_sum = 0.0
+            for r in rows:
+                d = dict(r)
+                total += 1
 
-        for r in rows:
-            d = dict(r)
-            total += 1
+                # Parse factors JSON
+                factors_raw = d.get("factors")
+                try:
+                    factors = _j.loads(factors_raw) if factors_raw else []
+                except Exception:
+                    factors = []
+                # Extract top 3 factor names
+                top_factors = []
+                for f in factors[:3]:
+                    if isinstance(f, dict):
+                        top_factors.append(f.get("name") or f.get("factor") or str(f))
+                    elif isinstance(f, str):
+                        top_factors.append(f)
+                d["top_factors"] = top_factors
+                d["factors"] = factors
 
-            # Parse factors JSON
-            factors_raw = d.get("factors")
-            try:
-                factors = _j.loads(factors_raw) if factors_raw else []
-            except Exception:
-                factors = []
-            # Extract top 3 factor names
-            top_factors = []
-            for f in factors[:3]:
-                if isinstance(f, dict):
-                    top_factors.append(f.get("name") or f.get("factor") or str(f))
-                elif isinstance(f, str):
-                    top_factors.append(f)
-            d["top_factors"] = top_factors
-            d["factors"] = factors
+                # Track SPY prices for price range
+                sp = d.get("spy_price") or d.get("spy_price_at_signal")
+                if sp:
+                    spy_prices.append(sp)
 
-            # Track SPY prices for price range
-            sp = d.get("spy_price") or d.get("spy_price_at_signal")
-            if sp:
-                spy_prices.append(sp)
+                # Accumulate summary stats
+                conf = d.get("confidence") or 0
+                conf_sum += conf
 
-            # Accumulate summary stats
-            conf = d.get("confidence") or 0
-            conf_sum += conf
+                dc15 = d.get("direction_correct_15")
+                dc30 = d.get("direction_correct_30")
+                if dc15 == 1:
+                    correct_15 += 1
+                if dc30 == 1:
+                    correct_30 += 1
 
-            dc15 = d.get("direction_correct_15")
-            dc30 = d.get("direction_correct_30")
-            if dc15 == 1:
-                correct_15 += 1
-            if dc30 == 1:
-                correct_30 += 1
+                m15 = d.get("move_pct_15min")
+                m30 = d.get("move_pct_30min")
+                if m15 is not None:
+                    move_15_sum += m15
+                    move_15_count += 1
+                if m30 is not None:
+                    move_30_sum += m30
+                    move_30_count += 1
 
-            m15 = d.get("move_pct_15min")
-            m30 = d.get("move_pct_30min")
-            if m15 is not None:
-                move_15_sum += m15
-                move_15_count += 1
-            if m30 is not None:
-                move_30_sum += m30
-                move_30_count += 1
+                # By direction
+                dir_key = d.get("direction") or "UNKNOWN"
+                if dir_key not in by_direction:
+                    by_direction[dir_key] = {"total": 0, "correct_15": 0, "correct_30": 0}
+                by_direction[dir_key]["total"] += 1
+                if dc15 == 1:
+                    by_direction[dir_key]["correct_15"] += 1
+                if dc30 == 1:
+                    by_direction[dir_key]["correct_30"] += 1
 
-            # By direction
-            dir_key = d.get("direction") or "UNKNOWN"
-            if dir_key not in by_direction:
-                by_direction[dir_key] = {"total": 0, "correct_15": 0, "correct_30": 0}
-            by_direction[dir_key]["total"] += 1
-            if dc15 == 1:
-                by_direction[dir_key]["correct_15"] += 1
-            if dc30 == 1:
-                by_direction[dir_key]["correct_30"] += 1
+                # By tier
+                tier_key = d.get("tier") or "UNKNOWN"
+                if tier_key not in by_tier:
+                    by_tier[tier_key] = {"total": 0, "correct_15": 0, "correct_30": 0}
+                by_tier[tier_key]["total"] += 1
+                if dc15 == 1:
+                    by_tier[tier_key]["correct_15"] += 1
+                if dc30 == 1:
+                    by_tier[tier_key]["correct_30"] += 1
 
-            # By tier
-            tier_key = d.get("tier") or "UNKNOWN"
-            if tier_key not in by_tier:
-                by_tier[tier_key] = {"total": 0, "correct_15": 0, "correct_30": 0}
-            by_tier[tier_key]["total"] += 1
-            if dc15 == 1:
-                by_tier[tier_key]["correct_15"] += 1
-            if dc30 == 1:
-                by_tier[tier_key]["correct_30"] += 1
+                signals.append(d)
 
-            signals.append(d)
-
-        conn.close()
-
-        # Build summary
-        summary = {
-            "total": total,
-            "correct_15": correct_15,
-            "correct_30": correct_30,
-            "accuracy_15": round(correct_15 / total * 100, 1) if total else 0,
-            "accuracy_30": round(correct_30 / total * 100, 1) if total else 0,
-            "by_direction": by_direction,
-            "by_tier": by_tier,
-            "avg_confidence": round(conf_sum / total, 1) if total else 0,
-            "avg_move_15": round(move_15_sum / move_15_count, 3) if move_15_count else 0,
-            "avg_move_30": round(move_30_sum / move_30_count, 3) if move_30_count else 0,
-        }
-
-        # Build price range
-        price_range = {}
-        if spy_prices:
-            price_range = {
-                "high": round(max(spy_prices), 2),
-                "low": round(min(spy_prices), 2),
-                "open_price": round(spy_prices[0], 2),
-                "close_price": round(spy_prices[-1], 2),
+            # Build summary
+            summary = {
+                "total": total,
+                "correct_15": correct_15,
+                "correct_30": correct_30,
+                "accuracy_15": round(correct_15 / total * 100, 1) if total else 0,
+                "accuracy_30": round(correct_30 / total * 100, 1) if total else 0,
+                "by_direction": by_direction,
+                "by_tier": by_tier,
+                "avg_confidence": round(conf_sum / total, 1) if total else 0,
+                "avg_move_15": round(move_15_sum / move_15_count, 3) if move_15_count else 0,
+                "avg_move_30": round(move_30_sum / move_30_count, 3) if move_30_count else 0,
             }
 
-        return {
-            "signals": signals,
-            "summary": summary,
-            "price_range": price_range,
-            "available_dates": available_dates,
-            "date": date,
-        }
+            # Build price range
+            price_range = {}
+            if spy_prices:
+                price_range = {
+                    "high": round(max(spy_prices), 2),
+                    "low": round(min(spy_prices), 2),
+                    "open_price": round(spy_prices[0], 2),
+                    "close_price": round(spy_prices[-1], 2),
+                }
+
+            return {
+                "signals": signals,
+                "summary": summary,
+                "price_range": price_range,
+                "available_dates": available_dates,
+                "date": date,
+            }
+        finally:
+            conn.close()
 
     except Exception as e:
         logger.error(f"Signal replay error: {e}", exc_info=True)
