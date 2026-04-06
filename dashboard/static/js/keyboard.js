@@ -15,6 +15,7 @@ function handleKey(e){
     case 'm': case 'M': toggleInd('macd'); break;
     case 'k': case 'K': toggleInd('stoch'); break;
     case 'a': case 'A': toggleInd('atr'); break;
+    case 'D': clearDrawings(); break; // Shift+D = clear drawings (D key = shift held)
     case 'h': case 'H': setDraw('hline'); break;
     case 't': case 'T': setDraw('trend'); break;
     case 'f': case 'F': setDraw('fib'); break;

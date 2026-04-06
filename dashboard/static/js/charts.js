@@ -525,6 +525,7 @@ function setSym(sym){
   rtCandle = null;  // Reset real-time candle on symbol switch
   luldData = {up:[], down:[]};
   restPollCount = 0;
+  _drawingsRestored = false; // Re-load drawings for new symbol
   _destroyAllFlowRenderers(); // Free GPU memory from old symbol's renderers
   _streamState.tradeCount = 0;
   _streamState.quoteCount = 0;
@@ -655,6 +656,7 @@ function setBar(minutes){
 // ══════════════════════════════════════════════════════════════════════════
 function setTf(tf){
   S.tf=tf;
+  _drawingsRestored = false; // Re-load drawings for new timeframe
   // Sync candles toolbar
   document.querySelectorAll('#tfGroup .tb-btn').forEach(b=>b.classList.toggle('active',b.dataset.tf===tf));
   // Sync nav bar buttons
@@ -889,8 +891,14 @@ async function loadHistory(timeframe){
       }
     }
   }catch(e){}
+  // Restore persisted drawings on first load
+  if(!_drawingsRestored){
+    _drawingsRestored = true;
+    requestAnimationFrame(() => restoreDrawings());
+  }
   _loadHistoryInFlight = false;
 }
+var _drawingsRestored = false;
 
 function updatePrice(price, prev){
   const hp = document.getElementById('hPrice');
@@ -1465,6 +1473,7 @@ function handleDrawClick(param, candleSeries, chart){
 
   if(S.drawMode==='hline'){
     candleSeries.createPriceLine({price,color:T.accent,lineWidth:1,lineStyle:2,axisLabelVisible:true});
+    _saveDrawing({type:'hline', price});
     S.drawMode=null;document.querySelectorAll('.draw-mode').forEach(el=>el.style.display='none');
     document.getElementById('btnHLine').classList.remove('active');
   }
@@ -1474,7 +1483,9 @@ function handleDrawClick(param, candleSeries, chart){
     if(S.drawClicks.length===2){
       const ls=chart.addLineSeries({color:T.accent,lineWidth:1,priceLineVisible:false,lastValueVisible:false});
       ls.setData([{time:S.drawClicks[0].time,value:S.drawClicks[0].price},{time:S.drawClicks[1].time,value:S.drawClicks[1].price}]);
-      S.drawings.push(ls);S.drawMode=null;S.drawClicks=[];
+      S.drawings.push(ls);
+      _saveDrawing({type:'trend', points:[{time:S.drawClicks[0].time,price:S.drawClicks[0].price},{time:S.drawClicks[1].time,price:S.drawClicks[1].price}]});
+      S.drawMode=null;S.drawClicks=[];
       document.querySelectorAll('.draw-mode').forEach(el=>el.style.display='none');
       document.getElementById('btnTrend').classList.remove('active');
     }
@@ -1490,10 +1501,88 @@ function handleDrawClick(param, candleSeries, chart){
         const colors=[T.negative,T.warning,'#ff9800',T.sma,T.positive,T.rsi,T.negative];
         candleSeries.createPriceLine({price:high-diff*lv,color:colors[i],lineWidth:1,lineStyle:2,title:`${(lv*100).toFixed(1)}%`,axisLabelVisible:true});
       });
+      _saveDrawing({type:'fib', high, low});
       S.drawMode=null;S.drawClicks=[];
       document.querySelectorAll('.draw-mode').forEach(el=>el.style.display='none');
       document.getElementById('btnFib').classList.remove('active');
     }
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// DRAWING PERSISTENCE — Save/restore drawings to localStorage
+// Keyed by symbol + timeframe so each chart view has its own drawings.
+// ══════════════════════════════════════════════════════════════════════════
+const DRAW_STORAGE_KEY = 'chart_drawings';
+
+function _drawStorageKey(){
+  return (S.sym||'SPY') + ':' + (S.tf||'5Min');
+}
+
+function _saveDrawing(drawingData){
+  try{
+    const all = JSON.parse(localStorage.getItem(DRAW_STORAGE_KEY)||'{}');
+    const key = _drawStorageKey();
+    if(!all[key]) all[key] = [];
+    all[key].push(drawingData);
+    localStorage.setItem(DRAW_STORAGE_KEY, JSON.stringify(all));
+  }catch(e){ console.warn('Drawing save failed:', e); }
+}
+
+function _loadDrawings(){
+  try{
+    const all = JSON.parse(localStorage.getItem(DRAW_STORAGE_KEY)||'{}');
+    return all[_drawStorageKey()] || [];
+  }catch(e){ return []; }
+}
+
+function restoreDrawings(){
+  const saved = _loadDrawings();
+  if(!saved.length) return;
+
+  // Determine which chart/series to draw on based on active tab
+  const chart = (S.activeTab==='combined') ? combCandleChart : fullCandleChart;
+  const series = (S.activeTab==='combined') ? combCandleS : fullCandleS;
+  if(!chart || !series) return;
+
+  for(const d of saved){
+    try{
+      if(d.type==='hline'){
+        series.createPriceLine({price:d.price,color:T.accent,lineWidth:1,lineStyle:2,axisLabelVisible:true});
+      }
+      else if(d.type==='trend' && d.points && d.points.length===2){
+        const ls=chart.addLineSeries({color:T.accent,lineWidth:1,priceLineVisible:false,lastValueVisible:false});
+        ls.setData([{time:d.points[0].time,value:d.points[0].price},{time:d.points[1].time,value:d.points[1].price}]);
+        S.drawings.push(ls);
+      }
+      else if(d.type==='fib'){
+        const diff=d.high-d.low;
+        [0,0.236,0.382,0.5,0.618,0.786,1].forEach((lv,i)=>{
+          const colors=[T.negative,T.warning,'#ff9800',T.sma,T.positive,T.rsi,T.negative];
+          series.createPriceLine({price:d.high-diff*lv,color:colors[i],lineWidth:1,lineStyle:2,title:`${(lv*100).toFixed(1)}%`,axisLabelVisible:true});
+        });
+      }
+    }catch(e){}
+  }
+}
+
+function clearDrawings(){
+  // Remove trend line series from chart
+  const chart = (S.activeTab==='combined') ? combCandleChart : fullCandleChart;
+  for(const ls of S.drawings){
+    try{ chart.removeSeries(ls); }catch(e){}
+  }
+  S.drawings = [];
+  // Clear price lines (hlines + fibs) by re-creating candle series price lines
+  // Note: LWC doesn't have removePriceLine, so we just clear localStorage
+  // and the lines will be gone on next reload
+  try{
+    const all = JSON.parse(localStorage.getItem(DRAW_STORAGE_KEY)||'{}');
+    delete all[_drawStorageKey()];
+    localStorage.setItem(DRAW_STORAGE_KEY, JSON.stringify(all));
+  }catch(e){}
+  // Notify user
+  document.querySelectorAll('.draw-mode').forEach(el=>{el.textContent='Drawings cleared — reload to remove price lines';el.style.display='block';});
+  setTimeout(()=> document.querySelectorAll('.draw-mode').forEach(el=>el.style.display='none'), 2000);
 }
 
