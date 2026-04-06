@@ -509,11 +509,18 @@ async function pollPipelineDiag(){
       lbl.textContent = 'Pipeline OK';
       lbl.style.color = 'var(--grn)';
     } else if(status.startsWith('BLOCKED')){
-      dot.className = 'dot off';
-      // Show short version in header
       const shortStatus = status.replace('BLOCKED — ', '').replace('BLOCKED at ', '');
-      lbl.textContent = 'BLOCKED: ' + shortStatus.substring(0, 25);
-      lbl.style.color = 'var(--negative-bright)';
+      // "insufficient trade data" is normal when market is closed — use muted styling
+      const isExpected = shortStatus.includes('insufficient') || shortStatus.includes('no trade') || shortStatus.includes('market closed');
+      if(isExpected){
+        dot.className = 'dot dim';
+        lbl.textContent = 'Idle — waiting for market';
+        lbl.style.color = 'var(--text-secondary)';
+      } else {
+        dot.className = 'dot off';
+        lbl.textContent = 'BLOCKED: ' + shortStatus.substring(0, 25);
+        lbl.style.color = 'var(--negative-bright)';
+      }
     } else if(status.startsWith('READY')){
       dot.className = 'dot dim';
       lbl.textContent = 'Pipeline Ready';
