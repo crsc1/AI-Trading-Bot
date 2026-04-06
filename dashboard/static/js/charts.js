@@ -148,6 +148,15 @@ function initFullCandleCharts(){
     ...chartOpts, rightPriceScale:{...chartOpts.rightPriceScale,scaleMargins:{top:.05,bottom:.12}},
   });
   fullCandleS = fullCandleChart.addCandlestickSeries({upColor:T.positive,downColor:T.negative,borderUpColor:T.positive,borderDownColor:T.negative,wickUpColor:T.positive,wickDownColor:T.negative});
+  // Invisible series for overlay price lines (levels, pivots, GEX).
+  // autoscaleInfoProvider returns empty range so level lines don't stretch Y-axis.
+  // Invisible series for overlay price lines (levels, pivots, GEX).
+  // On its own hidden price scale so level lines don't affect main Y-axis.
+  fullLevelS = fullCandleChart.addLineSeries({
+    color:'transparent', lineWidth:0, priceLineVisible:false, lastValueVisible:false,
+    priceScaleId:'levels-overlay',
+  });
+  fullLevelS.priceScale().applyOptions({visible:false,scaleMargins:{top:.05,bottom:.12}});
   fullVolS = fullCandleChart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:''});
   fullVolS.priceScale().applyOptions({scaleMargins:{top:.87,bottom:0}});
 
@@ -156,16 +165,20 @@ function initFullCandleCharts(){
   fullSmaS = fullCandleChart.addLineSeries({color:T.sma,lineWidth:1,visible:false,priceLineVisible:false,lastValueVisible:false});
   fullBbUpperS = fullCandleChart.addLineSeries({color:'rgba(156,39,176,.5)',lineWidth:1,visible:false,priceLineVisible:false,lastValueVisible:false});
   fullBbLowerS = fullCandleChart.addLineSeries({color:'rgba(156,39,176,.5)',lineWidth:1,visible:false,priceLineVisible:false,lastValueVisible:false});
-  fullVwapS = fullCandleChart.addLineSeries({color:T.vwap,lineWidth:2,visible:false,priceLineVisible:false,lastValueVisible:false,lineStyle:0});
+  fullVwapS = fullCandleChart.addLineSeries({color:T.vwap,lineWidth:2,visible:false,priceLineVisible:false,lastValueVisible:false,lineStyle:0,priceScaleId:'vwap-bands'});
 
   // VWAP ±σ band overlays (hidden by default)
-  const _vbandOpts = (c) => ({color:c,lineWidth:1,lineStyle:2,visible:false,priceLineVisible:false,lastValueVisible:false});
+  // Use a hidden overlay price scale so bands don't affect the main Y-axis autoscale.
+  // The overlay scale has scaleMargins matching the candle scale for alignment.
+  const _vbandOpts = (c) => ({color:c,lineWidth:1,lineStyle:2,visible:false,priceLineVisible:false,lastValueVisible:false,priceScaleId:'vwap-bands'});
   fullVwapUp1S = fullCandleChart.addLineSeries(_vbandOpts('rgba(0,229,255,0.45)'));
   fullVwapDn1S = fullCandleChart.addLineSeries(_vbandOpts('rgba(0,229,255,0.45)'));
   fullVwapUp2S = fullCandleChart.addLineSeries(_vbandOpts('rgba(0,229,255,0.28)'));
   fullVwapDn2S = fullCandleChart.addLineSeries(_vbandOpts('rgba(0,229,255,0.28)'));
   fullVwapUp3S = fullCandleChart.addLineSeries(_vbandOpts('rgba(0,229,255,0.15)'));
   fullVwapDn3S = fullCandleChart.addLineSeries(_vbandOpts('rgba(0,229,255,0.15)'));
+  // Hide the VWAP bands overlay price scale (no axis labels, aligned with main chart)
+  fullVwapUp1S.priceScale().applyOptions({visible:false,scaleMargins:{top:.05,bottom:.12}});
 
   // LULD bands (Limit Up / Limit Down) — always visible when data arrives
   fullLuldUpS = fullCandleChart.addLineSeries({color:'rgba(255,23,68,0.6)',lineWidth:1,lineStyle:2,visible:true,priceLineVisible:false,lastValueVisible:true,title:'LULD Up'});
@@ -819,6 +832,8 @@ async function loadHistory(timeframe){
       try{
         fullCandleS.setData(candles);
         fullVolS.setData(vols);
+        // Give the level carrier series a single point so it exists on the chart
+        if(fullLevelS && candles.length) fullLevelS.setData([{time:candles[0].time,value:candles[0].close}]);
       }catch(e){ console.warn('fullCandle setData:', e); }
 
       // Smart visible range: target ~30-min tick marks on the time axis.
@@ -1244,19 +1259,21 @@ async function fetchOverlayLevels(){
 
 /**
  * Clear and redraw all horizontal price lines based on current toggle state.
- * Uses Lightweight Charts `createPriceLine()` on the candle series.
+ * Uses fullLevelS (invisible series with autoscaleInfoProvider:null) so that
+ * level lines don't stretch the chart's Y-axis to fit far-flung levels.
  */
 function _redrawPriceLines(){
-  if(!fullCandleS) return;
+  const carrier = fullLevelS || fullCandleS;
+  if(!carrier) return;
   // Remove existing overlay lines
   for(const pl of _overlayPriceLines){
-    try{ fullCandleS.removePriceLine(pl); }catch(e){}
+    try{ carrier.removePriceLine(pl); }catch(e){}
   }
   _overlayPriceLines = [];
 
   const _line = (price, title, color, lineStyle, lineWidth) => {
     if(!price || price <= 0) return;
-    const pl = fullCandleS.createPriceLine({
+    const pl = carrier.createPriceLine({
       price: price,
       color: color,
       lineWidth: lineWidth || 1,

@@ -32,7 +32,7 @@ const S = {
 let combCandleChart, combCandleS, combVolS;
 let combRsiChart, combRsiS;
 // Full candle tab
-let fullCandleChart, fullCandleS, fullVolS, fullEmaS, fullSmaS, fullBbUpperS, fullBbLowerS, fullVwapS;
+let fullCandleChart, fullCandleS, fullVolS, fullLevelS, fullEmaS, fullSmaS, fullBbUpperS, fullBbLowerS, fullVwapS;
 let fullLuldUpS, fullLuldDownS;  // LULD band series
 // Overlay series — VWAP bands, session levels, GEX, pivots
 let fullVwapUp1S, fullVwapDn1S, fullVwapUp2S, fullVwapDn2S, fullVwapUp3S, fullVwapDn3S;
