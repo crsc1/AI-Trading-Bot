@@ -72,6 +72,11 @@ async function loadOptionsBoard(){
       return;
     }
 
+    if(!chain.calls?.length && !chain.puts?.length){
+      grid.innerHTML=UI.empty('Options chain unavailable. Market may be closed or data source disconnected.');
+      return;
+    }
+
     // Update board stats
     const pcr = snap.pc_ratio?.toFixed(2) || '--';
     const mp = snap.max_pain ? '$'+parseFloat(snap.max_pain).toFixed(0) : '--';
