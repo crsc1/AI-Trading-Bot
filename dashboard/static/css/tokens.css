@@ -41,15 +41,15 @@
   --accent-subtle: rgba(85,136,238,0.08);
   --accent-border: rgba(85,136,238,0.3);
 
-  --positive: #26a69a;      /* Profit / bullish         (was --grn) */
-  --positive-bright: #00e676; /* Strong positive         (was --grn-deep) */
-  --positive-subtle: rgba(38,166,154,0.12);
-  --positive-bg: rgba(38,166,154,0.08);
+  --positive: #00C805;      /* Profit / bullish (Robinhood green) */
+  --positive-bright: #00E676; /* Strong positive highlight */
+  --positive-subtle: rgba(0,200,5,0.12);
+  --positive-bg: rgba(0,200,5,0.08);
 
-  --negative: #ef5350;      /* Loss / bearish           (was --red) */
-  --negative-bright: #ff1744; /* Strong negative         (was --red-deep) */
-  --negative-subtle: rgba(239,83,80,0.12);
-  --negative-bg: rgba(239,83,80,0.08);
+  --negative: #FF5000;      /* Loss / bearish (Robinhood red-orange) */
+  --negative-bright: #FF6B2C; /* Strong negative highlight */
+  --negative-subtle: rgba(255,80,0,0.12);
+  --negative-bg: rgba(255,80,0,0.08);
 
   --warning: #ffb300;       /* Caution / alert          (was --ylw) */
   --warning-subtle: rgba(255,179,0,0.12);
