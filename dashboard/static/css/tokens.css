@@ -198,8 +198,8 @@
   --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
   --shadow-tooltip: 0 4px 12px rgba(0,0,0,0.4);
-  --shadow-glow-positive: 0 0 12px rgba(38,166,154,0.5);
-  --shadow-glow-negative: 0 0 12px rgba(239,83,80,0.5);
+  --shadow-glow-positive: 0 0 12px rgba(0,200,5,0.5);
+  --shadow-glow-negative: 0 0 12px rgba(255,80,0,0.5);
 
 
   /* ── TRANSITIONS ──────────────────────────────────────────────────────
