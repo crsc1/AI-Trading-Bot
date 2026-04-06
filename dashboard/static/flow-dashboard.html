@@ -454,6 +454,28 @@ html,body{font-family:var(--font-mono);background:var(--bg0);color:var(--txt);fo
 .app-shell{display:flex;height:100vh;overflow:hidden}
 .app-main{display:flex;flex-direction:column;flex:1;min-width:0;margin-left:var(--left-nav-w);height:100vh;overflow:hidden}
 
+/* ===== RESPONSIVE: MOBILE ===== */
+@media (max-width: 768px) {
+  .left-nav { width: 40px; }
+  .left-nav .ln-label { display: none; }
+  .left-nav .ln-logo svg { width: 16px; height: 16px; }
+  .ln-btn { width: 36px; height: 36px; }
+  .ln-btn svg { width: 16px; height: 16px; }
+  :root { --left-nav-w: 40px; }
+  .app-main { margin-left: 40px; }
+  .main { grid-template-columns: 1fr !important; }
+  .main > .sidebar,
+  .main > div:last-child:not(.content) { display: none; }
+  .top-bar .top-right { gap: 4px; }
+  .top-bar .top-right > *:not(.equity-bar):not(.market-status) { display: none; }
+}
+@media (max-width: 480px) {
+  .left-nav { width: 0; overflow: hidden; }
+  :root { --left-nav-w: 0px; }
+  .app-main { margin-left: 0; }
+  .top-bar { font-size: var(--font-xs); padding: 0 var(--space-xs); }
+}
+
 /* ===== UI GLOBAL: TOAST ===== */
 .ui-toast-container{position:fixed;top:44px;right:var(--space-xl);z-index:var(--z-toast);display:flex;flex-direction:column;gap:var(--space-sm);pointer-events:none}
 .ui-toast{pointer-events:auto;padding:var(--space-md) 14px;border-radius:var(--radius-lg);font-size:var(--font-base);font-weight:500;color:var(--text-primary);background:var(--bg3);border:1px solid var(--brd);box-shadow:var(--shadow-md);animation:toastIn .25s ease-out;display:flex;align-items:center;gap:var(--space-md);max-width:320px}
