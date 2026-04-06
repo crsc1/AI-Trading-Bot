@@ -455,9 +455,16 @@
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: var(--text-muted);
+  color: var(--text-secondary, #8888a0);
   cursor: pointer;
   font-family: inherit;
+  font-weight: 600;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  transition: color .15s, border-color .15s;
+}
+.agent-tab-btn:hover {
+  color: var(--text-primary, #ccc);
 }
 .agent-tab-btn.active {
   border-bottom-color: var(--accent);
