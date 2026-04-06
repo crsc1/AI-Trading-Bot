@@ -321,20 +321,25 @@ async def get_historical_bars(
     timeframe: str = Query("1D", description="1Min, 5Min, 15Min, 1H, 1D"),
     limit: int = Query(365, ge=1, le=5000),
     feed: str = Query("sip"),
+    indicators: Optional[str] = Query(None, description="Comma-separated indicators, e.g. ema21,sma50,rsi14,atr14"),
 ):
     """
     Fetch OHLCV bars from Alpaca for ANY stock.
     Supports all intraday timeframes with Algo Trader Plus.
+    Optional ?indicators= param appends server-computed indicator values.
     """
     bars = await _fetch_alpaca_bars(symbol, timeframe, limit, feed)
-    if bars is not None:
-        return bars
+    if bars is None:
+        # Fallback to ThetaData EOD (only daily)
+        if timeframe in ("1D", "1Day", "day"):
+            bars = await _fetch_theta_eod_bars(symbol, limit)
+        else:
+            return {"bars": [], "error": f"No data for {symbol} {timeframe}. Check Alpaca subscription."}
 
-    # Fallback to ThetaData EOD (only daily)
-    if timeframe in ("1D", "1Day", "day"):
-        return await _fetch_theta_eod_bars(symbol, limit)
+    if indicators and bars and bars.get("bars"):
+        bars["indicators"] = _compute_bar_indicators(bars["bars"], indicators)
 
-    return {"bars": [], "error": f"No data for {symbol} {timeframe}. Check Alpaca subscription."}
+    return bars
 
 
 async def _fetch_alpaca_bars(symbol: str, timeframe: str, limit: int, feed: str):
@@ -436,6 +441,110 @@ async def _fetch_theta_eod_bars(symbol: str, limit: int):
     Use Alpaca for all stock/bar data instead."""
     logger.debug("[api_routes] _fetch_theta_eod_bars skipped — no STOCK subscription")
     return {"bars": [], "error": "ThetaData stock endpoints disabled (OPTION.STANDARD only)"}
+
+
+def _compute_bar_indicators(bars: list, indicators_str: str) -> dict:
+    """Compute requested indicators from bar data.
+
+    Args:
+        bars: List of bar dicts with open/high/low/close/volume keys.
+        indicators_str: Comma-separated indicator specs, e.g. "ema21,sma50,rsi14,atr14"
+
+    Returns:
+        Dict mapping indicator name to list of values (same length as bars, None-padded).
+    """
+    import re as _re
+
+    closes = [b["close"] for b in bars]
+    highs = [b["high"] for b in bars]
+    lows = [b["low"] for b in bars]
+    n = len(closes)
+    result = {}
+
+    for spec in indicators_str.split(","):
+        spec = spec.strip().lower()
+        m = _re.match(r"(ema|sma|rsi|atr)(\d+)", spec)
+        if not m:
+            continue
+        kind, period = m.group(1), int(m.group(2))
+        if period < 1 or period > 500:
+            continue
+
+        if kind == "ema":
+            vals = _calc_ema(closes, period)
+        elif kind == "sma":
+            vals = _calc_sma(closes, period)
+        elif kind == "rsi":
+            vals = _calc_rsi(closes, period)
+        elif kind == "atr":
+            vals = _calc_atr(highs, lows, closes, period)
+        else:
+            continue
+
+        # Pad to match bar count (None for bars where indicator isn't computed yet)
+        padded = [None] * (n - len(vals)) + vals
+        result[spec] = [round(v, 4) if v is not None else None for v in padded]
+
+    return result
+
+
+def _calc_ema(data: list, period: int) -> list:
+    if len(data) < period:
+        return []
+    k = 2 / (period + 1)
+    ema = [sum(data[:period]) / period]
+    for i in range(period, len(data)):
+        ema.append(data[i] * k + ema[-1] * (1 - k))
+    return ema
+
+
+def _calc_sma(data: list, period: int) -> list:
+    if len(data) < period:
+        return []
+    result = []
+    s = sum(data[:period])
+    result.append(s / period)
+    for i in range(period, len(data)):
+        s += data[i] - data[i - period]
+        result.append(s / period)
+    return result
+
+
+def _calc_rsi(data: list, period: int) -> list:
+    if len(data) < period + 1:
+        return []
+    avg_gain = avg_loss = 0.0
+    for i in range(1, period + 1):
+        d = data[i] - data[i - 1]
+        if d > 0:
+            avg_gain += d
+        else:
+            avg_loss -= d
+    avg_gain /= period
+    avg_loss /= period
+    result = [100.0 if avg_loss == 0 else 100 - 100 / (1 + avg_gain / avg_loss)]
+    for i in range(period + 1, len(data)):
+        d = data[i] - data[i - 1]
+        avg_gain = (avg_gain * (period - 1) + (d if d > 0 else 0)) / period
+        avg_loss = (avg_loss * (period - 1) + (-d if d < 0 else 0)) / period
+        result.append(100.0 if avg_loss == 0 else 100 - 100 / (1 + avg_gain / avg_loss))
+    return result
+
+
+def _calc_atr(highs: list, lows: list, closes: list, period: int) -> list:
+    if len(closes) < 2:
+        return []
+    tr = []
+    for i in range(1, len(closes)):
+        tr.append(max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1])))
+    if len(tr) < period:
+        return []
+    atr = sum(tr[:period]) / period
+    result = [atr]
+    for i in range(period, len(tr)):
+        atr = (atr * (period - 1) + tr[i]) / period
+        result.append(atr)
+    return result
 
 
 # ============================================================================
