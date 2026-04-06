@@ -26,6 +26,9 @@ const indSettings = (() => {
     levels:    [],
     gex:       [],
     pivots:    [],
+    macd:      ['fast', 'slow', 'signal', 'color', 'signalColor'],
+    stoch:     ['kPeriod', 'dPeriod', 'color', 'dColor'],
+    atr:       ['period', 'color'],
   };
 
   const LINE_STYLES = [
@@ -61,24 +64,37 @@ const indSettings = (() => {
     _modal.open();
   }
 
+  // Field config: maps field name to {label, type, min, max, step}
+  const FIELD_CONFIG = {
+    period:      { label: 'Period', type: 'number', min: 1, max: 200 },
+    multiplier:  { label: 'Multiplier', type: 'number', min: 0.5, max: 5, step: 0.1 },
+    fast:        { label: 'Fast Period', type: 'number', min: 1, max: 100 },
+    slow:        { label: 'Slow Period', type: 'number', min: 1, max: 200 },
+    signal:      { label: 'Signal Period', type: 'number', min: 1, max: 50 },
+    kPeriod:     { label: '%K Period', type: 'number', min: 1, max: 100 },
+    dPeriod:     { label: '%D Period', type: 'number', min: 1, max: 50 },
+    color:       { label: 'Color', type: 'color' },
+    signalColor: { label: 'Signal Color', type: 'color' },
+    dColor:      { label: '%D Color', type: 'color' },
+    lineWidth:   { label: 'Line Width', type: 'number', min: 1, max: 5 },
+    lineStyle:   { label: 'Line Style', type: 'select' },
+  };
+
   function _buildForm(id, fields, settings) {
     const form = document.createElement('div');
     form.style.cssText = 'display:flex;flex-direction:column;gap:12px;padding:4px 0';
 
-    if (fields.includes('period')) {
-      form.appendChild(_numberField('ind-period', 'Period', settings.period, 1, 200));
-    }
-    if (fields.includes('multiplier')) {
-      form.appendChild(_numberField('ind-multiplier', 'Multiplier', settings.multiplier, 0.5, 5, 0.1));
-    }
-    if (fields.includes('color')) {
-      form.appendChild(_colorField('ind-color', 'Color', settings.color));
-    }
-    if (fields.includes('lineWidth')) {
-      form.appendChild(_numberField('ind-lineWidth', 'Line Width', settings.lineWidth, 1, 5));
-    }
-    if (fields.includes('lineStyle')) {
-      form.appendChild(_selectField('ind-lineStyle', 'Line Style', settings.lineStyle, LINE_STYLES));
+    for (const field of fields) {
+      const cfg = FIELD_CONFIG[field];
+      if (!cfg) continue;
+      const inputId = 'ind-' + field;
+      if (cfg.type === 'number') {
+        form.appendChild(_numberField(inputId, cfg.label, settings[field], cfg.min, cfg.max, cfg.step));
+      } else if (cfg.type === 'color') {
+        form.appendChild(_colorField(inputId, cfg.label, settings[field]));
+      } else if (cfg.type === 'select') {
+        form.appendChild(_selectField(inputId, cfg.label, settings[field], LINE_STYLES));
+      }
     }
 
     return form;
@@ -161,25 +177,19 @@ const indSettings = (() => {
     const fields = FIELDS[id];
     const newSettings = {};
 
-    if (fields.includes('period')) {
-      const v = parseInt(document.getElementById('ind-period')?.value);
-      if (v && v > 0) newSettings.period = v;
-    }
-    if (fields.includes('multiplier')) {
-      const v = parseFloat(document.getElementById('ind-multiplier')?.value);
-      if (v && v > 0) newSettings.multiplier = v;
-    }
-    if (fields.includes('color')) {
-      const v = document.getElementById('ind-color')?.value;
-      if (v) newSettings.color = v;
-    }
-    if (fields.includes('lineWidth')) {
-      const v = parseInt(document.getElementById('ind-lineWidth')?.value);
-      if (v && v > 0) newSettings.lineWidth = v;
-    }
-    if (fields.includes('lineStyle')) {
-      const v = document.getElementById('ind-lineStyle')?.value;
-      if (v !== undefined) newSettings.lineStyle = parseInt(v);
+    for (const field of fields) {
+      const cfg = FIELD_CONFIG[field];
+      if (!cfg) continue;
+      const el = document.getElementById('ind-' + field);
+      if (!el) continue;
+      if (cfg.type === 'number') {
+        const v = parseFloat(el.value);
+        if (v && v > 0) newSettings[field] = cfg.step ? v : parseInt(el.value);
+      } else if (cfg.type === 'color') {
+        if (el.value) newSettings[field] = el.value;
+      } else if (cfg.type === 'select') {
+        newSettings[field] = parseInt(el.value);
+      }
     }
 
     indRegistry.setSettings(id, newSettings);

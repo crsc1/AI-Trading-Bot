@@ -63,6 +63,21 @@ const indRegistry = (() => {
       defaultSettings: {},
       btnId: 'btnPivots', shortcut: null,
     },
+    macd: {
+      id: 'macd', name: 'MACD', group: 'momentum', type: 'sub-pane',
+      defaultSettings: { fast: 12, slow: 26, signal: 9, color: '#2196f3', signalColor: '#ff9800', histUpColor: 'rgba(0,200,5,0.5)', histDnColor: 'rgba(255,80,0,0.5)' },
+      btnId: 'btnMacd', shortcut: 'M',
+    },
+    stoch: {
+      id: 'stoch', name: 'Stochastic', group: 'momentum', type: 'sub-pane',
+      defaultSettings: { kPeriod: 14, dPeriod: 3, color: '#e040fb', dColor: '#ff9800' },
+      btnId: 'btnStoch', shortcut: 'K',
+    },
+    atr: {
+      id: 'atr', name: 'ATR', group: 'volatility', type: 'sub-pane',
+      defaultSettings: { period: 14, color: '#ff7043' },
+      btnId: 'btnAtr', shortcut: 'A',
+    },
   };
 
   // ── Runtime State ───────────────────────────────────────────────────────

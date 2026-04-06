@@ -187,12 +187,16 @@ function initFullCandleCharts(){
   });
   fullCvdS = fullCvdChart.addLineSeries({color:T.cvd,lineWidth:2,priceLineVisible:false,lastValueVisible:true});
 
-  // Sync full tab charts (per-group flag)
+  // Sync full tab charts (per-group flag) — includes dynamic sub-panes
   const fullCharts = [fullCandleChart, fullRsiChart, fullCvdChart];
   fullCharts.forEach((c,i) => {
     c.timeScale().subscribeVisibleLogicalRangeChange(r => {
       if(_syncFlags.full||!r) return; _syncFlags.full=true;
       fullCharts.forEach((oc,j)=>{if(i!==j) try{oc.timeScale().setVisibleLogicalRange(r)}catch(e){}});
+      // Sync dynamic sub-panes (MACD, Stoch, ATR)
+      for(const pid of Object.keys(_subPanes)){
+        if(_subPanes[pid]) try{_subPanes[pid].chart.timeScale().setVisibleLogicalRange(r)}catch(e){}
+      }
       _syncFlags.full=false;
     });
   });
@@ -308,6 +312,10 @@ function _resizeAllVisibleCharts(){
       fullCandleChart?.applyOptions({autoSize:true});
       fullRsiChart?.applyOptions({autoSize:true});
       fullCvdChart?.applyOptions({autoSize:true});
+      // Dynamic sub-panes (MACD, Stoch, ATR)
+      for(const id of Object.keys(_subPanes)){
+        if(_subPanes[id]) _subPanes[id].chart.applyOptions({autoSize:true});
+      }
     }
   }
 
@@ -922,6 +930,11 @@ indRegistry.onToggle((id, enabled) => {
     _redrawPriceLines();
     if(enabled) fetchOverlayLevels();
   }
+  // Dynamic sub-pane indicators
+  if(id==='macd' || id==='stoch' || id==='atr'){
+    if(enabled) _createSubPane(id);
+    else _destroySubPane(id);
+  }
 });
 
 // Registry callback: re-render when settings change (period, color, etc.)
@@ -940,6 +953,18 @@ indRegistry.onSettingsChange((id, settings) => {
     [fullVwapUp1S,fullVwapDn1S,fullVwapUp2S,fullVwapDn2S,fullVwapUp3S,fullVwapDn3S].forEach(s => {
       if(s) s.applyOptions(vbStyle);
     });
+  }
+  // Dynamic sub-pane series color updates
+  if(id==='macd' && _subPanes.macd){
+    if(settings.color) _subPanes.macd.macdS.applyOptions({color:settings.color});
+    if(settings.signalColor) _subPanes.macd.signalS.applyOptions({color:settings.signalColor});
+  }
+  if(id==='stoch' && _subPanes.stoch){
+    if(settings.color) _subPanes.stoch.kS.applyOptions({color:settings.color});
+    if(settings.dColor) _subPanes.stoch.dS.applyOptions({color:settings.dColor});
+  }
+  if(id==='atr' && _subPanes.atr){
+    if(settings.color) _subPanes.atr.lineS.applyOptions({color:settings.color});
   }
   // Recompute with new periods
   if(_lastCandles && _lastCandles.length > 0) computeIndicators(_lastCandles);
@@ -986,6 +1011,146 @@ function computeIndicators(candles){
 
   // VWAP ±σ bands
   if(indRegistry.isEnabled('vwapBands')) _computeVwapBands(candles);
+
+  // MACD
+  if(indRegistry.isEnabled('macd') && _subPanes.macd){
+    const s = indRegistry.getSettings('macd');
+    const macd = calcMACD(closes, s.fast||12, s.slow||26, s.signal||9);
+    if(macd.macd.length){
+      const slowOff = (s.slow||26) - 1;
+      const sigOff = slowOff + (s.signal||9) - 1;
+      try{ _subPanes.macd.macdS.setData(_map(macd.macd, slowOff)); }catch(e){}
+      try{ _subPanes.macd.signalS.setData(_map(macd.signal, sigOff)); }catch(e){}
+      try{
+        const histData = macd.histogram.map((v,i) => ({
+          time: candles[i + sigOff]?.time, value: v,
+          color: v >= 0 ? (s.histUpColor||'rgba(0,200,5,0.5)') : (s.histDnColor||'rgba(255,80,0,0.5)')
+        })).filter(d => d.time);
+        _subPanes.macd.histS.setData(histData);
+      }catch(e){}
+    }
+  }
+
+  // Stochastic
+  if(indRegistry.isEnabled('stoch') && _subPanes.stoch){
+    const s = indRegistry.getSettings('stoch');
+    const highs = candles.map(c=>c.high), lows = candles.map(c=>c.low);
+    const stoch = calcStochastic(highs, lows, closes, s.kPeriod||14, s.dPeriod||3);
+    if(stoch.k.length){
+      const kOff = (s.kPeriod||14) - 1;
+      const dOff = kOff + (s.dPeriod||3) - 1;
+      try{ _subPanes.stoch.kS.setData(_map(stoch.k, kOff)); }catch(e){}
+      try{ _subPanes.stoch.dS.setData(_map(stoch.d, dOff)); }catch(e){}
+    }
+  }
+
+  // ATR
+  if(indRegistry.isEnabled('atr') && _subPanes.atr){
+    const s = indRegistry.getSettings('atr');
+    const highs = candles.map(c=>c.high), lows = candles.map(c=>c.low);
+    const atr = calcATR(highs, lows, closes, s.period||14);
+    if(atr.length){
+      // ATR uses tr[] which starts at index 1, then period values, so offset = period
+      const off = s.period || 14;
+      try{ _subPanes.atr.lineS.setData(_map(atr, off)); }catch(e){}
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// DYNAMIC SUB-PANE MANAGEMENT — MACD, Stochastic, ATR
+// Created on toggle, destroyed on toggle-off. Timescale synced with main chart.
+// ══════════════════════════════════════════════════════════════════════════
+var _subPanes = { macd: null, stoch: null, atr: null };
+
+function _createSubPane(id){
+  const container = document.getElementById(id + 'WrapFull');
+  if(!container || _subPanes[id]) return;
+  container.style.display = '';
+
+  const chart = LightweightCharts.createChart(container, {
+    ...chartOpts,
+    rightPriceScale:{...chartOpts.rightPriceScale, scaleMargins:{top:.1, bottom:.1}},
+    timeScale:{...chartOpts.timeScale, visible:false},
+  });
+
+  const pane = { chart };
+
+  if(id === 'macd'){
+    const s = indRegistry.getSettings('macd');
+    pane.macdS = chart.addLineSeries({color:s.color||'#2196f3', lineWidth:1, priceLineVisible:false, lastValueVisible:true});
+    pane.signalS = chart.addLineSeries({color:s.signalColor||'#ff9800', lineWidth:1, priceLineVisible:false, lastValueVisible:true});
+    pane.histS = chart.addHistogramSeries({priceFormat:{type:'volume'}, priceScaleId:'', lastValueVisible:false});
+    pane.histS.priceScale().applyOptions({scaleMargins:{top:.7, bottom:0}});
+    chart.addLineSeries({color:'transparent',lineWidth:0,priceLineVisible:false,lastValueVisible:false})
+      .createPriceLine({price:0, color:'rgba(255,255,255,.15)', lineWidth:1, lineStyle:2});
+  }
+  if(id === 'stoch'){
+    const s = indRegistry.getSettings('stoch');
+    pane.kS = chart.addLineSeries({color:s.color||'#e040fb', lineWidth:1, priceLineVisible:false, lastValueVisible:true});
+    pane.dS = chart.addLineSeries({color:s.dColor||'#ff9800', lineWidth:1, priceLineVisible:false, lastValueVisible:true});
+    // Overbought/oversold levels
+    const zeroS = chart.addLineSeries({color:'transparent',lineWidth:0,priceLineVisible:false,lastValueVisible:false});
+    zeroS.createPriceLine({price:80, color:'rgba(239,83,80,.3)', lineWidth:1, lineStyle:2});
+    zeroS.createPriceLine({price:20, color:'rgba(38,166,154,.3)', lineWidth:1, lineStyle:2});
+  }
+  if(id === 'atr'){
+    const s = indRegistry.getSettings('atr');
+    pane.lineS = chart.addLineSeries({color:s.color||'#ff7043', lineWidth:1, priceLineVisible:false, lastValueVisible:true});
+  }
+
+  _subPanes[id] = pane;
+
+  // Sync timescale with main full candle chart
+  _syncSubPane(chart);
+
+  // Register with ResizeObserver
+  _chartResizeObs.observe(container);
+
+  // Recompute to fill with data
+  if(_lastCandles && _lastCandles.length > 0) computeIndicators(_lastCandles);
+}
+
+function _destroySubPane(id){
+  const pane = _subPanes[id];
+  if(!pane) return;
+  const container = document.getElementById(id + 'WrapFull');
+  try{ pane.chart.remove(); }catch(e){}
+  if(container){
+    container.style.display = 'none';
+    _chartResizeObs.unobserve(container);
+  }
+  _subPanes[id] = null;
+}
+
+function _syncSubPane(chart){
+  // Add to the full charts sync group
+  const syncCharts = [fullCandleChart, fullRsiChart, fullCvdChart];
+  // Collect all active sub-pane charts
+  for(const id of Object.keys(_subPanes)){
+    if(_subPanes[id]) syncCharts.push(_subPanes[id].chart);
+  }
+
+  // Subscribe this new chart to sync
+  chart.timeScale().subscribeVisibleLogicalRangeChange(r => {
+    if(_syncFlags.full || !r) return;
+    _syncFlags.full = true;
+    // Sync with main charts
+    [fullCandleChart, fullRsiChart, fullCvdChart].forEach(c => {
+      try{ c.timeScale().setVisibleLogicalRange(r); }catch(e){}
+    });
+    // Sync with other sub-panes
+    for(const id of Object.keys(_subPanes)){
+      if(_subPanes[id] && _subPanes[id].chart !== chart){
+        try{ _subPanes[id].chart.timeScale().setVisibleLogicalRange(r); }catch(e){}
+      }
+    }
+    _syncFlags.full = false;
+  });
+
+  // Also subscribe main chart to sync to this new pane
+  // (the existing subscriptions on fullCandleChart etc. don't know about new panes)
+  // We'll piggyback on the existing range change by re-syncing sub-panes in resize
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1184,6 +1349,58 @@ function calcBB(data,p,m){
   return {upper: u, lower: l};
 }
 function calcRSI(data,p){if(data.length<p+1)return[];const r=[];let aG=0,aL=0;for(let i=1;i<=p;i++){const d=data[i]-data[i-1];if(d>0)aG+=d;else aL-=d;}aG/=p;aL/=p;r.push(aL===0?100:100-100/(1+aG/aL));for(let i=p+1;i<data.length;i++){const d=data[i]-data[i-1];aG=(aG*(p-1)+(d>0?d:0))/p;aL=(aL*(p-1)+(d<0?-d:0))/p;r.push(aL===0?100:100-100/(1+aG/aL));}return r;}
+
+function calcMACD(closes, fast, slow, signal){
+  if(closes.length < slow) return {macd:[], signal:[], histogram:[]};
+  const emaFast = calcEMA(closes, fast);
+  const emaSlow = calcEMA(closes, slow);
+  // Align: both start from index (slow-1) in the original data
+  const offset = slow - fast;
+  const macdLine = [];
+  for(let i = 0; i < emaSlow.length; i++){
+    macdLine.push(emaFast[i + offset] - emaSlow[i]);
+  }
+  const sigLine = calcEMA(macdLine, signal);
+  const sigOffset = macdLine.length - sigLine.length;
+  const hist = [];
+  for(let i = 0; i < sigLine.length; i++){
+    hist.push(macdLine[i + sigOffset] - sigLine[i]);
+  }
+  return {macd: macdLine, signal: sigLine, histogram: hist};
+}
+
+function calcStochastic(highs, lows, closes, kPeriod, dPeriod){
+  if(closes.length < kPeriod) return {k:[], d:[]};
+  const kLine = [];
+  for(let i = kPeriod - 1; i < closes.length; i++){
+    let hh = -Infinity, ll = Infinity;
+    for(let j = i - kPeriod + 1; j <= i; j++){
+      if(highs[j] > hh) hh = highs[j];
+      if(lows[j] < ll) ll = lows[j];
+    }
+    const range = hh - ll;
+    kLine.push(range === 0 ? 50 : ((closes[i] - ll) / range) * 100);
+  }
+  const dLine = calcSMA(kLine, dPeriod);
+  return {k: kLine, d: dLine};
+}
+
+function calcATR(highs, lows, closes, period){
+  if(closes.length < 2) return [];
+  const tr = [];
+  for(let i = 1; i < closes.length; i++){
+    tr.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i-1]), Math.abs(lows[i] - closes[i-1])));
+  }
+  if(tr.length < period) return [];
+  // Wilder's smoothing (same as RSI smoothing)
+  let atr = tr.slice(0, period).reduce((a,b) => a+b, 0) / period;
+  const result = [atr];
+  for(let i = period; i < tr.length; i++){
+    atr = (atr * (period - 1) + tr[i]) / period;
+    result.push(atr);
+  }
+  return result;
+}
 
 function calcVWAP(candles){
   // VWAP = cumulative(typical_price * volume) / cumulative(volume)

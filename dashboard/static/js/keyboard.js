@@ -12,6 +12,9 @@ function handleKey(e){
     case 'e': case 'E': toggleInd('ema'); break;
     case 's': case 'S': toggleInd('sma'); break;
     case 'b': case 'B': toggleInd('bb'); break;
+    case 'm': case 'M': toggleInd('macd'); break;
+    case 'k': case 'K': toggleInd('stoch'); break;
+    case 'a': case 'A': toggleInd('atr'); break;
     case 'h': case 'H': setDraw('hline'); break;
     case 't': case 'T': setDraw('trend'); break;
     case 'f': case 'F': setDraw('fib'); break;

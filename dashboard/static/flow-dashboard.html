@@ -848,6 +848,12 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
       </div>
       <div class="tb-sep"></div>
       <div class="tb-group">
+        <button class="tb-btn" id="btnMacd" onclick="toggleInd('macd')" oncontextmenu="openIndSettings('macd');return false" title="MACD (M) — right-click to configure">MACD</button>
+        <button class="tb-btn" id="btnStoch" onclick="toggleInd('stoch')" oncontextmenu="openIndSettings('stoch');return false" title="Stochastic (K) — right-click to configure">Stch</button>
+        <button class="tb-btn" id="btnAtr" onclick="toggleInd('atr')" oncontextmenu="openIndSettings('atr');return false" title="ATR (A) — right-click to configure">ATR</button>
+      </div>
+      <div class="tb-sep"></div>
+      <div class="tb-group">
         <button class="tb-btn" id="btnHLine" onclick="setDraw('hline')">─</button>
         <button class="tb-btn" id="btnTrend" onclick="setDraw('trend')">╱</button>
         <button class="tb-btn" id="btnFib" onclick="setDraw('fib')">Fib</button>
@@ -862,6 +868,9 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
     </div>
     <div class="sub-pane" id="rsiWrapFull"><div class="pane-label">RSI 14</div></div>
     <div class="sub-pane" id="cvdWrapFull"><div class="pane-label">CVD</div></div>
+    <div class="sub-pane" id="macdWrapFull" style="display:none"><div class="pane-label">MACD</div></div>
+    <div class="sub-pane" id="stochWrapFull" style="display:none"><div class="pane-label">Stoch</div></div>
+    <div class="sub-pane" id="atrWrapFull" style="display:none"><div class="pane-label">ATR</div></div>
   </div>
 
   <!-- TAB 4: Options Board (full chain matrix) -->
