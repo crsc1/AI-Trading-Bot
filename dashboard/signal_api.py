@@ -486,8 +486,12 @@ async def _run_analysis_cycle():
         merged_quote = {**market_data.get("quote", {})}
         if quote:
             merged_quote.update({k: v for k, v in quote.items() if v})
+        market = market_data.get("market", {})
+        # Ensure 'last'/'price' exists — /api/quote returns bid/ask/midpoint but
+        # engine.analyze() needs quote.get("last") or quote.get("price")
+        if not merged_quote.get("last") and not merged_quote.get("price"):
+            merged_quote["last"] = market.get("price", 0) or merged_quote.get("midpoint", 0)
         if not merged_quote.get("prev_close"):
-            market = market_data.get("market", {})
             merged_quote["prev_close"] = market.get("prev_close", 0)
 
         # Fetch regime context
@@ -703,9 +707,11 @@ async def analyze_order_flow_endpoint(req: AnalyzeRequest):
         if req.quote:
             merged_quote.update({k: v for k, v in req.quote.items() if v})
 
-        # Add prev_close from market data if not in quote
+        # Ensure 'last'/'price' exists for engine.analyze()
+        market = market_data.get("market", {})
+        if not merged_quote.get("last") and not merged_quote.get("price"):
+            merged_quote["last"] = market.get("price", 0) or merged_quote.get("midpoint", 0)
         if not merged_quote.get("prev_close"):
-            market = market_data.get("market", {})
             merged_quote["prev_close"] = market.get("prev_close", 0)
 
         # Merge options data

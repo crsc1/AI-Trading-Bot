@@ -97,7 +97,7 @@ class DailyLearningReport:
             "win_rate": round(self.win_rate, 3),
             "avg_win": round(self.avg_win, 2),
             "avg_loss": round(self.avg_loss, 2),
-            "profit_factor": round(self.profit_factor, 2),
+            "profit_factor": round(self.profit_factor, 2) if self.profit_factor != float('inf') else 999.99,
             "factor_stats": [f.to_dict() for f in self.factor_stats],
             "best_factors": self.best_factors,
             "worst_factors": self.worst_factors,
@@ -721,8 +721,15 @@ class AfterHoursLearner:
 
     def status(self) -> Dict:
         """Current status of the after-hours learner."""
+        report = self.get_latest_report()
+        # Sanitize inf/nan values that break JSON serialization
+        if report:
+            import math
+            for k, v in list(report.items()):
+                if isinstance(v, float) and (math.isinf(v) or math.isnan(v)):
+                    report[k] = 0.0
         return {
             "running": self._running,
             "last_analysis_date": self._last_analysis_date,
-            "latest_report": self.get_latest_report(),
+            "latest_report": report,
         }

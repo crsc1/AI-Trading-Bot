@@ -301,6 +301,7 @@ async def get_live_quote(symbol: str = Query("SPY"), feed: str = Query("sip")):
                 spread = round(ask - bid, 4) if bid and ask else 0
                 return {
                     "symbol": symbol,
+                    "last": mid,  # Best available price from NBBO midpoint
                     "bid": bid, "ask": ask,
                     "bid_size": q.get("bs", 0), "ask_size": q.get("as", 0),
                     "midpoint": mid, "spread": spread,
