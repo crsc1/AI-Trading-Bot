@@ -194,53 +194,11 @@ async function _doRefreshPositionsTab(){
     window._tradeHistTable.setData(enrichedTrades);
   }
 
-  // ── Orders section — paper simulation note ──────────────────────────────
-  const ordCountEl2 = document.getElementById('ordCountLabel');
-  if(ordCountEl2) ordCountEl2.textContent = '';
-  const ordWrap = document.getElementById('ordTableWrap');
-  if(ordWrap){
-    ordWrap.innerHTML = '<div style="padding:16px;text-align:center;color:var(--mut);font-size:9px;line-height:1.6">'
-      + '📄 Paper simulation mode<br>No broker orders are placed.<br>'
-      + 'All trade records are stored locally in the DB.</div>';
-  }
-
   // ── Portfolio equity curve — built from closed simulation trades ────────
   renderEquityChart(_buildEquityCurve(closedTrades));
 }
 
 // Old _renderPositionRow and _renderTradeRow removed — now handled by DataTable component
-
-// ═══ ORDER TABLE ROW RENDERER ═══
-function _renderOrderRow(o){
-  const displaySym = o.option_info
-    ? `${o.option_info.root} $${o.option_info.strike} ${o.option_info.right}`
-    : (o.symbol || '???');
-  const isBuy = o.side === 'buy';
-  const sideVariant = isBuy ? 'green' : 'red';
-  const time = o.filled_at || o.created_at;
-  const timeStr = time ? new Date(time).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true}) : '';
-  const dateStr = time ? new Date(time).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
-
-  const statusVariants = {
-    filled: 'green', partially_filled: 'yellow',
-    new: 'blue', accepted: 'blue', pending_new: 'blue',
-    canceled: 'neutral', expired: 'neutral',
-    rejected: 'red', replaced: 'yellow',
-  };
-  const statusVariant = statusVariants[o.status] || 'neutral';
-  const statusLabel = (o.status || 'unknown').replace(/_/g,' ').toUpperCase();
-
-  return `<tr>
-    <td>${UI.badge((o.side||'buy').toUpperCase(), sideVariant)}</td>
-    <td style="color:#fff;font-weight:600">${esc(displaySym)}</td>
-    <td>${(o.type || 'limit').toUpperCase()}</td>
-    <td>${o.qty || 1}</td>
-    <td class="col-right">${o.limit_price ? '$'+parseFloat(o.limit_price).toFixed(2) : '--'}</td>
-    <td class="col-right">${o.filled_avg_price ? '$'+parseFloat(o.filled_avg_price).toFixed(2) : '--'}</td>
-    <td>${UI.badge(statusLabel, statusVariant)}</td>
-    <td style="color:var(--dim)">${dateStr} ${timeStr}</td>
-  </tr>`;
-}
 
 // Build an equity curve from a list of closed simulation trades.
 // Returns array of {time: unix_seconds, equity: float} sorted ascending.
