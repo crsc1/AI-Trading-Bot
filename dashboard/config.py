@@ -311,12 +311,15 @@ class Config:
         # Dynamic Exit Engine v2 — 5-scorer composite urgency
         self.DYNAMIC_EXIT_ENABLED: bool = _env_bool("DYNAMIC_EXIT_ENABLED", True)
         self.DYNAMIC_EXIT_WEIGHTS: Dict[str, float] = {
-            "momentum": _env_float("DEX_W_MOMENTUM", 0.20),
-            "greeks":   _env_float("DEX_W_GREEKS", 0.25),
-            "levels":   _env_float("DEX_W_LEVELS", 0.20),
-            "session":  _env_float("DEX_W_SESSION", 0.15),
-            "flow":     _env_float("DEX_W_FLOW", 0.20),
+            "momentum":    _env_float("DEX_W_MOMENTUM", 0.19),
+            "greeks":      _env_float("DEX_W_GREEKS", 0.24),
+            "levels":      _env_float("DEX_W_LEVELS", 0.19),
+            "session":     _env_float("DEX_W_SESSION", 0.14),
+            "flow":        _env_float("DEX_W_FLOW", 0.19),
+            "charm_vanna": _env_float("DEX_W_CHARM_VANNA", 0.05),
         }
+        # Charm weight ramps from base to max in afternoon (post-1:30 PM)
+        self.CHARM_WEIGHT_MAX: float = _env_float("CHARM_WEIGHT_MAX", 0.25)
         # Urgency thresholds (0.0-1.0)
         self.DYNAMIC_EXIT_URGENT: float = _env_float("DEX_URGENT", 0.80)
         self.DYNAMIC_EXIT_WARNING: float = _env_float("DEX_WARNING", 0.60)
@@ -447,6 +450,32 @@ class Config:
         self.LLM_VALIDATOR_ENABLED: bool = _env_bool("LLM_VALIDATOR_ENABLED", True)
         # Only validate signals at or above this tier (skip low-quality signals)
         self.LLM_VALIDATOR_MIN_TIER: str = _env("LLM_VALIDATOR_MIN_TIER", "DEVELOPING")
+
+        # ═══════════════════════════════════════════════════════════════════
+        # LLM EXIT ADVISOR — Claude-driven exit reasoning
+        # ═══════════════════════════════════════════════════════════════════
+
+        self.LLM_EXIT_ADVISOR_ENABLED: bool = _env_bool("LLM_EXIT_ADVISOR_ENABLED", True)
+        self.LLM_EXIT_ADVISOR_MODEL: str = _env("LLM_EXIT_ADVISOR_MODEL", "claude-sonnet-4-6")
+        # How often to re-evaluate each open position (seconds)
+        self.LLM_EXIT_ADVISOR_INTERVAL_S: int = _env_int("LLM_EXIT_ADVISOR_INTERVAL_S", 30)
+        # Only evaluate positions with abs(pnl%) above this threshold
+        # (skip flat positions where there's nothing interesting to decide)
+        self.LLM_EXIT_ADVISOR_MIN_PNL_PCT: float = _env_float("LLM_EXIT_ADVISOR_MIN_PNL_PCT", 0.03)
+        # If True, Claude's EXIT action triggers immediate exit (hard gate)
+        # If False, advisory only — adjusts trailing stop and logs reasoning
+        self.LLM_EXIT_ADVISOR_HARD_GATE: bool = _env_bool("LLM_EXIT_ADVISOR_HARD_GATE", False)
+        # Real-time mode: evaluate positions every N seconds (EXPENSIVE — ~$30/day)
+        # Default OFF. Set to True for test days only.
+        self.LLM_EXIT_ADVISOR_REALTIME: bool = _env_bool("LLM_EXIT_ADVISOR_REALTIME", False)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # LLM DAILY REVIEW — End-of-day analysis (~$0.03-0.05/day)
+        # ═══════════════════════════════════════════════════════════════════
+
+        self.LLM_DAILY_REVIEW_ENABLED: bool = _env_bool("LLM_DAILY_REVIEW_ENABLED", True)
+        self.LLM_DAILY_REVIEW_MODEL: str = _env("LLM_DAILY_REVIEW_MODEL", "claude-sonnet-4-6")
+        self.LLM_DAILY_REVIEW_MAX_TOKENS: int = _env_int("LLM_DAILY_REVIEW_MAX_TOKENS", 2048)
 
     def reload(self):
         """Reload config from environment (useful after .env changes)."""

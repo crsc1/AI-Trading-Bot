@@ -31,6 +31,7 @@ from .signal_db import (
 from . import data_router
 from .config import cfg
 from . import llm_validator
+from . import llm_exit_advisor
 from .session_gate import session_gate
 from .dynamic_exit import dynamic_exit_engine
 
@@ -824,6 +825,11 @@ class PositionManager:
                                 breadth=exit_context.get("breadth"),
                                 gex_regime=exit_context.get("gex_regime"),
                                 vol_regime=exit_context.get("vol_regime"),
+                                vanna_charm=exit_context.get("vanna_charm"),
+                                bars_5m=exit_context.get("bars_5m"),
+                                bars_15m=exit_context.get("bars_15m"),
+                                bars_1m=exit_context.get("bars_1m"),
+                                event_context=exit_context.get("event_context"),
                             )
 
                             # URGENT → force immediate full exit
@@ -840,6 +846,68 @@ class PositionManager:
                                 position["_trailing_multiplier"] = urgency.trailing_multiplier
                             if urgency.move_to_breakeven:
                                 position["_move_to_breakeven"] = True
+
+                        # ── LLM Exit Advisor — Claude-driven exit reasoning ──
+                        # Only fires in REAL-TIME mode (expensive, opt-in for test days)
+                        if (cfg.LLM_EXIT_ADVISOR_ENABLED and cfg.LLM_EXIT_ADVISOR_REALTIME
+                                and cfg.ANTHROPIC_API_KEY
+                                and abs(position.get("unrealized_pnl_pct", 0)) >= cfg.LLM_EXIT_ADVISOR_MIN_PNL_PCT):
+                            trade_id = trade["id"]
+                            # Fire evaluation if interval has elapsed
+                            if llm_exit_advisor.should_evaluate(trade_id, cfg.LLM_EXIT_ADVISOR_INTERVAL_S):
+                                urgency_dict = urgency.to_dict() if cfg.DYNAMIC_EXIT_ENABLED and exit_context else None
+                                recent_trades = get_trade_history(limit=5)
+                                await llm_exit_advisor.evaluate_position(
+                                    position, exit_context or {}, urgency_dict, recent_trades
+                                )
+
+                            # Apply cached advisory
+                            adv = llm_exit_advisor.get_advisory(trade_id)
+                            if adv and not adv.get("error"):
+                                action = adv.get("action", "HOLD")
+
+                                if action == "EXIT" and cfg.LLM_EXIT_ADVISOR_HARD_GATE:
+                                    exit_price = position.get("current_price", trade["entry_price"])
+                                    reason = f"llm_exit_advisor ({adv.get('confidence', 0):.0%})"
+                                    await self.exit_trade(trade, exit_price, reason)
+                                    self._log_decision("LLM_EXIT", adv.get("reasoning", "")[:200],
+                                                       trade_id=trade_id)
+                                    continue
+
+                                if action == "EXIT":
+                                    # Advisory mode: boost urgency to force tighter trailing
+                                    position["_trailing_multiplier"] = min(
+                                        position.get("_trailing_multiplier", 1.0), 0.30
+                                    )
+                                    position["_move_to_breakeven"] = True
+                                elif action == "TIGHTEN":
+                                    trail_adj = adv.get("trailing_adjustment", 0.5)
+                                    position["_trailing_multiplier"] = min(
+                                        position.get("_trailing_multiplier", 1.0), trail_adj
+                                    )
+                                elif action == "SCALE_OUT":
+                                    remaining = int(position.get("remaining_quantity") or position.get("quantity", 1))
+                                    if remaining >= 2:
+                                        exit_price = position.get("current_price", trade["entry_price"])
+                                        qty = max(1, remaining // 2)
+                                        await self._execute_partial_exit(
+                                            trade, exit_price, "llm_scale_out", qty
+                                        )
+                                        self._log_decision(
+                                            "LLM_SCALE_OUT",
+                                            f"{qty} contracts: {adv.get('reasoning', '')[:150]}",
+                                            trade_id=trade_id
+                                        )
+                                # HOLD: no action needed, let position ride
+
+                                # Apply urgency override if Claude set one
+                                uo = adv.get("urgency_override")
+                                if uo is not None and cfg.DYNAMIC_EXIT_ENABLED:
+                                    if uo > position.get("_trailing_multiplier", 1.0):
+                                        position["_trailing_multiplier"] = min(
+                                            position.get("_trailing_multiplier", 1.0),
+                                            1.0 - uo  # Higher urgency = tighter trail
+                                        )
 
                         # ── Standard exit rules (with partial exit support) ──
                         decision = self.exit_rules.check_with_partial(position)
@@ -941,10 +1009,21 @@ class PositionManager:
             bars_data = await data_router.get_bars("SPY", "1Min", 60)
             bars_1m = bars_data.get("bars", []) if bars_data else []
 
-            bars_daily_data = await data_router.get_bars("SPY", "1Day", 5)
+            bars_daily_data = await data_router.get_bars("SPY", "1Day", 200)
             bars_daily = bars_daily_data.get("bars", []) if bars_daily_data else []
 
             quote = await data_router.get_quote("SPY")
+
+            # Fetch multi-timeframe bars (cached 60s each, zero extra API cost)
+            bars_5m_data = await data_router.get_bars("SPY", "5Min", 30)
+            bars_5m = bars_5m_data.get("bars", []) if bars_5m_data else []
+
+            bars_15m_data = await data_router.get_bars("SPY", "15Min", 20)
+            bars_15m = bars_15m_data.get("bars", []) if bars_15m_data else []
+
+            ctx["bars_1m"] = bars_1m
+            ctx["bars_5m"] = bars_5m
+            ctx["bars_15m"] = bars_15m
 
             # Compute market levels
             if bars_1m:
@@ -1017,9 +1096,9 @@ class PositionManager:
             except Exception:
                 pass  # Vol analysis is best-effort
 
-            # Get GEX data
+            # Get GEX data + gamma clusters
             try:
-                from .gex_engine import calculate_gex
+                from .gex_engine import calculate_gex, find_gamma_clusters
                 chain = await data_router.get_options_chain("SPY")
                 if chain and chain.get("calls"):
                     gex = calculate_gex(
@@ -1028,11 +1107,15 @@ class PositionManager:
                         chain.get("underlying_price", 0),
                     )
                     if gex:
-                        ctx["gex"] = gex.to_dict() if hasattr(gex, "to_dict") else {
+                        gex_dict = gex.to_dict() if hasattr(gex, "to_dict") else {
                             "call_wall": getattr(gex, "call_wall", 0),
                             "put_wall": getattr(gex, "put_wall", 0),
                             "regime": getattr(gex, "regime", "neutral"),
                         }
+                        # Add gamma clusters
+                        clusters = find_gamma_clusters(gex, chain.get("underlying_price", 0))
+                        gex_dict["gamma_clusters"] = clusters
+                        ctx["gex"] = gex_dict
                         # v9: Build GEX regime profile for dynamic exit
                         try:
                             from .gex_regime import get_regime_profile
@@ -1046,6 +1129,30 @@ class PositionManager:
                             pass
             except Exception:
                 pass  # GEX is best-effort
+
+            # Get economic event context for exit decisions
+            try:
+                from .event_calendar import get_event_context
+                event_ctx = await get_event_context()
+                if event_ctx:
+                    ctx["event_context"] = event_ctx.to_dict() if hasattr(event_ctx, "to_dict") else {}
+            except Exception:
+                pass  # Event context is best-effort
+
+            # Get Vanna/Charm data (reuses cached options chain)
+            try:
+                from .vanna_charm_engine import calculate_vanna_charm
+                chain_vc = await data_router.get_options_chain("SPY")
+                if chain_vc and chain_vc.get("calls"):
+                    vc = calculate_vanna_charm(
+                        chain_vc.get("calls", []),
+                        chain_vc.get("puts", []),
+                        chain_vc.get("underlying_price", 0),
+                    )
+                    if vc:
+                        ctx["vanna_charm"] = vc.to_dict()
+            except Exception:
+                pass  # Vanna/charm is best-effort
 
         except Exception as e:
             logger.debug(f"[PositionManager] Exit context fetch error: {e}")
@@ -1464,6 +1571,15 @@ class PositionManager:
                 self.on_trade_closed(trade_id)
             except Exception:
                 pass
+
+        # Backfill exit advisory outcomes and clean up cache
+        try:
+            from .signal_db import backfill_exit_advisory_outcome
+            backfill_exit_advisory_outcome(trade_id, exit_reason, round(pnl_pct, 4))
+            llm_exit_advisor.clear_trade(trade_id)
+            dynamic_exit_engine.clear_trade(trade_id)
+        except Exception:
+            pass
 
         return True
 

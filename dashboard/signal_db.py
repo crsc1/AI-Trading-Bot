@@ -137,9 +137,31 @@ def init_db():
             error               TEXT
         );
 
+        -- ── LLM exit advisories ────────────────────────────────────────────
+        -- Claude's real-time exit reasoning for open positions.
+        CREATE TABLE IF NOT EXISTS llm_exit_advisories (
+            id                  TEXT PRIMARY KEY,
+            trade_id            TEXT NOT NULL,
+            timestamp           TEXT NOT NULL,
+            action              TEXT NOT NULL,      -- HOLD, TIGHTEN, SCALE_OUT, EXIT
+            urgency_override    REAL,               -- NULL or 0.0-1.0
+            trailing_adjustment REAL,               -- NULL or 0.1-1.0
+            confidence          REAL,
+            key_signals         TEXT,                -- JSON array
+            reasoning           TEXT,
+            model               TEXT,
+            latency_ms          INTEGER,
+            error               TEXT,
+            -- Outcome tracking: what actually happened after this advisory
+            actual_exit_reason  TEXT,               -- Filled when trade closes
+            actual_pnl_pct      REAL                -- Filled when trade closes
+        );
+
         CREATE INDEX IF NOT EXISTS idx_outcomes_created ON signal_outcomes(created_at);
         CREATE INDEX IF NOT EXISTS idx_verdicts_signal  ON llm_verdicts(signal_id);
         CREATE INDEX IF NOT EXISTS idx_verdicts_ts      ON llm_verdicts(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_exit_adv_trade   ON llm_exit_advisories(trade_id);
+        CREATE INDEX IF NOT EXISTS idx_exit_adv_ts      ON llm_exit_advisories(timestamp);
     """)
 
     # ── Migrations: add columns if missing (existing DBs) ────────────────────
@@ -677,6 +699,97 @@ def get_persisted_verdicts(limit: int = 100) -> List[Dict]:
             d["key_factors"] = _json.loads(d.get("key_factors") or "[]")
         except Exception:
             d["key_factors"] = []
+        result.append(d)
+    return result
+
+
+# ── LLM Exit Advisories ───────────────────────────────────────────────────────
+
+def store_exit_advisory(advisory: Dict) -> None:
+    """Persist a single exit advisory to SQLite."""
+    import json as _json
+    conn = _get_conn()
+    conn.execute("""
+        INSERT OR REPLACE INTO llm_exit_advisories
+            (id, trade_id, timestamp, action, urgency_override,
+             trailing_adjustment, confidence, key_signals, reasoning,
+             model, latency_ms, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        advisory.get("id"),
+        advisory.get("trade_id"),
+        advisory.get("timestamp", datetime.now(timezone.utc).isoformat()),
+        advisory.get("action"),
+        advisory.get("urgency_override"),
+        advisory.get("trailing_adjustment"),
+        advisory.get("confidence"),
+        _json.dumps(advisory.get("key_signals", [])),
+        advisory.get("reasoning", "")[:500],
+        advisory.get("model"),
+        advisory.get("latency_ms"),
+        advisory.get("error"),
+    ))
+    conn.commit()
+    conn.close()
+
+
+def backfill_exit_advisory_outcome(trade_id: str, exit_reason: str, pnl_pct: float) -> None:
+    """
+    Called when a trade closes. Marks all advisories for that trade
+    with the actual outcome so we can measure advisory quality.
+    """
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE llm_exit_advisories SET actual_exit_reason = ?, actual_pnl_pct = ? WHERE trade_id = ?",
+        (exit_reason, pnl_pct, trade_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_exit_advisory_stats(lookback_days: int = 30) -> Dict:
+    """Exit advisor accuracy: when Claude says EXIT, what was the outcome?"""
+    conn = _get_conn()
+    rows = conn.execute("""
+        SELECT
+            action,
+            COUNT(*) as total,
+            AVG(actual_pnl_pct) as avg_pnl_after,
+            AVG(confidence) as avg_confidence,
+            AVG(latency_ms) as avg_latency_ms
+        FROM llm_exit_advisories
+        WHERE timestamp > datetime('now', ?)
+          AND actual_pnl_pct IS NOT NULL
+        GROUP BY action
+    """, (f"-{lookback_days} days",)).fetchall()
+    conn.close()
+    return {
+        "by_action": [dict(r) for r in rows],
+        "note": "avg_pnl_after = average final P&L% of trades where this action was the last advisory"
+    }
+
+
+def get_persisted_exit_advisories(trade_id: str = None, limit: int = 100) -> List[Dict]:
+    """Return recent exit advisories from SQLite."""
+    import json as _json
+    conn = _get_conn()
+    if trade_id:
+        rows = conn.execute(
+            "SELECT * FROM llm_exit_advisories WHERE trade_id = ? ORDER BY timestamp DESC LIMIT ?",
+            (trade_id, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM llm_exit_advisories ORDER BY timestamp DESC LIMIT ?", (limit,)
+        ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["key_signals"] = _json.loads(d.get("key_signals") or "[]")
+        except Exception:
+            d["key_signals"] = []
         result.append(d)
     return result
 

@@ -82,6 +82,15 @@ class MarketLevels:
     avg_bb_width_pct: float = 0.0  # Average BB width as % of mid
     recent_bars: Optional[list] = field(default=None, repr=False)  # Last N 1-minute bars
 
+    # Multi-day reference levels (computed from daily bars)
+    weekly_high: float = 0.0     # 5-day high
+    weekly_low: float = 0.0      # 5-day low
+    monthly_high: float = 0.0    # 20-day high
+    monthly_low: float = 0.0     # 20-day low
+    yearly_high: float = 0.0     # Max available daily bars high
+    yearly_low: float = 0.0      # Max available daily bars low
+    prev_day_vwap: float = 0.0   # Previous day's typical price (magnet level)
+
     def to_dict(self) -> Dict[str, float]:
         return {k: round(v, 4) if isinstance(v, float) else v
                 for k, v in self.__dict__.items()}
@@ -103,6 +112,10 @@ class MarketLevels:
             "S1": self.s1, "S2": self.s2,
             "POC": self.poc,
             "VA High": self.value_area_high, "VA Low": self.value_area_low,
+            "Week High": self.weekly_high, "Week Low": self.weekly_low,
+            "Month High": self.monthly_high, "Month Low": self.monthly_low,
+            "Year High": self.yearly_high, "Year Low": self.yearly_low,
+            "Prev VWAP": self.prev_day_vwap,
         }
         for name, level in level_names.items():
             if level > 0 and abs(price - level) <= threshold:
@@ -150,6 +163,30 @@ def compute_market_levels(
         levels.s2 = round(levels.pivot - (high - low), 2)
         levels.r3 = round(high + 2 * (levels.pivot - low), 2)
         levels.s3 = round(low - 2 * (high - levels.pivot), 2)
+
+    # ── Multi-day reference levels ──
+    if bars_daily:
+        daily_highs = [b.get("high", 0) for b in bars_daily if b.get("high", 0) > 0]
+        daily_lows = [b.get("low", 0) for b in bars_daily if b.get("low", 0) > 0]
+
+        if len(daily_highs) >= 5:
+            levels.weekly_high = max(daily_highs[-5:])
+            levels.weekly_low = min(daily_lows[-5:])
+
+        if len(daily_highs) >= 20:
+            levels.monthly_high = max(daily_highs[-20:])
+            levels.monthly_low = min(daily_lows[-20:])
+
+        if len(daily_highs) >= 50:
+            levels.yearly_high = max(daily_highs)
+            levels.yearly_low = min(daily_lows)
+
+        # Previous day's typical price as VWAP proxy (magnet level)
+        if len(bars_daily) >= 2:
+            pd = bars_daily[-2]
+            h, l, c = pd.get("high", 0), pd.get("low", 0), pd.get("close", 0)
+            if h > 0 and l > 0 and c > 0:
+                levels.prev_day_vwap = round((h + l + c) / 3, 4)
 
     if not bars_1m:
         return levels

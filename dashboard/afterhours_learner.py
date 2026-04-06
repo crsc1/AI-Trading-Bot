@@ -312,6 +312,16 @@ class AfterHoursLearner:
         # Step 6: Store individual insights
         self._store_insights(date_str, report)
 
+        # Step 7: Run LLM daily review (Claude analysis, ~$0.03-0.05)
+        try:
+            from . import llm_exit_advisor
+            llm_review = await llm_exit_advisor.run_daily_review()
+            if llm_review:
+                report.llm_grade = llm_review.get("grade", "?")
+                logger.info(f"[AfterHours] LLM daily review: grade={llm_review.get('grade', '?')}")
+        except Exception as e:
+            logger.debug(f"[AfterHours] LLM daily review skipped: {e}")
+
         return report
 
     def _get_days_trades(self, date_str: str) -> List[Dict]:

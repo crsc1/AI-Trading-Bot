@@ -249,6 +249,75 @@ def _find_flip_level(strike_gex: Dict[float, float], spot: float) -> float:
     return spot
 
 
+def find_gamma_clusters(
+    gex: GEXResult,
+    spot: float,
+    cluster_pct: float = 0.01,
+    min_strikes: int = 3,
+) -> List[Dict]:
+    """
+    Find gamma concentration zones — groups of strikes with significant GEX
+    clustered near each other. These act as stronger magnets than individual levels.
+
+    Args:
+        gex: GEXResult with strike_gex data
+        spot: Current underlying price
+        cluster_pct: Max distance between strikes to consider clustered (% of spot)
+        min_strikes: Minimum strikes in a group to qualify as a cluster
+
+    Returns:
+        List of clusters: [{center, total_gex, strike_count, distance_pct}]
+        sorted by total absolute GEX (strongest first)
+    """
+    if not gex.strike_gex:
+        return []
+
+    # Filter to strikes with meaningful GEX
+    threshold = 0.0  # Include all non-zero
+    meaningful = sorted(
+        [(s, g) for s, g in gex.strike_gex.items() if abs(g) > threshold],
+        key=lambda x: x[0]
+    )
+
+    if len(meaningful) < min_strikes:
+        return []
+
+    max_gap = spot * cluster_pct
+    clusters = []
+    current_group = [meaningful[0]]
+
+    for i in range(1, len(meaningful)):
+        strike, gex_val = meaningful[i]
+        prev_strike = current_group[-1][0]
+
+        if strike - prev_strike <= max_gap:
+            current_group.append((strike, gex_val))
+        else:
+            if len(current_group) >= min_strikes:
+                _add_cluster(clusters, current_group, spot)
+            current_group = [(strike, gex_val)]
+
+    if len(current_group) >= min_strikes:
+        _add_cluster(clusters, current_group, spot)
+
+    # Sort by total absolute GEX (strongest clusters first)
+    clusters.sort(key=lambda c: abs(c["total_gex"]), reverse=True)
+    return clusters[:5]  # Top 5 clusters
+
+
+def _add_cluster(clusters, group, spot):
+    """Helper to build a cluster dict from a group of (strike, gex) pairs."""
+    strikes = [s for s, _ in group]
+    gex_vals = [g for _, g in group]
+    center = sum(strikes) / len(strikes)
+    clusters.append({
+        "center": round(center, 2),
+        "total_gex": round(sum(gex_vals), 2),
+        "strike_count": len(group),
+        "distance_pct": round(abs(center - spot) / spot * 100, 2) if spot > 0 else 0,
+    })
+
+
 def score_gex_alignment(
     gex: GEXResult,
     signal_direction: str,

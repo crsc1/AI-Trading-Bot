@@ -17,6 +17,7 @@ from .signal_db import (
     get_open_trades, get_trade_history, get_todays_trades, get_outcome_stats, get_llm_verdict_stats, get_persisted_verdicts,
 )
 from . import llm_validator
+from . import llm_exit_advisor
 from .signal_outcome_tracker import outcome_tracker
 
 logger = logging.getLogger(__name__)
@@ -342,6 +343,46 @@ async def validate_signal_now(body: Dict[str, Any]):
                                               trade_history=recent_trades,
                                               open_positions=open_pos)
     return {"status": "queued", "signal_id": signal["id"]}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LLM EXIT ADVISOR ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/llm/exit-advisories")
+async def get_exit_advisories(
+    trade_id: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Return recent exit advisories, newest first. Optionally filter by trade_id."""
+    from .config import cfg
+    from .signal_db import get_persisted_exit_advisories
+
+    advisories = llm_exit_advisor.get_recent_advisories(limit=limit)
+
+    # If trade_id specified, also include DB history
+    db_advisories = []
+    if trade_id:
+        db_advisories = get_persisted_exit_advisories(trade_id=trade_id, limit=limit)
+
+    return {
+        "advisories": advisories if not trade_id else db_advisories,
+        "active": {
+            tid: adv for tid, adv in llm_exit_advisor._active_advisories.items()
+        },
+        "stats": llm_exit_advisor.get_stats(),
+        "enabled": cfg.LLM_EXIT_ADVISOR_ENABLED,
+        "model": cfg.LLM_EXIT_ADVISOR_MODEL,
+        "interval_s": cfg.LLM_EXIT_ADVISOR_INTERVAL_S,
+        "hard_gate": cfg.LLM_EXIT_ADVISOR_HARD_GATE,
+    }
+
+
+@router.get("/llm/exit-stats")
+async def get_exit_advisor_stats(lookback_days: int = Query(default=30, ge=1, le=90)):
+    """Exit advisor quality: how did trades perform after each advisory type?"""
+    from .signal_db import get_exit_advisory_stats
+    return get_exit_advisory_stats(lookback_days=lookback_days)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
