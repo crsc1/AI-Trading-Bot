@@ -38,7 +38,8 @@ function init(){
     if(isMarketHours()) loadOrderFlow();
   }, 60000), 2000);
   setTimeout(() => setInterval(() => {                                             // t+4s, every 30s
-    if(isMarketHours() && S.tf !== '1D' && S.tf !== 'live') loadHistory();
+    if(isMarketHours() && S.tf !== '1D' && S.tf !== 'live'
+       && (S.activeTab === 'combined' || S.activeTab === 'candles')) loadHistory();
   }, 30000), 4000);
   setTimeout(() => setInterval(analyzeFlowSignals, 30000), 7000);                  // t+7s, every 30s
   setTimeout(() => setInterval(() => {                                             // t+5s, every 5s for live P&L

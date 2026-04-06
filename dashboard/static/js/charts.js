@@ -256,20 +256,21 @@ function setTab(tab){
 
   // Resize charts after tab switch — two passes:
   // 1. Immediate RAF: trigger autoSize now that panel is display:block
-  // 2. Delayed 80ms: apply visible range / fitContent after layout settles
+  // 2. Double RAF: apply visible range / fitContent after layout fully settles
+  //    (two frames guarantees the browser has measured + painted the container)
   // The unified _chartResizeObs also fires via ResizeObserver as a safety net.
   requestAnimationFrame(()=>{
     _resizeAllVisibleCharts();  // Immediate — handles all chart types
 
     // Restore visible range after charts have measured their containers
     if(tab==='combined' || tab==='candles'){
-      setTimeout(()=>{
+      requestAnimationFrame(()=>{
         if(S._candleVisibleRange) applyCandleVisibleRange();
         else {
           if(tab==='combined') combCandleChart?.timeScale().fitContent();
           if(tab==='candles') fullCandleChart?.timeScale().fitContent();
         }
-      }, 80);
+      });
     }
     if(tab==='options'){
       loadOptionsBoard();
@@ -284,21 +285,30 @@ function setTab(tab){
 //          panel collapse/expand, any container dimension change.
 // ══════════════════════════════════════════════════════════════════════════
 var _chartResizeTimer = null;
+var _loadHistoryInFlight = false;
 
 function _resizeAllVisibleCharts(){
+  if(_loadHistoryInFlight) return;  // Skip resize during active data load
   const tab = S.activeTab;
 
   // Lightweight Charts — use applyOptions({autoSize:true}) which re-measures container
   // NOTE: Do NOT call resize(0,0) first — that can leave charts stuck at zero if the
   // container isn't fully laid out yet. autoSize handles measurement internally.
+  // Only resize charts whose containers are actually visible (offsetWidth > 0)
   if(tab === 'combined'){
-    combCandleChart?.applyOptions({autoSize:true});
-    combRsiChart?.applyOptions({autoSize:true});
+    const cw = document.getElementById('candleWrapCombined');
+    if(cw && cw.offsetWidth > 0){
+      combCandleChart?.applyOptions({autoSize:true});
+      combRsiChart?.applyOptions({autoSize:true});
+    }
   }
   if(tab === 'candles'){
-    fullCandleChart?.applyOptions({autoSize:true});
-    fullRsiChart?.applyOptions({autoSize:true});
-    fullCvdChart?.applyOptions({autoSize:true});
+    const fw = document.getElementById('candleWrapFull');
+    if(fw && fw.offsetWidth > 0){
+      fullCandleChart?.applyOptions({autoSize:true});
+      fullRsiChart?.applyOptions({autoSize:true});
+      fullCvdChart?.applyOptions({autoSize:true});
+    }
   }
 
   // Flow charts — re-render at new container size
@@ -768,6 +778,8 @@ function _flushRtBatch(){
 }
 
 async function loadHistory(timeframe){
+  if(_loadHistoryInFlight) return;  // Prevent concurrent loads
+  _loadHistoryInFlight = true;
   const tf = timeframe || S.tf || '1D';
   // Limit bars per timeframe: cover enough sessions so the most recent day always appears
   const limitMap = {'1Min': 780, '5Min': 400, '15Min': 260, '1H': 200, '1D': 365};
@@ -869,6 +881,7 @@ async function loadHistory(timeframe){
       }
     }
   }catch(e){}
+  _loadHistoryInFlight = false;
 }
 
 function updatePrice(price, prev){
