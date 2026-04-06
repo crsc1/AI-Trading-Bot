@@ -426,6 +426,71 @@ def _is_market_hours() -> bool:
     return dt_time(9, 30) <= t < dt_time(16, 0)
 
 
+# ── Signal smoothing + loss adaptation state ──
+# Prevents flip-flopping by requiring sustained directional conviction.
+_signal_history = []  # Last N signal directions for smoothing
+_SMOOTHING_WINDOW = 3  # Must see same direction N times before acting
+_consecutive_losses = 0  # Tracks consecutive stop-loss exits
+_LOSS_CONFIDENCE_BOOST = 0.08  # Extra confidence required per consecutive loss
+
+
+def _apply_signal_smoothing(signal: dict) -> dict:
+    """
+    Require same direction for N consecutive cycles before emitting a trade signal.
+    Also raises confidence threshold after consecutive losses.
+    """
+    global _consecutive_losses
+
+    action = signal.get("action", "NO_TRADE")
+    confidence = signal.get("confidence", 0)
+
+    # Track direction history
+    _signal_history.append(action)
+    if len(_signal_history) > _SMOOTHING_WINDOW * 2:
+        _signal_history.pop(0)
+
+    # If NO_TRADE, pass through as-is
+    if action == "NO_TRADE":
+        return signal
+
+    # Check if last N signals agree on direction
+    recent = _signal_history[-_SMOOTHING_WINDOW:]
+    if len(recent) < _SMOOTHING_WINDOW or not all(s == action for s in recent):
+        signal["action"] = "NO_TRADE"
+        signal["reasoning"] = (
+            f"Signal smoothing: {action} not sustained for {_SMOOTHING_WINDOW} cycles "
+            f"(recent: {recent}). Original: {signal.get('reasoning', '')[:80]}"
+        )
+        return signal
+
+    # Loss adaptation: raise confidence floor after consecutive losses
+    if _consecutive_losses > 0:
+        required = 0.60 + (_consecutive_losses * _LOSS_CONFIDENCE_BOOST)
+        if confidence < required:
+            signal["action"] = "NO_TRADE"
+            signal["reasoning"] = (
+                f"Loss adaptation: conf {confidence:.2f} < {required:.2f} required "
+                f"after {_consecutive_losses} consecutive losses. "
+                f"Original: {signal.get('reasoning', '')[:80]}"
+            )
+            return signal
+
+    return signal
+
+
+def record_trade_outcome(exit_reason: str):
+    """Called when a trade exits. Tracks consecutive losses for adaptation."""
+    global _consecutive_losses
+    if exit_reason in ("stop_loss", "hard_stop", "trailing_stop"):
+        _consecutive_losses += 1
+        logger.info(f"[SignalSmoothing] Loss #{_consecutive_losses} — "
+                     f"raising min confidence to {0.60 + _consecutive_losses * _LOSS_CONFIDENCE_BOOST:.2f}")
+    else:
+        if _consecutive_losses > 0:
+            logger.info(f"[SignalSmoothing] Win/exit — resetting loss counter from {_consecutive_losses}")
+        _consecutive_losses = 0
+
+
 async def _run_analysis_cycle():
     """Single analysis cycle: fetch data → run confluence → store signal."""
     try:
@@ -609,6 +674,9 @@ async def _run_analysis_cycle():
             chain=market_data.get("chain"),
             trades_source=_trades_source,
         )
+
+        # Apply signal smoothing + loss adaptation
+        signal = _apply_signal_smoothing(signal)
 
         # Enrich with context
         if engine._cached_regime:
@@ -1766,6 +1834,9 @@ async def exit_position(req: ExitRequest):
         grade_result = None
         if row:
             grade_result = grade_and_store(dict(row))
+
+        # Track loss for signal adaptation
+        record_trade_outcome(req.exit_reason)
 
         return {
             "success": True,

@@ -875,21 +875,55 @@ def evaluate_confluence(
     if _dampening_applied:
         logger.debug(f"[Confluence] Correlation dampening: {_dampening_applied}")
 
+    # ━━━━ ORDER FLOW VETO — flow must confirm direction ━━━━
+    # Order flow is the ground truth. If flow doesn't show clear directional
+    # aggression, other factors (EMA trend, breadth, PCR) are just noise.
+    # Require order flow imbalance > 55% to allow a trade signal.
+    flow_imbalance = flow.imbalance  # 0.0 to 1.0, 0.5 = balanced
+    flow_confirms_bullish = flow_imbalance >= 0.55
+    flow_confirms_bearish = flow_imbalance <= 0.45
+    flow_has_direction = flow_confirms_bullish or flow_confirms_bearish
+
     # ━━━━ AGGREGATE: determine direction and confidence ━━━━
     bullish_weight = sum(f.weight for f in factors if f.direction == "bullish")
     bearish_weight = sum(f.weight for f in factors if f.direction == "bearish")
-    sum(f.weight for f in factors if f.direction == "neutral")
 
     bullish_count = sum(1 for f in factors if f.direction == "bullish")
     bearish_count = sum(1 for f in factors if f.direction == "bearish")
 
-    # Determine direction
+    # Determine direction — order flow must agree
     if bullish_weight > bearish_weight and bullish_count >= 1:
-        action = "BUY_CALL"
+        if flow_confirms_bullish:
+            action = "BUY_CALL"
+        elif not flow_has_direction:
+            action = "NO_TRADE"  # Flow is neutral, don't trade
+            factors.append(ConfluenceFactor(
+                "Order Flow Veto", "neutral", 0.0,
+                f"Flow imbalance {flow_imbalance:.1%} too weak to confirm bullish — need >55%"
+            ))
+        else:
+            action = "NO_TRADE"  # Flow opposes
+            factors.append(ConfluenceFactor(
+                "Order Flow Veto", "bearish", 0.0,
+                f"Flow imbalance {flow_imbalance:.1%} opposes bullish signal"
+            ))
         confirming = bullish_count
         opposing = bearish_count
     elif bearish_weight > bullish_weight and bearish_count >= 1:
-        action = "BUY_PUT"
+        if flow_confirms_bearish:
+            action = "BUY_PUT"
+        elif not flow_has_direction:
+            action = "NO_TRADE"
+            factors.append(ConfluenceFactor(
+                "Order Flow Veto", "neutral", 0.0,
+                f"Flow imbalance {flow_imbalance:.1%} too weak to confirm bearish — need <45%"
+            ))
+        else:
+            action = "NO_TRADE"
+            factors.append(ConfluenceFactor(
+                "Order Flow Veto", "bullish", 0.0,
+                f"Flow imbalance {flow_imbalance:.1%} opposes bearish signal"
+            ))
         confirming = bearish_count
         opposing = bullish_count
     else:

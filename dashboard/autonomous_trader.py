@@ -915,6 +915,13 @@ class AutonomousTrader:
                     extra={"trade_id": trade.get("id"), "pnl": pnl, "reason": reason},
                 )
 
+                # Track loss for signal adaptation
+                try:
+                    from .signal_api import record_trade_outcome
+                    record_trade_outcome(reason)
+                except Exception:
+                    pass
+
                 # Grade the trade
                 try:
                     trade_for_grade = {**trade, "exit_price": current_price, "exit_reason": reason, "pnl": pnl}
