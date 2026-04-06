@@ -834,14 +834,14 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
       </div>
       <div class="tb-sep"></div>
       <div class="tb-group">
-        <button class="tb-btn" id="btnEma" onclick="toggleInd('ema')">EMA</button>
-        <button class="tb-btn" id="btnSma" onclick="toggleInd('sma')">SMA</button>
-        <button class="tb-btn" id="btnBb" onclick="toggleInd('bb')">BB</button>
-        <button class="tb-btn" id="btnVwap" onclick="toggleInd('vwap')">VWAP</button>
+        <button class="tb-btn" id="btnEma" onclick="toggleInd('ema')" oncontextmenu="openIndSettings('ema');return false" title="EMA — right-click to configure">EMA</button>
+        <button class="tb-btn" id="btnSma" onclick="toggleInd('sma')" oncontextmenu="openIndSettings('sma');return false" title="SMA — right-click to configure">SMA</button>
+        <button class="tb-btn" id="btnBb" onclick="toggleInd('bb')" oncontextmenu="openIndSettings('bb');return false" title="Bollinger Bands — right-click to configure">BB</button>
+        <button class="tb-btn" id="btnVwap" onclick="toggleInd('vwap')" oncontextmenu="openIndSettings('vwap');return false" title="VWAP — right-click to configure">VWAP</button>
       </div>
       <div class="tb-sep"></div>
       <div class="tb-group">
-        <button class="tb-btn" id="btnVwapBands" onclick="toggleInd('vwapBands')" title="VWAP ±1/2/3σ bands">σ</button>
+        <button class="tb-btn" id="btnVwapBands" onclick="toggleInd('vwapBands')" oncontextmenu="openIndSettings('vwapBands');return false" title="VWAP ±1/2/3σ bands — right-click to configure">σ</button>
         <button class="tb-btn" id="btnLevels" onclick="toggleInd('levels')" title="Session levels (HOD/LOD, ORB, Prev Day)">LVL</button>
         <button class="tb-btn" id="btnGex" onclick="toggleInd('gex')" title="GEX levels (Call Wall, Put Wall, Gamma Flip)">GEX</button>
         <button class="tb-btn" id="btnPivots" onclick="toggleInd('pivots')" title="Pivot points (R1-R3, S1-S3)">PIV</button>
@@ -1435,6 +1435,7 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
 <script src="/static/js/theme.js"></script>
 <script src="/static/js/state.js?v=2"></script>
 <script src="/static/js/indicator-registry.js?v=1"></script>
+<script src="/static/js/indicator-settings.js?v=1"></script>
 <script src="/static/js/nav.js"></script>
 <script src="/static/js/init.js?v=2"></script>
 <script src="/static/js/charts.js?v=2"></script>

@@ -926,14 +926,21 @@ indRegistry.onToggle((id, enabled) => {
 
 // Registry callback: re-render when settings change (period, color, etc.)
 indRegistry.onSettingsChange((id, settings) => {
-  // Update series color/style
-  if(id==='ema' && fullEmaS) fullEmaS.applyOptions({color:settings.color, lineWidth:settings.lineWidth});
-  if(id==='sma' && fullSmaS) fullSmaS.applyOptions({color:settings.color, lineWidth:settings.lineWidth});
+  // Update series visual style (color, lineWidth, lineStyle)
+  const styleOpts = {color:settings.color, lineWidth:settings.lineWidth, lineStyle:settings.lineStyle};
+  if(id==='ema' && fullEmaS) fullEmaS.applyOptions(styleOpts);
+  if(id==='sma' && fullSmaS) fullSmaS.applyOptions(styleOpts);
   if(id==='bb'){
-    if(fullBbUpperS) fullBbUpperS.applyOptions({color:settings.color, lineWidth:settings.lineWidth});
-    if(fullBbLowerS) fullBbLowerS.applyOptions({color:settings.color, lineWidth:settings.lineWidth});
+    if(fullBbUpperS) fullBbUpperS.applyOptions(styleOpts);
+    if(fullBbLowerS) fullBbLowerS.applyOptions(styleOpts);
   }
-  if(id==='vwap' && fullVwapS) fullVwapS.applyOptions({color:settings.color, lineWidth:settings.lineWidth});
+  if(id==='vwap' && fullVwapS) fullVwapS.applyOptions(styleOpts);
+  if(id==='vwapBands'){
+    const vbStyle = {color:settings.color, lineWidth:settings.lineWidth, lineStyle:settings.lineStyle};
+    [fullVwapUp1S,fullVwapDn1S,fullVwapUp2S,fullVwapDn2S,fullVwapUp3S,fullVwapDn3S].forEach(s => {
+      if(s) s.applyOptions(vbStyle);
+    });
+  }
   // Recompute with new periods
   if(_lastCandles && _lastCandles.length > 0) computeIndicators(_lastCandles);
 });
