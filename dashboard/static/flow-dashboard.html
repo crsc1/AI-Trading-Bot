@@ -343,6 +343,7 @@ html,body{font-family:var(--font-mono);background:var(--bg0);color:var(--txt);fo
 .tb-sep{width:1px;height:14px;background:var(--brd);margin:0 var(--space-2xs)}
 .toolbar-wrap .tb-sep{display:none}
 .tb-group{display:flex;gap:1px;align-items:center}
+.tb-group-label{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;padding:0 2px;user-select:none;opacity:.6}
 .tb-stats{margin-left:auto;display:flex;gap:var(--space-lg);align-items:center}
 .toolbar-wrap .tb-stats{margin-left:0;width:100%;border-top:1px solid var(--border-subtle);padding-top:var(--space-2xs);margin-top:var(--space-px)}
 .stat{display:flex;align-items:center;gap:var(--space-2xs)}
@@ -834,26 +835,41 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
       </div>
       <div class="tb-sep"></div>
       <div class="tb-group">
-        <button class="tb-btn" id="btnEma" onclick="toggleInd('ema')" oncontextmenu="openIndSettings('ema');return false" title="EMA — right-click to configure">EMA</button>
-        <button class="tb-btn" id="btnSma" onclick="toggleInd('sma')" oncontextmenu="openIndSettings('sma');return false" title="SMA — right-click to configure">SMA</button>
-        <button class="tb-btn" id="btnBb" onclick="toggleInd('bb')" oncontextmenu="openIndSettings('bb');return false" title="Bollinger Bands — right-click to configure">BB</button>
-        <button class="tb-btn" id="btnVwap" onclick="toggleInd('vwap')" oncontextmenu="openIndSettings('vwap');return false" title="VWAP — right-click to configure">VWAP</button>
+        <select id="selPreset" class="select-sm" onchange="if(this.value)applyPreset(this.value)" title="Indicator presets">
+          <option value="">Presets</option>
+        </select>
+        <button class="tb-btn" onclick="savePreset()" title="Save current indicators as preset">+</button>
       </div>
       <div class="tb-sep"></div>
       <div class="tb-group">
+        <span class="tb-group-label">Trend</span>
+        <button class="tb-btn" id="btnEma" onclick="toggleInd('ema')" oncontextmenu="openIndSettings('ema');return false" title="EMA — right-click to configure">EMA</button>
+        <button class="tb-btn" id="btnSma" onclick="toggleInd('sma')" oncontextmenu="openIndSettings('sma');return false" title="SMA — right-click to configure">SMA</button>
+      </div>
+      <div class="tb-sep"></div>
+      <div class="tb-group">
+        <span class="tb-group-label">Vol</span>
+        <button class="tb-btn" id="btnBb" onclick="toggleInd('bb')" oncontextmenu="openIndSettings('bb');return false" title="Bollinger Bands — right-click to configure">BB</button>
+        <button class="tb-btn" id="btnVwap" onclick="toggleInd('vwap')" oncontextmenu="openIndSettings('vwap');return false" title="VWAP — right-click to configure">VWAP</button>
         <button class="tb-btn" id="btnVwapBands" onclick="toggleInd('vwapBands')" oncontextmenu="openIndSettings('vwapBands');return false" title="VWAP ±1/2/3σ bands — right-click to configure">σ</button>
+        <button class="tb-btn" id="btnAtr" onclick="toggleInd('atr')" oncontextmenu="openIndSettings('atr');return false" title="ATR (A) — right-click to configure">ATR</button>
+      </div>
+      <div class="tb-sep"></div>
+      <div class="tb-group">
+        <span class="tb-group-label">Levels</span>
         <button class="tb-btn" id="btnLevels" onclick="toggleInd('levels')" title="Session levels (HOD/LOD, ORB, Prev Day)">LVL</button>
         <button class="tb-btn" id="btnGex" onclick="toggleInd('gex')" title="GEX levels (Call Wall, Put Wall, Gamma Flip)">GEX</button>
         <button class="tb-btn" id="btnPivots" onclick="toggleInd('pivots')" title="Pivot points (R1-R3, S1-S3)">PIV</button>
       </div>
       <div class="tb-sep"></div>
       <div class="tb-group">
+        <span class="tb-group-label">Mom</span>
         <button class="tb-btn" id="btnMacd" onclick="toggleInd('macd')" oncontextmenu="openIndSettings('macd');return false" title="MACD (M) — right-click to configure">MACD</button>
         <button class="tb-btn" id="btnStoch" onclick="toggleInd('stoch')" oncontextmenu="openIndSettings('stoch');return false" title="Stochastic (K) — right-click to configure">Stch</button>
-        <button class="tb-btn" id="btnAtr" onclick="toggleInd('atr')" oncontextmenu="openIndSettings('atr');return false" title="ATR (A) — right-click to configure">ATR</button>
       </div>
       <div class="tb-sep"></div>
       <div class="tb-group">
+        <span class="tb-group-label">Draw</span>
         <button class="tb-btn" id="btnHLine" onclick="setDraw('hline')">─</button>
         <button class="tb-btn" id="btnTrend" onclick="setDraw('trend')">╱</button>
         <button class="tb-btn" id="btnFib" onclick="setDraw('fib')">Fib</button>
@@ -1445,6 +1461,7 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
 <script src="/static/js/state.js?v=2"></script>
 <script src="/static/js/indicator-registry.js?v=1"></script>
 <script src="/static/js/indicator-settings.js?v=1"></script>
+<script src="/static/js/indicator-presets.js?v=1"></script>
 <script src="/static/js/nav.js"></script>
 <script src="/static/js/init.js?v=2"></script>
 <script src="/static/js/charts.js?v=2"></script>

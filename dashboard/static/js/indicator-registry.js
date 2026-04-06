@@ -287,5 +287,8 @@ const indRegistry = (() => {
 // Auto-init on window load (after all chart series are created by charts.js)
 window.addEventListener('load', () => {
   // Small delay to ensure charts.js has registered its onToggle callback
-  setTimeout(() => indRegistry.init(), 100);
+  setTimeout(() => {
+    indRegistry.init();
+    if (typeof indPresets !== 'undefined') indPresets.initDropdown();
+  }, 100);
 });
