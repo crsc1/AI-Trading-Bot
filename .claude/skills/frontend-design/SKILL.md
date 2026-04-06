@@ -80,9 +80,73 @@ $B responsive "/tmp/frontend-design/charts"    # mobile + tablet + desktop
 4. After screenshots, **Read each image** using the Read tool so you can see
    what the user sees. Do not skip this. The screenshots ARE the audit.
 
+### Phase 1a.5: Structural Verification (REQUIRED before visual audit)
+
+**Screenshots lie.** A section can "look present" in a screenshot while being
+collapsed to 50px by a CSS bug. Before doing any visual audit, run this JS
+check on EVERY major page to measure actual rendered sizes:
+
+```bash
+$B js "
+const results = [];
+// Check all major sections, tables, and content areas
+document.querySelectorAll('section, [class*=section], [class*=panel], [class*=wrap], table, [class*=table]').forEach(el => {
+  const rect = el.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  if(rect.width > 50) { // skip tiny elements
+    const clipped = el.scrollHeight > el.clientHeight + 2;
+    const tooSmall = rect.height < 80 && el.children.length > 1;
+    if(clipped || tooSmall) {
+      results.push({
+        el: el.tagName + '.' + (el.className||'').substring(0,30),
+        id: el.id || '',
+        renderedH: Math.round(rect.height),
+        contentH: el.scrollHeight,
+        overflow: cs.overflow,
+        clipped: clipped,
+        tooSmall: tooSmall,
+      });
+    }
+  }
+});
+JSON.stringify(results, null, 2);
+"
+```
+
+**Any section with `clipped: true` or `tooSmall: true` is a P0 bug.**
+Investigate the cause (usually `overflow: hidden` in flex, or a `max-height`
+that's too aggressive). Fix it before proceeding to visual audit.
+
+Also measure the primary content sections on each page:
+```bash
+$B js "
+// Check that primary content areas are getting fair share of viewport
+const vh = window.innerHeight;
+const sections = document.querySelectorAll('.pos-section, .chart-wrap, .sub-pane, .tab-panel.active');
+const sizes = [];
+sections.forEach(s => {
+  const h = s.offsetHeight;
+  const hdr = s.querySelector('[class*=hdr], [class*=header], [class*=title]');
+  sizes.push({
+    name: (hdr?.textContent||s.className).trim().substring(0,30),
+    height: h,
+    pctViewport: Math.round(h/vh*100) + '%',
+    issue: h < 60 ? 'COLLAPSED' : h < 100 ? 'TOO_SMALL' : 'ok',
+  });
+});
+JSON.stringify(sizes, null, 2);
+"
+```
+
+**If a section says COLLAPSED or TOO_SMALL, stop and fix it.** Don't proceed
+to color or spacing issues. Layout is the foundation.
+
 ### Phase 1b: Trading-Specific Audit (what generic design tools miss)
 
 Go through EVERY item. Check by looking at the screenshots you just took.
+**For every checkbox, state what you measured or observed. "Looks fine" is not
+an acceptable check.** Give the actual height, the actual color value, or the
+actual text content.
 If something fails, it's P0. Be ruthless. Find every small issue.
 
 **Critical visibility (can the trader see what they need?):**
