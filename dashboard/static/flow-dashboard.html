@@ -369,7 +369,7 @@ html,body{font-family:var(--font-mono);background:var(--bg0);color:var(--txt);fo
 @keyframes pulse{0%,80%,100%{opacity:.3;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}
 
 /* Empty state */
-.empty-msg{color:var(--mut);text-align:center;padding:var(--space-2xl) var(--space-sm);font-size:var(--font-sm)}
+.empty-msg{color:var(--dim);text-align:center;padding:var(--space-2xl) var(--space-sm);font-size:var(--font-sm)}
 
 /* ===== POSITIONS TAB ===== */
 .pos-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-xl);padding:var(--space-xl)}
@@ -382,9 +382,9 @@ html,body{font-family:var(--font-mono);background:var(--bg0);color:var(--txt);fo
 .pos-table td{padding:var(--space-sm) var(--space-sm);border-bottom:1px solid var(--border-subtle)}
 .pos-table tr:hover td{background:var(--bg3)}
 .pos-table .green{color:var(--grn)}.pos-table .red{color:var(--red)}
-.pos-section{margin-top:var(--space-md);background:var(--bg2);border:1px solid var(--brd);border-radius:var(--radius-lg);overflow:hidden;position:relative}
+.pos-section{margin-top:var(--space-md);background:var(--bg3);border:1px solid var(--border-strong, #2a2a48);border-radius:var(--radius-lg);overflow:hidden;position:relative}
 .pos-section:first-child{margin-top:0}
-.pos-section-hdr{padding:var(--space-md) var(--space-lg);font-size:var(--font-sm);font-weight:600;background:var(--bg1);border-bottom:1px solid var(--brd);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
+.pos-section-hdr{padding:var(--space-md) var(--space-lg);font-size:var(--font-sm);font-weight:600;color:var(--txt);background:var(--bg2);border-bottom:1px solid var(--border-strong, #2a2a48);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
 /* Table scrollable wrapper — height capped proportionally to viewport */
 .pos-table-wrap{overflow-x:auto;overflow-y:auto;width:100%;max-height:var(--section-h, min(200px, 22vh))}
 /* Resizable table sections — vertical drag handle at bottom */
