@@ -382,13 +382,13 @@ html,body{font-family:var(--font-mono);background:var(--bg0);color:var(--txt);fo
 .pos-table td{padding:var(--space-sm) var(--space-sm);border-bottom:1px solid var(--border-subtle)}
 .pos-table tr:hover td{background:var(--bg3)}
 .pos-table .green{color:var(--grn)}.pos-table .red{color:var(--red)}
-.pos-section{margin-top:var(--space-md);background:var(--bg3);border:1px solid var(--border-strong, #2a2a48);border-radius:var(--radius-lg);overflow:hidden;position:relative}
+.pos-section{margin-top:var(--space-md);background:var(--bg3);border:1px solid var(--border-strong, #2a2a48);border-radius:var(--radius-lg);overflow:clip;position:relative}
 .pos-section:first-child{margin-top:0}
 .pos-section-hdr{padding:var(--space-md) var(--space-lg);font-size:var(--font-sm);font-weight:600;color:var(--txt);background:var(--bg2);border-bottom:1px solid var(--border-strong, #2a2a48);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
 /* Table scrollable wrapper — height capped proportionally to viewport */
 .pos-table-wrap{overflow-x:auto;overflow-y:auto;width:100%;max-height:var(--section-h, min(200px, 22vh))}
 /* Resizable table sections — vertical drag handle at bottom */
-.pos-section.resizable .pos-table-wrap{max-height:var(--section-h, min(200px, 22vh))}
+.pos-section.resizable .pos-table-wrap{max-height:var(--section-h, min(200px, 22vh));min-height:100px}
 /* Expandable section: grows to fill remaining space but stays proportional */
 .pos-section.expandable{flex:1;display:flex;flex-direction:column;min-height:120px;overflow:hidden}
 .pos-section.expandable .pos-table-wrap{max-height:var(--section-h, min(250px, 28vh));flex:1;min-height:0}
@@ -997,13 +997,16 @@ body.debug-borders .metric{outline:1px solid rgba(255,255,255,0.25);outline-offs
         <div class="flex-col gap-md p-md overflow-y-auto flex-1 min-h-0">
 
           <!-- ═══ OPEN POSITIONS (Table) ═══ -->
-          <div class="pos-section resizable" data-resize-key="posOpen" style="--section-h:min(200px, 22vh)">
+          <div class="pos-section resizable" data-resize-key="posOpen" style="--section-h:min(280px, 30vh)">
             <div class="pos-section-hdr flex items-center gap-sm">
               <span class="status-dot active"></span>
               Open Positions <span id="posCountLabel" class="text-secondary font-normal ml-auto"></span>
             </div>
             <div class="pos-table-wrap" id="posCardsWrap">
-              <div class="empty-msg" id="posEmpty">No open positions</div>
+              <div class="empty-msg" id="posEmpty" style="padding:var(--space-3xl) var(--space-lg)">
+                <div style="font-size:var(--font-lg);color:var(--txt);margin-bottom:var(--space-xs)">No Open Positions</div>
+                <div style="font-size:var(--font-xs);color:var(--dim)">Positions will appear here when the agent opens trades</div>
+              </div>
             </div>
             <div class="section-resize-handle" title="Drag to resize"></div>
           </div>
