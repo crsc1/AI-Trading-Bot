@@ -13,6 +13,7 @@ Computes all key price levels from bar data:
 
 from dataclasses import dataclass, field
 from typing import List, Dict, Tuple, Optional
+from datetime import datetime, timezone, timedelta
 import math
 import statistics
 
@@ -30,6 +31,14 @@ class MarketLevels:
     # Day range
     hod: float = 0.0
     lod: float = 0.0
+
+    # Premarket / after-hours (extended hours from SIP feed)
+    premarket_high: float = 0.0   # 4:00 AM - 9:29 AM ET
+    premarket_low: float = 0.0
+    afterhours_high: float = 0.0  # Previous day 4:00 PM - 8:00 PM ET
+    afterhours_low: float = 0.0
+    overnight_high: float = 0.0   # Combined: prev AH + current PM
+    overnight_low: float = 0.0
 
     # Previous day
     prev_high: float = 0.0
@@ -103,6 +112,8 @@ class MarketLevels:
             "VWAP-1σ": self.vwap_lower_1, "VWAP+2σ": self.vwap_upper_2,
             "VWAP-2σ": self.vwap_lower_2,
             "HOD": self.hod, "LOD": self.lod,
+            "PM High": self.premarket_high, "PM Low": self.premarket_low,
+            "ON High": self.overnight_high, "ON Low": self.overnight_low,
             "Prev Close": self.prev_close,
             "Prev High": self.prev_high, "Prev Low": self.prev_low,
             "ORB 5m High": self.orb_5_high, "ORB 5m Low": self.orb_5_low,
@@ -198,6 +209,47 @@ def compute_market_levels(
         levels.hod = max(highs)
     if lows:
         levels.lod = min(lows)
+
+    # ── Premarket / After-hours levels ──
+    # Bars have UTC timestamps. Convert to ET to classify.
+    # ET = UTC-4 (EDT) or UTC-5 (EST). Use a simple check.
+    pm_highs, pm_lows = [], []
+    ah_highs, ah_lows = [], []
+    for bar in bars_1m:
+        t = bar.get("time")
+        h, l = bar.get("high", 0), bar.get("low", 0)
+        if not t or h <= 0 or l <= 0:
+            continue
+        if isinstance(t, (int, float)):
+            dt_utc = datetime.fromtimestamp(t, tz=timezone.utc)
+        elif isinstance(t, str) and len(t) == 10:
+            continue  # daily bar, skip
+        else:
+            continue
+        # Approximate ET offset (EDT most of trading year)
+        et_hour = (dt_utc.hour - 4) % 24
+        if 4 <= et_hour < 9 or (et_hour == 9 and dt_utc.minute < 30):
+            # Premarket: 4:00 AM - 9:29 AM ET
+            pm_highs.append(h)
+            pm_lows.append(l)
+        elif et_hour >= 16 and et_hour < 20:
+            # After-hours: 4:00 PM - 8:00 PM ET (from previous day's bars if present)
+            ah_highs.append(h)
+            ah_lows.append(l)
+
+    if pm_highs:
+        levels.premarket_high = max(pm_highs)
+        levels.premarket_low = min(pm_lows)
+    if ah_highs:
+        levels.afterhours_high = max(ah_highs)
+        levels.afterhours_low = min(ah_lows)
+
+    # Overnight = combined premarket + after-hours
+    on_highs = pm_highs + ah_highs
+    on_lows = pm_lows + ah_lows
+    if on_highs:
+        levels.overnight_high = max(on_highs)
+        levels.overnight_low = min(on_lows)
 
     # ── VWAP with standard deviation bands ──
     cum_vol = 0

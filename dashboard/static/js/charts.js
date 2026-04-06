@@ -1282,6 +1282,11 @@ function _redrawPriceLines(){
     if(L.orb_5_low) _line(L.orb_5_low, 'ORB 5m Lo', T.purple, 2, 1);
     if(L.orb_15_high) _line(L.orb_15_high, 'ORB 15m Hi', 'rgba(124,77,255,0.5)', 1, 1);
     if(L.orb_15_low) _line(L.orb_15_low, 'ORB 15m Lo', 'rgba(124,77,255,0.5)', 1, 1);
+    // Premarket / Overnight
+    if(L.premarket_high) _line(L.premarket_high, 'PM Hi', 'rgba(0,188,212,0.7)', 2, 1);
+    if(L.premarket_low) _line(L.premarket_low, 'PM Lo', 'rgba(0,188,212,0.7)', 2, 1);
+    if(L.overnight_high && L.overnight_high !== L.premarket_high) _line(L.overnight_high, 'ON Hi', 'rgba(0,188,212,0.4)', 1, 1);
+    if(L.overnight_low && L.overnight_low !== L.premarket_low) _line(L.overnight_low, 'ON Lo', 'rgba(0,188,212,0.4)', 1, 1);
     // Volume Profile
     if(L.poc) _line(L.poc, 'POC', T.warning, 0, 2);
     if(L.value_area_high) _line(L.value_area_high, 'VA Hi', 'rgba(255,235,59,0.4)', 1, 1);
