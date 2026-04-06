@@ -10,6 +10,8 @@ function init(){
   updateWidgetContext('combined');
   initCombinedCharts();
   initFullCandleCharts();
+  // Restore indicator state from localStorage (must be after chart series are created)
+  indRegistry.init();
   // Default to intraday 5m timeframe (always — daily is accessible via D button)
   S.tf = '5Min';
   document.querySelectorAll('#tfGroup .tb-btn').forEach(b=>b.classList.toggle('active',b.dataset.tf==='5Min'));

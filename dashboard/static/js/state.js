@@ -14,8 +14,8 @@ const S = {
   liveInterval: 60,
   // Flow aggregation (seconds)
   flowAggSeconds: 5,
-  // Indicators
-  ind: { ema: false, sma: false, bb: false, vwap: false, vwapBands: false, levels: false, gex: false, pivots: false },
+  // Indicators — state managed by indRegistry (indicator-registry.js)
+  // S.ind removed: use indRegistry.isEnabled('ema') etc.
   // Drawing
   drawMode: null, drawClicks: [],
   drawings: [], drawIdCounter: 0,

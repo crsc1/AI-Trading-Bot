@@ -186,7 +186,7 @@ async function pollMetrics(){
   await Promise.allSettled(fetches);
 
   // Refresh chart overlay data if any overlay is active
-  if(S.ind.levels || S.ind.gex || S.ind.pivots) fetchOverlayLevels();
+  if(indRegistry.isEnabled('levels') || indRegistry.isEnabled('gex') || indRegistry.isEnabled('pivots')) fetchOverlayLevels();
 }
 
 function _updateGexMetrics(data){
@@ -205,7 +205,7 @@ function _updateGexMetrics(data){
 
     // Cache GEX data for chart overlay and redraw if GEX overlay is active
     _overlayGexData = gex;
-    if(S.ind.gex) _redrawPriceLines();
+    if(indRegistry.isEnabled('gex')) _redrawPriceLines();
     if(data.greeks_source) console.log('[GEX] Greeks source:', data.greeks_source, '| net_gex:', netGex.toFixed(0));
   } else if(data.error){
     console.warn('[GEX]', data.error);

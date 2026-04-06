@@ -884,53 +884,88 @@ function updatePrice(price, prev){
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// INDICATORS
+// INDICATORS — Registry-driven toggle + rendering
 // ══════════════════════════════════════════════════════════════════════════
+
+// Toggle handler — called by buttons and keyboard shortcuts
 function toggleInd(name){
-  S.ind[name]=!S.ind[name];
-  const capName = name.charAt(0).toUpperCase()+name.slice(1);
-  document.getElementById('btn'+capName)?.classList.toggle('active',S.ind[name]);
-  if(name==='ema') fullEmaS.applyOptions({visible:S.ind.ema});
-  if(name==='sma') fullSmaS.applyOptions({visible:S.ind.sma});
-  if(name==='bb'){fullBbUpperS.applyOptions({visible:S.ind.bb});fullBbLowerS.applyOptions({visible:S.ind.bb});}
-  if(name==='vwap') fullVwapS.applyOptions({visible:S.ind.vwap});
-  // ── Chart Overlays ──
-  if(name==='vwapBands'){
-    const v = S.ind.vwapBands;
-    [fullVwapUp1S,fullVwapDn1S,fullVwapUp2S,fullVwapDn2S,fullVwapUp3S,fullVwapDn3S].forEach(s=>{ if(s) s.applyOptions({visible:v}); });
-    if(v) fetchOverlayLevels();  // Ensure data is loaded
-  }
-  if(name==='levels' || name==='gex' || name==='pivots'){
-    _redrawPriceLines();
-    if(S.ind[name]) fetchOverlayLevels();
-  }
+  indRegistry.toggle(name);
 }
+
+// Registry callback: apply indicator visibility to chart series
+indRegistry.onToggle((id, enabled) => {
+  if(id==='ema' && fullEmaS) fullEmaS.applyOptions({visible:enabled});
+  if(id==='sma' && fullSmaS) fullSmaS.applyOptions({visible:enabled});
+  if(id==='bb'){
+    if(fullBbUpperS) fullBbUpperS.applyOptions({visible:enabled});
+    if(fullBbLowerS) fullBbLowerS.applyOptions({visible:enabled});
+  }
+  if(id==='vwap' && fullVwapS) fullVwapS.applyOptions({visible:enabled});
+  if(id==='vwapBands'){
+    [fullVwapUp1S,fullVwapDn1S,fullVwapUp2S,fullVwapDn2S,fullVwapUp3S,fullVwapDn3S].forEach(s=>{ if(s) s.applyOptions({visible:enabled}); });
+    if(enabled) fetchOverlayLevels();
+  }
+  if(id==='levels' || id==='gex' || id==='pivots'){
+    _redrawPriceLines();
+    if(enabled) fetchOverlayLevels();
+  }
+});
+
+// Registry callback: re-render when settings change (period, color, etc.)
+indRegistry.onSettingsChange((id, settings) => {
+  // Update series color/style
+  if(id==='ema' && fullEmaS) fullEmaS.applyOptions({color:settings.color, lineWidth:settings.lineWidth});
+  if(id==='sma' && fullSmaS) fullSmaS.applyOptions({color:settings.color, lineWidth:settings.lineWidth});
+  if(id==='bb'){
+    if(fullBbUpperS) fullBbUpperS.applyOptions({color:settings.color, lineWidth:settings.lineWidth});
+    if(fullBbLowerS) fullBbLowerS.applyOptions({color:settings.color, lineWidth:settings.lineWidth});
+  }
+  if(id==='vwap' && fullVwapS) fullVwapS.applyOptions({color:settings.color, lineWidth:settings.lineWidth});
+  // Recompute with new periods
+  if(_lastCandles && _lastCandles.length > 0) computeIndicators(_lastCandles);
+});
+
+// Store last candles for recomputation when settings change
+let _lastCandles = [];
 
 function computeIndicators(candles){
   if(!candles.length) return;
+  _lastCandles = candles;
   const closes = candles.map(c=>c.close);
 
-  const ema21=calcEMA(closes,21);
-  try{fullEmaS.setData(ema21.map((v,i)=>({time:candles[i+closes.length-ema21.length]?.time,value:v})).filter(d=>d.time));}catch(e){}
+  // Helper: map indicator values to {time, value} format for LWC
+  const _map = (vals, offset) => vals.map((v,i)=>({time:candles[i+offset]?.time,value:v})).filter(d=>d.time);
 
-  const sma50=calcSMA(closes,50);
-  try{fullSmaS.setData(sma50.map((v,i)=>({time:candles[i+closes.length-sma50.length]?.time,value:v})).filter(d=>d.time));}catch(e){}
+  // EMA — period from registry (default 21)
+  const emaPeriod = indRegistry.getSettings('ema').period || 21;
+  const ema=calcEMA(closes, emaPeriod);
+  try{fullEmaS.setData(_map(ema, closes.length-ema.length));}catch(e){}
 
-  const bb=calcBB(closes,20,2);
+  // SMA — period from registry (default 50)
+  const smaPeriod = indRegistry.getSettings('sma').period || 50;
+  const sma=calcSMA(closes, smaPeriod);
+  try{fullSmaS.setData(_map(sma, closes.length-sma.length));}catch(e){}
+
+  // Bollinger Bands — period and multiplier from registry (default 20, 2)
+  const bbSettings = indRegistry.getSettings('bb');
+  const bbPeriod = bbSettings.period || 20;
+  const bbMult = bbSettings.multiplier || 2;
+  const bb=calcBB(closes, bbPeriod, bbMult);
   try{
-    fullBbUpperS.setData(bb.upper.map((v,i)=>({time:candles[i+closes.length-bb.upper.length]?.time,value:v})).filter(d=>d.time));
-    fullBbLowerS.setData(bb.lower.map((v,i)=>({time:candles[i+closes.length-bb.lower.length]?.time,value:v})).filter(d=>d.time));
+    fullBbUpperS.setData(_map(bb.upper, closes.length-bb.upper.length));
+    fullBbLowerS.setData(_map(bb.lower, closes.length-bb.lower.length));
   }catch(e){}
 
+  // RSI (always 14 for now — will be configurable in Phase 3)
   const rsi14=calcRSI(closes,14);
-  try{fullRsiS.setData(rsi14.map((v,i)=>({time:candles[i+closes.length-rsi14.length]?.time,value:v})).filter(d=>d.time));}catch(e){}
+  try{fullRsiS.setData(_map(rsi14, closes.length-rsi14.length));}catch(e){}
 
-  // VWAP (Volume Weighted Average Price) — anchored to session start for intraday
+  // VWAP — session-anchored
   const vwapData=calcVWAP(candles);
   try{fullVwapS.setData(vwapData);}catch(e){}
 
-  // VWAP ±σ bands — computed from same candle data
-  if(S.ind.vwapBands) _computeVwapBands(candles);
+  // VWAP ±σ bands
+  if(indRegistry.isEnabled('vwapBands')) _computeVwapBands(candles);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1040,7 +1075,7 @@ function _redrawPriceLines(){
   };
 
   // ── Session Levels ──
-  if(S.ind.levels && _overlayLevelsData){
+  if(indRegistry.isEnabled('levels') && _overlayLevelsData){
     const L = _overlayLevelsData;
     // Day range
     if(L.hod) _line(L.hod, 'HOD', T.warning, 2, 1);
@@ -1061,7 +1096,7 @@ function _redrawPriceLines(){
   }
 
   // ── GEX Levels ──
-  if(S.ind.gex && _overlayGexData){
+  if(indRegistry.isEnabled('gex') && _overlayGexData){
     const G = _overlayGexData;
     if(G.call_wall) _line(G.call_wall, 'Call Wall', T.negative, 0, 2);
     if(G.put_wall) _line(G.put_wall, 'Put Wall', T.positive, 0, 2);
@@ -1070,7 +1105,7 @@ function _redrawPriceLines(){
   }
 
   // ── Pivot Points ──
-  if(S.ind.pivots && _overlayLevelsData){
+  if(indRegistry.isEnabled('pivots') && _overlayLevelsData){
     const L = _overlayLevelsData;
     if(L.pivot) _line(L.pivot, 'Pivot', T.dim, 0, 1);
     if(L.r1) _line(L.r1, 'R1', 'rgba(239,83,80,0.6)', 2, 1);
