@@ -461,11 +461,41 @@ async def _run_analysis_cycle():
         except Exception as e:
             logger.debug(f"[SignalLoop] Rust engine trades unavailable: {e}")
 
+        # ── Fallback: REST-polled Alpaca SIP trades ──
+        if not trades or len(trades) < 20:
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as _sess:
+                    async with _sess.get(
+                        f"{cfg.DASHBOARD_BASE_URL}/api/orderflow/trades/recent?symbol=SPY&limit=500&feed=sip",
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        if resp.status == 200:
+                            rest_data = await resp.json()
+                            rest_trades = rest_data.get("trades", [])
+                            if rest_trades and len(rest_trades) >= 20:
+                                # Normalize REST format to engine format
+                                trades = [{
+                                    "time": t.get("t", ""),
+                                    "price": t.get("p", 0),
+                                    "size": t.get("s", 0),
+                                    "side": t.get("side", "unknown"),
+                                    "exchange": t.get("x", ""),
+                                } for t in rest_trades]
+                                _trades_source = "alpaca_rest"
+                                buy_count = sum(1 for t in trades if t["side"] == "buy")
+                                sell_count = sum(1 for t in trades if t["side"] == "sell")
+                                logger.info(
+                                    f"[SignalLoop] REST fallback: {len(trades)} trades from Alpaca SIP "
+                                    f"({buy_count}B / {sell_count}S)"
+                                )
+            except Exception as e:
+                logger.debug(f"[SignalLoop] REST fallback failed: {e}")
+
         if not trades or len(trades) < 20:
             logger.info(
-                "[SignalLoop] No real tick data — Rust flow engine not connected or "
-                "insufficient ticks. Ensure ThetaData Terminal is running and flow "
-                "engine is started (./start.sh). Skipping cycle."
+                "[SignalLoop] No tick data from Rust engine or REST fallback. "
+                "Skipping cycle."
             )
             return
 
