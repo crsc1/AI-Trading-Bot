@@ -47,6 +47,69 @@ Report what you find:
 - Empty states quality
 - Color consistency
 
+### Phase 1b: Trading-Specific Audit (what generic design tools miss)
+
+Generic design reviews check colors and spacing. This checklist checks whether a
+trader can actually trade. Run through every item. If something fails, it's P0.
+
+**Critical visibility (can the trader see what they need?):**
+- [ ] Open positions table: visible, readable, P&L updating in real-time
+- [ ] Position P&L: green/red color, dollar amount AND percentage shown
+- [ ] Greeks per position: delta, theta at minimum visible without scrolling
+- [ ] Exit urgency: the 6-scorer composite + level (HOLD/CAUTION/WARNING/URGENT) visible
+- [ ] Charm/vanna scorer output visible somewhere (new, post-1:30 PM this is dominant)
+- [ ] Current SPY price: large, prominent, always visible regardless of active tab
+- [ ] Bid/ask spread: visible near price (tells you about liquidity)
+- [ ] Signal tier + confidence: clear on signal cards
+- [ ] Time to close: countdown visible during trading hours
+
+**Critical interaction (can the trader act fast?):**
+- [ ] Exit position: one click, no confirmation during URGENT (confirmation for non-urgent)
+- [ ] Exit all: accessible, has confirmation
+- [ ] Switch between pages: instant (no loading spinners for navigation)
+- [ ] Timeframe buttons (1m/5m/15m): responsive, current selection obvious
+
+**Information hierarchy per page:**
+
+Charts page:
+- [ ] Order flow bubbles readable at current zoom
+- [ ] Candlestick chart has enough vertical space
+- [ ] Volume bars visible below chart
+- [ ] VWAP line distinguishable from price action
+
+AI Agent page:
+- [ ] 5-agent cards: direction + confidence scannable at a glance
+- [ ] Positions table: dominates the page when positions are open
+- [ ] Trade history: scrollable, sortable, P&L column prominent
+- [ ] Equity curve: renders with real data (not just placeholder)
+- [ ] Beat SPY scorecard: YOUR P&L vs SPY % clear comparison
+
+Options page:
+- [ ] Chain table: calls left, puts right, ATM row highlighted
+- [ ] Greeks columns: visible without horizontal scroll
+- [ ] P/C ratio, max pain, IV rank: visible in sidebar or header
+
+Flow page:
+- [ ] Delta bar (buy vs sell volume): clear, real-time
+- [ ] CVD trend: visible
+- [ ] Volume profile: price levels with volume bars readable
+- [ ] Large trades: highlighted differently from normal flow
+
+Signals page:
+- [ ] Signal cards: direction arrow, tier badge, confidence %, top factors
+- [ ] Active vs historical signals: visually distinct
+- [ ] Signal replay: accessible, timeline usable
+
+**Data freshness indicators:**
+- [ ] Stale data warning: if data is >30s old, show indicator
+- [ ] Connection status: engine connected/disconnected obvious
+- [ ] Market status: open/closed/pre-market clear without reading small text
+
+**Off-hours experience:**
+- [ ] No alarming red warnings when market is simply closed
+- [ ] Empty states are warm and informative, not blank or scary
+- [ ] "Market opens in X hours" more useful than "BLOCKED"
+
 ### Phase 2: Design (propose before building)
 
 For each issue found, propose a fix:
