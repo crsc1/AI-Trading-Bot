@@ -38,35 +38,18 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Default v5 weights (baseline — never modified, used for reset)
+# v14: 7 core factors (baseline — never modified, used for reset)
 BASELINE_WEIGHTS = {
-    "order_flow_imbalance": 1.5,
-    "cvd_divergence": 1.0,
+    "order_flow_imbalance": 2.0,
+    "cvd_divergence": 1.5,
     "gex_alignment": 1.5,
-    "dex_levels": 1.0,
     "vwap_rejection": 1.0,
-    "volume_spike": 0.5,
-    "delta_regime": 1.0,
-    "pcr": 0.5,
-    "max_pain": 0.5,
-    "time_of_day": 0.5,
-    "vanna_alignment": 0.75,
-    "charm_pressure": 0.75,
-    "sweep_activity": 0.75,
-    "flow_toxicity": 0.5,
-    "sector_divergence": 0.5,
-    "agent_consensus": 1.5,
-    # v6: align with config.py FACTOR_WEIGHTS_BASELINE (was missing 7 factors)
-    "ema_sma_trend": 0.75,
-    "bb_squeeze": 0.75,
-    "support_resistance": 1.0,
-    "candle_pattern": 0.5,
+    "sweep_activity": 1.0,
     "orb_breakout": 1.25,
-    "market_breadth": 1.0,
-    "vol_edge": 0.75,
+    "support_resistance": 1.0,
 }
 
-TOTAL_WEIGHT_BUDGET = sum(BASELINE_WEIGHTS.values())  # 19.75
+TOTAL_WEIGHT_BUDGET = sum(BASELINE_WEIGHTS.values())  # 9.25
 
 # Learning parameters
 DEFAULT_LEARNING_RATE = 0.03      # How fast weights adapt (0.01 = slow, 0.10 = fast)
@@ -146,14 +129,28 @@ class WeightLearner:
             conn.close()
 
             if row:
-                self._version = row[0]
                 saved = json.loads(row[1])
-                # Merge with baseline (in case new factors were added)
-                for key in BASELINE_WEIGHTS:
-                    if key in saved:
-                        self._current_weights[key] = saved[key]
-                self._trade_count = row[2] or 0
-                logger.info(f"Loaded weights {self._version} (trade_count={self._trade_count})")
+                # v14: If saved weights have different factor count than baseline,
+                # the factor set changed — reset to new baseline instead of
+                # loading stale weights from the old system.
+                saved_keys = set(saved.keys())
+                baseline_keys = set(BASELINE_WEIGHTS.keys())
+                if saved_keys != baseline_keys:
+                    logger.info(
+                        f"Factor set changed ({len(saved_keys)} → {len(baseline_keys)}). "
+                        f"Resetting weights to v14 baseline."
+                    )
+                    self._current_weights = deepcopy(BASELINE_WEIGHTS)
+                    self._trade_count = 0
+                    self._version = "v14.0"
+                    self._save_snapshot("v14_factor_reset")
+                else:
+                    self._version = row[0]
+                    for key in BASELINE_WEIGHTS:
+                        if key in saved:
+                            self._current_weights[key] = saved[key]
+                    self._trade_count = row[2] or 0
+                    logger.info(f"Loaded weights {self._version} (trade_count={self._trade_count})")
             else:
                 logger.info("No saved weights found, using baseline v5.0")
                 self._save_snapshot("initial_load")

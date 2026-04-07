@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS — AI Trading Bot (ported from dashboard/static/css/tokens.css)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Backgrounds (darkest → lightest) */
+  --surface-0: #0a0a12;
+  --surface-1: #0f0f19;
+  --surface-2: #151520;
+  --surface-3: #1b1b28;
+  --surface-4: #222236;
+
+  /* Borders */
+  --border: #22223a;
+  --border-subtle: rgba(255,255,255,0.03);
+  --border-medium: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.12);
+
+  /* Text */
+  --text-primary: #d0d0da;
+  --text-secondary: #6e6e88;
+  --text-muted: #44445a;
+
+  /* Accent */
+  --accent: #5588ee;
+  --accent-hover: #6699ff;
+
+  /* Semantic */
+  --positive: #00C805;
+  --positive-bright: #00E676;
+  --negative: #FF5000;
+  --negative-bright: #FF6B2C;
+  --warning: #ffb300;
+  --info: #29b6f6;
+
+  /* Specialty */
+  --purple: #7b61ff;
+  --cyan: #00bcd4;
+  --cyan-bright: #00e5ff;
+
+  /* Chart indicators */
+  --chart-rsi: #ab47bc;
+  --chart-sma: #42a5f5;
+  --chart-ema: #ffb300;
+  --chart-vwap: #00e5ff;
+  --chart-bb: #42a5f5;
+
+  /* Font families */
+  --font-mono: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAILWIND THEME EXTENSIONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@theme {
+  --color-surface-0: #0a0a12;
+  --color-surface-1: #0f0f19;
+  --color-surface-2: #151520;
+  --color-surface-3: #1b1b28;
+  --color-surface-4: #222236;
+
+  --color-border-default: #22223a;
+
+  --color-text-primary: #d0d0da;
+  --color-text-secondary: #6e6e88;
+  --color-text-muted: #44445a;
+
+  --color-accent: #5588ee;
+  --color-accent-hover: #6699ff;
+
+  --color-positive: #00C805;
+  --color-positive-bright: #00E676;
+  --color-negative: #FF5000;
+  --color-negative-bright: #FF6B2C;
+  --color-warning: #ffb300;
+  --color-info: #29b6f6;
+
+  --color-purple: #7b61ff;
+  --color-cyan: #00bcd4;
+
+  --font-mono: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BASE STYLES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* LWC wrapper — the solid-lightweight-charts library creates this div that needs explicit sizing */
+.solid-lwc-container {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }

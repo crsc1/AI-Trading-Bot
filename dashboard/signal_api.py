@@ -491,9 +491,53 @@ def record_trade_outcome(exit_reason: str):
         _consecutive_losses = 0
 
 
+async def _run_brain_cycle():
+    """Market Brain analysis cycle: collect snapshot → LLM decision."""
+    try:
+        if not _is_market_hours():
+            return
+
+        from .market_brain import brain
+        from .brain_chat import broadcast_decision, broadcast_brain_state
+
+        decision = await brain.analyze_cycle(engine)
+
+        # Broadcast state to WebSocket clients
+        await broadcast_brain_state()
+
+        if decision.action == "TRADE" and decision.direction and decision.confidence >= 0.45:
+            # Convert Brain decision to signal format for position_manager
+            signal = {
+                "signal": decision.direction,
+                "confidence": decision.confidence,
+                "tier": decision.tier,
+                "reasoning": decision.reasoning,
+                "key_factors": decision.key_factors,
+                "source": "market_brain",
+                "brain_cycle": decision.cycle,
+            }
+            _inject_signal_id(signal)
+            signal_history.append(signal)
+            logger.info(
+                f"[Brain] TRADE signal: {decision.direction} "
+                f"conf={decision.confidence:.2f} tier={decision.tier}"
+            )
+
+        # Broadcast decision to chat clients
+        await broadcast_decision(decision.to_dict())
+
+    except Exception as e:
+        logger.error(f"[Brain] Cycle error: {e}", exc_info=True)
+
+
 async def _run_analysis_cycle():
     """Single analysis cycle: fetch data → run confluence → store signal."""
     try:
+        # ── Route to Market Brain if enabled ──
+        if cfg.USE_MARKET_BRAIN:
+            await _run_brain_cycle()
+            return
+
         # ── Market hours guard — 0DTE signals are only valid during RTH ──
         if not _is_market_hours():
             return
@@ -512,6 +556,7 @@ async def _run_analysis_cycle():
         # A bad signal from fake data is worse than no signal.
         trades = []
         _trades_source = "rust_engine"
+        _flow_context = None
         try:
             from .flow_subscriber import flow_subscriber
             real_trades = flow_subscriber.get_real_trades(window_seconds=300)
@@ -523,6 +568,11 @@ async def _run_analysis_cycle():
                     f"[SignalLoop] Real flow: {len(trades)} ticks from Rust engine "
                     f"({buy_count}B / {sell_count}S)"
                 )
+            # Get structured flow context for setup detection
+            try:
+                _flow_context = flow_subscriber.get_flow_context()
+            except Exception:
+                pass
         except Exception as e:
             logger.debug(f"[SignalLoop] Rust engine trades unavailable: {e}")
 
@@ -664,7 +714,10 @@ async def _run_analysis_cycle():
             logger.debug(f"[SignalLoop] Agent verdicts fetch failed: {e}")
             engine._cached_agent_verdicts = None
 
-        # Run full analysis
+        # Pass flow context for setup detection
+        engine._cached_flow_context = _flow_context
+
+        # Run full analysis (v15: uses setup detector instead of confluence)
         signal = engine.analyze(
             trades=trades,
             quote=merged_quote,
@@ -675,8 +728,11 @@ async def _run_analysis_cycle():
             trades_source=_trades_source,
         )
 
-        # Apply signal smoothing + loss adaptation
-        signal = _apply_signal_smoothing(signal)
+        # v15: Skip signal smoothing for setup-based signals.
+        # Setup detection has its own multi-cycle state tracking.
+        # Only apply smoothing to legacy confluence signals (if any).
+        if not signal.get("setup_based"):
+            signal = _apply_signal_smoothing(signal)
 
         # Enrich with context
         if engine._cached_regime:

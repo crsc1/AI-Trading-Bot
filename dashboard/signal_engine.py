@@ -1,13 +1,9 @@
 """
-Signal Engine — Main analysis pipeline (v4: 15-factor scoring).
+Signal Engine — Main analysis pipeline (v14: 7-factor scoring).
 
-Combines all analysis components: market structure, order flow, confluence,
-GEX/DEX analysis, options analytics, strike selection, risk management,
-vanna/charm, regime detection, event calendar, sweep detection, VPIN,
-and sector divergence.
-
-v4: 15-factor scoring with regime + event multipliers. Includes
-sweep detection, flow toxicity (VPIN), and sector divergence signals.
+Combines: market structure, order flow, confluence (7 core factors),
+GEX analysis, options analytics, strike selection, risk management.
+Regime and event multipliers applied post-scoring.
 """
 
 from typing import List, Dict, Optional, Any
@@ -34,14 +30,9 @@ from .confluence import (
 )
 from .gex_engine import calculate_gex, GEXResult
 from .options_analytics import analyze_options, store_daily_iv, OptionsAnalytics
-from .vanna_charm_engine import calculate_vanna_charm, VannaCharmResult
 from .regime_detector import RegimeState
 from .event_calendar import EventContext
 from .sweep_detector import SweepAnalysis
-from .flow_toxicity import VPINState
-from .sector_monitor import SectorAnalysis
-from .market_internals import MarketBreadth
-from .vol_analyzer import VolAnalysis, analyze_vol
 
 logger = logging.getLogger(__name__)
 
@@ -211,56 +202,12 @@ class SignalEngine:
                     except Exception as e:
                         logger.debug(f"Options analytics failed: {e}")
 
-            # ── 4c. Compute vanna/charm from chain data (v3) ──
-            vanna_charm_data: Optional[VannaCharmResult] = None
-            if chain_to_use and price > 0:
-                calls = chain_to_use.get("calls", [])
-                puts = chain_to_use.get("puts", [])
-                if calls or puts:
-                    try:
-                        vanna_charm_data = calculate_vanna_charm(calls, puts, price)
-                    except Exception as e:
-                        logger.debug(f"Vanna/charm calculation failed: {e}")
-
-            # ── 4d. Detect market regime (v3, async-safe sync wrapper) ──
-            regime_state: Optional[RegimeState] = None
-            # Regime detection is async; store cached result from signal_api layer
-            # or use a sync fallback
-            regime_state = getattr(self, '_cached_regime', None)
-
-            # ── 4e. Get event context (v3, sync wrapper) ──
-            event_ctx: Optional[EventContext] = None
-            event_ctx = getattr(self, '_cached_event_context', None)
-
-            # ── 4f. Get sweep analysis (v4, cached from signal_api) ──
+            # ── 4c. Get cached regime, events, sweeps ──
+            regime_state: Optional[RegimeState] = getattr(self, '_cached_regime', None)
+            event_ctx: Optional[EventContext] = getattr(self, '_cached_event_context', None)
             sweep_data: Optional[SweepAnalysis] = getattr(self, '_cached_sweeps', None)
 
-            # ── 4g. Get VPIN state (v4, cached from signal_api) ──
-            vpin_state: Optional[VPINState] = getattr(self, '_cached_vpin', None)
-
-            # ── 4h. Get sector divergence (v4, cached from signal_api) ──
-            sector_data: Optional[SectorAnalysis] = getattr(self, '_cached_sectors', None)
-
-            # ── 4i. Get agent verdicts (v5, cached from signal_api) ──
-            agent_verdicts: Optional[dict] = getattr(self, '_cached_agent_verdicts', None)
-
-            # ── 4j. Get market breadth (v8, cached from signal_api) ──
-            breadth_data: Optional[MarketBreadth] = getattr(self, '_cached_breadth', None)
-
-            # ── 4k. Compute IV vs Realized Vol (v10) ──
-            vol_data: Optional[VolAnalysis] = None
-            if chain_analytics and chain_analytics.atm_iv > 0 and levels.realized_vol > 0:
-                try:
-                    vol_data = analyze_vol(
-                        atm_iv=chain_analytics.atm_iv,
-                        realized_vol=levels.realized_vol,
-                        iv_rank=chain_analytics.iv_rank,
-                        daily_bars=bars_daily,
-                    )
-                except Exception as e:
-                    logger.debug(f"Vol analysis failed: {e}")
-
-            # ── 4l. IV Rank veto via ThetaData (v11) ──
+            # ── 4d. IV Rank veto via ThetaData (v11) ──
             iv_rank_value = None
             if chain_analytics and chain_analytics.iv_rank is not None:
                 iv_rank_value = chain_analytics.iv_rank / 100.0  # normalize 0-100 → 0-1
@@ -268,22 +215,73 @@ class SignalEngine:
                 logger.info(f"[SignalEngine] IV rank veto: {iv_rank_value:.0%} > 80% — options overpriced, skipping")
                 return self._no_trade(f"IV rank {iv_rank_value:.0%} exceeds 80% threshold — options overpriced")
 
-            # ── 5. Evaluate confluence (v10: 23-factor + regime + events + agents) ──
-            action, confidence, factors = evaluate_confluence(
-                flow, levels, session, options_data,
-                gex_data=gex_data,
-                chain_analytics=chain_analytics,
-                vanna_charm_data=vanna_charm_data,
-                regime_state=regime_state,
-                event_context=event_ctx,
-                sweep_data=sweep_data,
-                vpin_state=vpin_state,
-                sector_data=sector_data,
-                agent_verdicts=agent_verdicts,
-                breadth_data=breadth_data,
-                vol_data=vol_data,
-                trades_source=trades_source,
+            # ── 5. Detect trading setups (v15: replaces factor scoring) ──
+            from .setup_detector import setup_detector
+            flow_context = getattr(self, '_cached_flow_context', None)
+
+            setup_result = setup_detector.detect(
+                levels=levels,
+                flow=flow,
+                session=session,
+                flow_context=flow_context,
             )
+
+            if setup_result is None:
+                action = "NO_TRADE"
+                confidence = 0.0
+                factors = []
+            else:
+                action = setup_result.direction
+                # Map quality → confidence: 0.5 → 0.65 (VALID), 0.75 → 0.78 (HIGH), 0.9+ → 0.85 (TEXTBOOK)
+                confidence = 0.40 + (setup_result.quality * 0.50)
+                factors = [
+                    ConfluenceFactor(
+                        setup_result.setup_name,
+                        "bullish" if "CALL" in action else "bearish",
+                        setup_result.quality,
+                        setup_result.trigger_detail,
+                    ),
+                    ConfluenceFactor(
+                        "Flow Confirmation",
+                        "bullish" if "CALL" in action else "bearish",
+                        0.5,
+                        setup_result.flow_detail,
+                    ),
+                ]
+
+                # Apply regime multiplier (risk veto, not signal generator)
+                if regime_state is not None:
+                    try:
+                        from .regime_detector import score_regime_alignment
+                        is_trend = action == "BUY_CALL"  # simplified
+                        regime_mult, regime_detail = score_regime_alignment(
+                            regime_state, "bullish" if "CALL" in action else "bearish",
+                            signal_type="trend",
+                        )
+                        confidence *= regime_mult
+                        if abs(regime_mult - 1.0) > 0.05:
+                            factors.append(ConfluenceFactor(
+                                "Regime", "neutral", regime_mult - 1.0, regime_detail
+                            ))
+                    except Exception as e:
+                        logger.debug(f"Regime scoring error: {e}")
+
+                # Apply event multiplier (FOMC suppression, etc.)
+                if event_ctx is not None:
+                    try:
+                        from .event_calendar import score_event_context
+                        event_mult, event_detail = score_event_context(event_ctx)
+                        confidence *= event_mult
+                        if hasattr(event_ctx, 'suppress_entries') and event_ctx.suppress_entries:
+                            action = "NO_TRADE"
+                            factors.append(ConfluenceFactor(
+                                "Event Block", "neutral", -1.0,
+                                f"Entries suppressed: {event_detail}"
+                            ))
+                    except Exception as e:
+                        logger.debug(f"Event scoring error: {e}")
+
+                confidence = max(0.0, min(1.0, confidence))
 
             # ── 6. If no trade, return early ──
             if action == "NO_TRADE":
@@ -291,14 +289,15 @@ class SignalEngine:
                 bear_f = sum(1 for f in factors if f.direction == "bearish")
                 total_f = len(factors)
                 self._last_diagnostics = {
-                    "blocked_at": "gate_5_confluence",
-                    "reason": f"Confluence returned NO_TRADE (conf={confidence:.3f})",
+                    "blocked_at": "no_setup",
+                    "reason": "No setup detected",
                     "confidence": round(confidence, 3),
                     "bull_factors": bull_f,
                     "bear_factors": bear_f,
                     "total_factors": total_f,
                     "chain_available": bool(chain_to_use),
                     "factor_names": [f.name for f in factors],
+                    "setup_state": setup_detector.get_state_summary(),
                 }
                 logger.info(
                     f"[SignalEngine] Gate 5 NO_TRADE: conf={confidence:.3f} "
@@ -411,11 +410,11 @@ class SignalEngine:
                 delta=strike_info.get("delta"),
                 direction=action,  # BUY_CALL or BUY_PUT — for level-aware exits
                 gex_data=gex_data,  # v9: regime-based target/stop/size adjustment
-                vol_data=vol_data,  # v10: IV vs RV cheap/expensive adjustment
+                vol_data=None,  # v14: vol scoring removed from confluence, kept for risk calc
             )
 
             # ── 9. Build final signal ──
-            return self._build_signal(
+            sig = self._build_signal(
                 action=action,
                 confidence=confidence,
                 levels=levels,
@@ -427,6 +426,16 @@ class SignalEngine:
                 gex_data=gex_data,
                 chain_analytics=chain_analytics,
             )
+
+            # Tag setup-based signals (bypass smoothing, display in UI)
+            if setup_result is not None:
+                sig["setup_based"] = True
+                sig["setup_name"] = setup_result.setup_name
+                sig["setup_quality"] = round(setup_result.quality, 3)
+                sig["invalidation_price"] = setup_result.invalidation_price
+                sig["invalidation_detail"] = setup_result.invalidation_detail
+
+            return sig
 
         except Exception as e:
             logger.error(f"Signal engine error: {e}", exc_info=True)

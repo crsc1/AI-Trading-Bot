@@ -212,6 +212,7 @@ async def get_settings():
             "enabled": getattr(cfg, 'LLM_VALIDATOR_ENABLED', False),
             "min_tier": getattr(cfg, 'LLM_VALIDATOR_MIN_TIER', 'HIGH'),
         },
+        "api_limits": _get_api_usage(),
         "data": {
             "theta_enabled": getattr(cfg, 'THETA_ENABLED', True),
             "theta_base_url": getattr(cfg, 'THETA_BASE_URL', 'http://localhost:25510'),
@@ -233,8 +234,20 @@ async def update_settings(body: Dict[str, Any]):
       min_confidence    float
     """
     pm = get_pm()
+    # Handle API limit updates
+    if "api_limits" in body:
+        from .llm_rate_limiter import rate_limiter
+        rate_limiter.update_limits(body["api_limits"])
     pm.update_config(body)
     return {"ok": True, "config": pm.get_config()}
+
+
+def _get_api_usage() -> dict:
+    try:
+        from .llm_rate_limiter import rate_limiter
+        return rate_limiter.get_usage()
+    except Exception:
+        return {"total_calls_today": 0, "global_limit": 0, "features": {}}
 
 
 @router.post("/reset")

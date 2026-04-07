@@ -57,6 +57,7 @@ app = FastAPI(
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATE_DIR = BASE_DIR / "static"
+FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 
 # Custom 404 — redirect browser requests to dashboard, keep JSON for API/WS/static
 @app.exception_handler(404)
@@ -77,8 +78,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
+# Mount static files (legacy UI)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Mount new frontend build assets (SolidJS + Vite)
+if FRONTEND_DIST.exists() and (FRONTEND_DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="frontend_assets")
 
 # Setup templates (if using Jinja2 for dynamic HTML)
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
@@ -101,18 +106,53 @@ app.include_router(agents_router)
 # Include new unified Position Manager API (powers trading.html dashboard)
 app.include_router(pm_router)
 
+# Include Market Brain chat WebSocket + REST API
+try:
+    from .brain_chat import router as brain_ws_router, rest_router as brain_rest_router
+    app.include_router(brain_ws_router)
+    app.include_router(brain_rest_router)
+except ImportError:
+    pass  # brain_chat not installed yet
+
+# Include Research Agent API
+try:
+    from .research_agent import router as research_router, start_research_agent
+    app.include_router(research_router)
+except ImportError:
+    pass  # research_agent not installed yet
+
 # WebSocket connection manager
 manager = ConnectionManager()
 
 
 @app.get("/")
 async def get_root():
-    """Serve the unified dashboard (single-page platform)."""
+    """Serve the dashboard — new SolidJS frontend if built, else legacy UI."""
+    new_index = FRONTEND_DIST / "index.html"
+    if new_index.exists():
+        return FileResponse(
+            str(new_index),
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
     return FileResponse(
         str(STATIC_DIR / "flow-dashboard.html"),
         media_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
+
+
+@app.get("/reference")
+async def get_reference():
+    """SPA route — serve same index.html for client-side routing."""
+    new_index = FRONTEND_DIST / "index.html"
+    if new_index.exists():
+        return FileResponse(
+            str(new_index),
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+    return RedirectResponse(url="/")
 
 
 @app.websocket("/ws")
@@ -322,6 +362,26 @@ async def startup_event():
     except Exception as e:
         logger.debug(f"ML Predictor startup training skipped: {e}")
 
+    # Start Research Agent (background scraping + analysis every 30 min)
+    try:
+        from dashboard.research_agent import start_research_agent
+        start_research_agent()
+        logger.info("Research Agent started (runs every 30 min)")
+    except Exception as e:
+        logger.debug(f"Research Agent startup skipped: {e}")
+
+    # Log frontend status
+    if FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
+        logger.info(f"New SolidJS frontend served from {FRONTEND_DIST}")
+    else:
+        logger.info("New frontend not built — serving legacy UI. Run: cd frontend && npm run build")
+
+    # Log Market Brain status
+    if cfg.USE_MARKET_BRAIN:
+        logger.info("Market Brain ENABLED — LLM-powered analysis active")
+    else:
+        logger.info("Market Brain disabled — using legacy signal pipeline (set USE_MARKET_BRAIN=true to enable)")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -342,6 +402,12 @@ async def shutdown_event():
     flush_ticks()  # Flush any buffered ticks to SQLite before exit
     await alpaca_stream.stop()
     await theta_stream.disconnect()
+    # Stop Research Agent
+    try:
+        from dashboard.research_agent import stop_research_agent
+        stop_research_agent()
+    except Exception:
+        pass
     logger.info("Dashboard shutdown complete.")
 
 

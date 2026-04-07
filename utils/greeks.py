@@ -51,7 +51,7 @@ logger = get_logger(__name__)
 # Try to import py_vollib (professional options library)
 # This is much more accurate than our simplified formulas
 try:
-    from py_vollib.black_scholes.greeks import (
+    from py_vollib.black_scholes.greeks.analytical import (
         delta, gamma, theta, vega, rho
     )
     from py_vollib.black_scholes import black_scholes
@@ -427,8 +427,8 @@ def calculate_iv(
 
     if VOLLIB_AVAILABLE:
         try:
-            from py_vollib.black_scholes_merton.implied_vol import implied_vol
-            iv = implied_vol(option_price, S, K, T, r, option_type.upper())
+            from py_vollib.black_scholes_merton.implied_volatility import implied_volatility
+            iv = implied_volatility(option_price, S, K, T, r, option_type.lower())
             return float(iv)
         except Exception as e:
             logger.debug(f"py_vollib IV failed, trying Newton-Raphson: {e}")

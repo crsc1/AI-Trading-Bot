@@ -243,31 +243,19 @@ class Config:
         # SPX multiplier (SPX ≈ SPY × 10)
         self.SPX_MULTIPLIER: float = _env_float("SPX_MULTIPLIER", 10.0)
 
-        # Factor weights (v7 baseline — overridable by weight learner at runtime)
+        # v14: Simplified to 7 core factors (down from 23).
+        # Order flow is the primary driver. Cut factors with negative accuracy
+        # (PCR, max pain), redundant signals (DEX, delta regime), or too-slow
+        # macro signals (sectors, breadth) for 0DTE trading.
+        # Total weight budget: 9.25
         self.FACTOR_WEIGHTS_BASELINE: Dict[str, float] = {
-            "order_flow_imbalance": 1.5,
-            "cvd_divergence": 1.0,
-            "gex_alignment": 1.5,
-            "dex_levels": 1.0,
-            "vwap_rejection": 1.0,
-            "volume_spike": 0.5,
-            "delta_regime": 1.0,
-            "pcr": 0.5,
-            "max_pain": 0.5,
-            "time_of_day": 0.5,
-            "vanna_alignment": 0.75,
-            "charm_pressure": 0.75,
-            "sweep_activity": 0.75,
-            "flow_toxicity": 0.5,
-            "sector_divergence": 0.5,
-            "agent_consensus": 1.5,
-            "ema_sma_trend": 0.75,
-            "bb_squeeze": 0.75,
-            "support_resistance": 1.0,
-            "candle_pattern": 0.5,
-            "orb_breakout": 1.25,
-            "market_breadth": 1.0,
-            "vol_edge": 0.75,
+            "order_flow_imbalance": 2.0,   # Ground truth: who is buying/selling aggressively
+            "cvd_divergence": 1.5,         # Rolling volume delta trend
+            "gex_alignment": 1.5,          # Dealer hedging creates structural pressure
+            "vwap_rejection": 1.0,         # Institutional reference price
+            "sweep_activity": 1.0,         # Smart money block trades
+            "orb_breakout": 1.25,          # 89% win rate in research
+            "support_resistance": 1.0,     # Market structure (HOD/LOD/pivots)
         }
 
         # Allow JSON override of factor weights via env
@@ -476,6 +464,26 @@ class Config:
         self.LLM_DAILY_REVIEW_ENABLED: bool = _env_bool("LLM_DAILY_REVIEW_ENABLED", True)
         self.LLM_DAILY_REVIEW_MODEL: str = _env("LLM_DAILY_REVIEW_MODEL", "claude-sonnet-4-6")
         self.LLM_DAILY_REVIEW_MAX_TOKENS: int = _env_int("LLM_DAILY_REVIEW_MAX_TOKENS", 2048)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # API CALL LIMITS — daily caps to control spend
+        # ═══════════════════════════════════════════════════════════════════
+
+        # ═══════════════════════════════════════════════════════════════════
+        # MARKET BRAIN — LLM-powered decision engine (replaces signal_engine + agents)
+        # ═══════════════════════════════════════════════════════════════════
+        self.USE_MARKET_BRAIN: bool = _env_bool("USE_MARKET_BRAIN", False)
+        self.BRAIN_ANALYSIS_INTERVAL: int = _env_int("BRAIN_ANALYSIS_INTERVAL", 15)
+        self.BRAIN_MODEL_ANALYSIS: str = _env("BRAIN_MODEL_ANALYSIS", "claude-sonnet-4-6")
+        self.BRAIN_MODEL_TRADE: str = _env("BRAIN_MODEL_TRADE", "claude-opus-4-6")
+
+        # Max LLM API calls per day across all features (news, validator, exit advisor)
+        # -1 = unlimited, 0 = blocked (no API calls), >0 = daily cap.
+        self.LLM_DAILY_CALL_LIMIT: int = _env_int("LLM_DAILY_CALL_LIMIT", 0)
+        # Per-feature limits (-1 = unlimited, 0 = blocked, >0 = daily cap)
+        self.LLM_NEWS_CALL_LIMIT: int = _env_int("LLM_NEWS_CALL_LIMIT", 0)
+        self.LLM_VALIDATOR_CALL_LIMIT: int = _env_int("LLM_VALIDATOR_CALL_LIMIT", 0)
+        self.LLM_EXIT_ADVISOR_CALL_LIMIT: int = _env_int("LLM_EXIT_ADVISOR_CALL_LIMIT", 0)
 
     def reload(self):
         """Reload config from environment (useful after .env changes)."""

@@ -48,9 +48,10 @@ logs/
 .DS_Store
 Thumbs.db
 
-# ── Node (if dashboard tooling added later) ───────────────────
+# ── Node / Frontend ──────────────────────────────────────────
 node_modules/
 package-lock.json
+frontend/dist/
 
 # ── Playwright / test artifacts ───────────────────────────────
 .playwright-mcp/

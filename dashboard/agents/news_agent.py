@@ -200,8 +200,14 @@ class NewsAgent(BaseAgent):
 
         self._last_headlines = headlines[:10]
 
-        # Analyze all recent headlines (not just new ones)
-        return await self._analyze_headlines(headlines[:20])
+        # Only call LLM when there are NEW headlines to analyze.
+        # Keyword fallback is free and handles normal market news.
+        # LLM reserved for new headlines that might be BREAKING/HIGH urgency.
+        if new_headlines:
+            return await self._analyze_headlines(new_headlines[:10])
+        else:
+            # No new headlines — reuse keyword analysis on cached headlines
+            return self._keyword_analyze(headlines[:20])
 
     async def _fetch_alpaca_news(self) -> List[Dict]:
         """Fetch recent news from Alpaca News API."""
@@ -320,11 +326,14 @@ class NewsAgent(BaseAgent):
         Uses LLM if ANTHROPIC_API_KEY is set, otherwise rule-based keywords.
         Also classifies urgency and triggers circuit breaker on BREAKING news.
         """
-        # Try LLM analysis first
+        # Try LLM analysis first (rate-limited)
         if ANTHROPIC_KEY and headlines:
-            llm_result = await self._llm_analyze(headlines)
-            if llm_result:
-                return llm_result
+            from ..llm_rate_limiter import rate_limiter
+            if rate_limiter.can_call("news"):
+                llm_result = await self._llm_analyze(headlines)
+                if llm_result:
+                    rate_limiter.record_call("news")
+                    return llm_result
 
         # Fallback: keyword-based analysis
         return self._keyword_analyze(headlines)

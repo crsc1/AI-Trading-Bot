@@ -1,0 +1,32 @@
+/** Chart theme constants matching our design tokens */
+export const chartTheme = {
+  background: '#0a0a12',
+  textColor: '#6e6e88',
+  gridColor: 'rgba(255,255,255,0.03)',
+
+  upColor: '#00C805',
+  downColor: '#FF5000',
+  upWickColor: '#00C805',
+  downWickColor: '#FF5000',
+
+  volumeUp: 'rgba(0,200,5,0.25)',
+  volumeDown: 'rgba(255,80,0,0.25)',
+
+  crosshairColor: 'rgba(255,255,255,0.15)',
+};
+
+/** Indicator colors */
+export const indicatorColors = {
+  ema9: '#ffb300',
+  ema21: '#ff7043',
+  sma50: '#42a5f5',
+  sma200: '#ab47bc',
+  vwap: '#00e5ff',
+  bbUpper: '#42a5f5',
+  bbLower: '#42a5f5',
+  bbMiddle: 'rgba(66,165,245,0.5)',
+  rsi: '#ab47bc',
+  macdLine: '#42a5f5',
+  macdSignal: '#ff7043',
+  macdHist: '#00C805',
+};

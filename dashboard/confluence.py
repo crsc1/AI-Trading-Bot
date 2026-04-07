@@ -24,9 +24,9 @@ except ImportError:
     ET = timezone(timedelta(hours=-4))
 
 from .market_levels import MarketLevels
-from .market_internals import MarketBreadth, score_market_breadth
+from .market_internals import MarketBreadth
 from .gex_regime import get_regime_profile, apply_regime_to_risk
-from .vol_analyzer import VolAnalysis, score_vol_edge, apply_vol_to_risk
+from .vol_analyzer import VolAnalysis, apply_vol_to_risk
 from .config import cfg
 
 logger = logging.getLogger(__name__)
@@ -92,33 +92,10 @@ MIN_COMPOSITE_SCORE = cfg.MIN_COMPOSITE_SCORE
 
 RISK_TABLE = cfg.RISK_TABLE
 
-# v7 baseline factor weights — 23 factors, total = 19.75
-# These are the BASELINE weights — the weight learner can override them at runtime.
-# v8: Confidence uses active-factors denominator + coverage discount (not FULL always).
-# v11: Anti-correlation dampening + rebalanced confluence bonus floors.
+# v14: Simplified to 7 core factors, total = 9.25
+# Order flow is the primary driver. Weak/anti-predictive factors removed.
 FACTOR_WEIGHTS_BASELINE = cfg.FACTOR_WEIGHTS_BASELINE
-FULL_DENOMINATOR = sum(FACTOR_WEIGHTS_BASELINE.values())  # 19.75
-
-# ── v11: Correlated factor groups ──
-# When multiple factors in the same cluster fire together, their combined
-# contribution is soft-capped to avoid correlated signals inflating confidence.
-# Each cluster defines: (factor_keys, max_combined_positive, max_combined_negative)
-CORRELATION_CLUSTERS = [
-    # Flow cluster: order flow, CVD, delta regime, sweeps, toxicity
-    # Theoretical max positive: 1.5 + 1.0 + 1.0 + 0.75 + 0.5 = 4.75
-    # Capped to 3.0 — still strong but prevents flow-only TEXTBOOK signals
-    (["order_flow_imbalance", "cvd_divergence", "delta_regime",
-      "sweep_activity", "flow_toxicity"], 3.0, -1.5),
-    # Greek cluster: vanna + charm from same data source
-    # Theoretical max: 0.75 + 0.75 = 1.50 → cap to 1.0
-    (["vanna_alignment", "charm_pressure"], 1.0, -0.40),
-    # Technical cluster: EMA/SMA, BB squeeze, support/resistance
-    # Theoretical max: 0.75 + 0.75 + 1.0 = 2.50 → cap to 1.75
-    (["ema_sma_trend", "bb_squeeze", "support_resistance"], 1.75, -0.60),
-    # Options positioning: GEX + DEX + PCR + max pain
-    # Theoretical max: 1.5 + 1.0 + 0.5 + 0.5 = 3.50 → cap to 2.5
-    (["gex_alignment", "dex_levels", "pcr", "max_pain"], 2.5, -0.80),
-]
+FULL_DENOMINATOR = sum(FACTOR_WEIGHTS_BASELINE.values())  # 9.25
 
 # Active weights — starts as baseline, updated by weight learner at runtime
 FACTOR_WEIGHTS = dict(FACTOR_WEIGHTS_BASELINE)
@@ -498,10 +475,11 @@ def evaluate_confluence(
     options_data: Optional[Dict] = None,
     gex_data: Optional[Any] = None,
     chain_analytics: Optional[Any] = None,
-    vanna_charm_data: Optional[Any] = None,
     regime_state: Optional[Any] = None,
     event_context: Optional[Any] = None,
     sweep_data: Optional[Any] = None,
+    # Legacy params kept for backward compat — ignored
+    vanna_charm_data: Optional[Any] = None,
     vpin_state: Optional[Any] = None,
     sector_data: Optional[Any] = None,
     agent_verdicts: Optional[Dict[str, Any]] = None,
@@ -510,31 +488,12 @@ def evaluate_confluence(
     trades_source: str = "options_flow",
 ) -> Tuple[str, float, List[ConfluenceFactor]]:
     """
-    Evaluate all confluence factors and determine signal direction + confidence.
+    Evaluate confluence factors and determine signal direction + confidence.
 
-    v5: 16-factor composite scoring + regime multiplier + event awareness
-        + multi-agent AI consensus.
-    v8: + ORB Breakout (Factor 21) + Market Breadth (Factor 22).
-    v12: trades_source dampening — when using synthetic options_flow data,
-         order flow factors are dampened because they measure call/put volume
-         ratio, not actual order flow aggression.
-    Fully backward compatible — all new params are optional.
-
-    Args:
-        flow: OrderFlowState from analyze_order_flow()
-        levels: MarketLevels from compute_market_levels()
-        session: SessionContext from get_session_context()
-        options_data: Legacy options snapshot (pc_ratio, max_pain)
-        gex_data: GEXResult from gex_engine.calculate_gex()
-        chain_analytics: OptionsAnalytics from options_analytics.analyze_options()
-        vanna_charm_data: VannaCharmResult from vanna_charm_engine — v3
-        regime_state: RegimeState from regime_detector — v3
-        event_context: EventContext from event_calendar — v3
-        sweep_data: SweepAnalysis from sweep_detector — v4
-        vpin_state: VPINState from flow_toxicity — v4
-        sector_data: SectorAnalysis from sector_monitor — v4
-        agent_verdicts: Dict of agent verdicts from 5-agent system — v5 NEW
-        trades_source: "rust_engine" for real ticks, "options_flow" for synthetic
+    v14: Simplified to 7 core factors (from 23). Order flow is the primary
+    driver. Removed factors with negative accuracy (PCR, max pain), redundant
+    signals (DEX, delta regime), and too-slow macro signals (sectors, breadth).
+    Regime and event multipliers still apply post-scoring.
 
     Returns:
         (action, confidence, factors) where action is BUY_CALL, BUY_PUT, or NO_TRADE
@@ -542,26 +501,22 @@ def evaluate_confluence(
     factors: List[ConfluenceFactor] = []
     price = levels.current_price
 
-    # ━━━━ PHASE 1: Determine preliminary direction from flow ━━━━
-    # (needed so we can score GEX/DEX relative to signal direction)
+    # ━━━━ Determine preliminary direction from flow ━━━━
     prelim_direction = _get_preliminary_direction(flow, levels, session)
 
-    # ━━━━ v2 COMPOSITE SCORING ━━━━
-    # Each factor scores 0 to its max weight. Some can go negative (headwinds).
+    # ━━━━ 7-FACTOR COMPOSITE SCORING ━━━━
     composite_scores: Dict[str, float] = {}
 
-    # ── Factor 1: Order Flow Imbalance (max 1.5) ──
-    # Requires real tick data from Rust flow engine (NBBO-classified).
-    # Signal loop guarantees real data or no signal.
+    # ── Factor 1: Order Flow Imbalance (max 2.0) ──
     f1_score, f1_detail = _score_flow_imbalance(flow, prelim_direction)
-    composite_scores["order_flow_imbalance"] = max(-0.50, min(1.5, f1_score))
+    composite_scores["order_flow_imbalance"] = max(-0.75, min(2.0, f1_score))
     if abs(f1_score) > 0.1:
         direction = prelim_direction if f1_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
         factors.append(ConfluenceFactor("Order Flow Imbalance", direction, f1_score, f1_detail))
 
-    # ── Factor 2: CVD Divergence (max 1.0) ──
+    # ── Factor 2: CVD Divergence (max 1.5) ──
     f2_score, f2_detail = _score_cvd_divergence(flow, prelim_direction)
-    composite_scores["cvd_divergence"] = max(-0.30, min(1.0, f2_score))
+    composite_scores["cvd_divergence"] = max(-0.50, min(1.5, f2_score))
     if abs(f2_score) > 0.1:
         factors.append(ConfluenceFactor(
             "CVD Divergence",
@@ -569,7 +524,7 @@ def evaluate_confluence(
             f2_score, f2_detail
         ))
 
-    # ── Factor 3: GEX Alignment (max 1.5) — NEW ──
+    # ── Factor 3: GEX Alignment (max 1.5) ──
     if gex_data is not None:
         from .gex_engine import score_gex_alignment
         is_trend = _is_trend_signal(flow, levels, session)
@@ -580,248 +535,40 @@ def evaluate_confluence(
                 "GEX Alignment", "neutral", f3_score, f3_detail
             ))
 
-    # ── Factor 4: DEX Levels (max 1.0) — NEW ──
-    if gex_data is not None:
-        from .gex_engine import score_dex_levels
-        f4_score, f4_detail = score_dex_levels(gex_data, prelim_direction)
-        composite_scores["dex_levels"] = max(-0.3, min(1.0, f4_score))
-        if abs(f4_score) > 0.1:
-            factors.append(ConfluenceFactor(
-                "DEX Levels", prelim_direction if f4_score > 0 else "neutral", f4_score, f4_detail
-            ))
+    # ── Factor 4: VWAP Band Rejection (max 1.0) ──
+    f4_score, f4_factors = _score_vwap(flow, levels)
+    composite_scores["vwap_rejection"] = max(-0.30, min(1.0, f4_score))
+    factors.extend(f4_factors)
 
-    # ── Factor 5: VWAP Band Rejection (max 1.0) ──
-    f5_score, f5_factors = _score_vwap(flow, levels)
-    composite_scores["vwap_rejection"] = max(-0.30, min(1.0, f5_score))
-    factors.extend(f5_factors)
-
-    # ── Factor 6: Volume Spike (max 0.5) ──
-    f6_score, f6_detail = _score_volume_spike(flow, levels)
-    composite_scores["volume_spike"] = max(0.0, min(0.5, f6_score))
-    if abs(f6_score) > 0.1:
-        factors.append(ConfluenceFactor(
-            "Volume Spike", prelim_direction if f6_score > 0 else "neutral", f6_score, f6_detail
-        ))
-
-    # ── Factor 7: Delta Regime (max 1.0) ──
-    f7_score, f7_detail = _score_delta_regime(flow, prelim_direction)
-    composite_scores["delta_regime"] = max(-0.50, min(1.0, f7_score))
-    if abs(f7_score) > 0.1:
-        direction = prelim_direction if f7_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
-        factors.append(ConfluenceFactor("Delta Regime", direction, f7_score, f7_detail))
-
-    # ── Factor 8: Put/Call Ratio (max 0.5) ──
-    # NOTE: PCR shows -53.0% accuracy delta in historical analysis.
-    # The scoring logic likely inverts the signal (high PCR = hedging = bullish,
-    # but the factor interprets it as bearish). Dampened alongside flow factors
-    # until the scoring logic is audited.
-    # ── Factor 8: Put/Call Ratio (max 0.5) ──
-    # NOTE: -53.0% accuracy delta in historical analysis. The scoring logic
-    # likely inverts the signal (high PCR = hedging = bullish, but scored as
-    # bearish). Needs scoring audit — runs at full strength with real data.
-    if chain_analytics is not None:
-        from .options_analytics import score_pcr
-        f8_score, f8_detail = score_pcr(chain_analytics, prelim_direction)
-        composite_scores["pcr"] = max(-0.2, min(0.5, f8_score))
-        if abs(f8_score) > 0.1:
-            factors.append(ConfluenceFactor(
-                "Put/Call Ratio", prelim_direction if f8_score > 0 else "neutral", f8_score, f8_detail
-            ))
-    elif options_data:
-        _add_legacy_options_factors(factors, options_data, price)
-
-    # ── Factor 9: Max Pain (max 0.5) ──
-    # NOTE: -53.2% accuracy delta. Max pain theory has weak evidence for 0DTE
-    # where gamma exposure dominates. Needs scoring audit.
-    if chain_analytics is not None:
-        from .options_analytics import score_max_pain
-        f9_score, f9_detail = score_max_pain(chain_analytics, price, prelim_direction, session.is_0dte)
-        composite_scores["max_pain"] = max(-0.3, min(0.5, f9_score))
-        if abs(f9_score) > 0.1:
-            factors.append(ConfluenceFactor(
-                "Max Pain", prelim_direction if f9_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish"),
-                f9_score, f9_detail
-            ))
-
-    # ── Factor 10: Time of Day (max 0.5) ──
-    f10_score, f10_detail = _score_time_of_day(session)
-    composite_scores["time_of_day"] = max(-0.30, min(0.5, f10_score))
-    if abs(f10_score) > 0.1:
-        factors.append(ConfluenceFactor(
-            "Session Quality", "neutral", f10_score, f10_detail
-        ))
-
-    # ── Factor 11: Vanna Alignment (max 0.75) — v3 NEW ──
-    if vanna_charm_data is not None:
-        try:
-            from .vanna_charm_engine import score_vanna_alignment
-            f11_score, f11_detail = score_vanna_alignment(vanna_charm_data, prelim_direction)
-            composite_scores["vanna_alignment"] = max(-0.25, min(0.75, f11_score))
-            if abs(f11_score) > 0.1:
-                direction = "bullish" if f11_score > 0 else ("bearish" if f11_score < 0 else "neutral")
-                factors.append(ConfluenceFactor(
-                    "Vanna Flow", direction, f11_score, f11_detail
-                ))
-        except Exception as e:
-            logger.debug(f"Vanna scoring error: {e}")
-
-    # ── Factor 12: Charm Pressure (max 0.75) — v3 NEW ──
-    if vanna_charm_data is not None:
-        try:
-            from .vanna_charm_engine import score_charm_pressure
-            f12_score, f12_detail = score_charm_pressure(vanna_charm_data, prelim_direction)
-            composite_scores["charm_pressure"] = max(-0.25, min(0.75, f12_score))
-            if abs(f12_score) > 0.1:
-                direction = "bullish" if f12_score > 0 else ("bearish" if f12_score < 0 else "neutral")
-                factors.append(ConfluenceFactor(
-                    "Charm Pressure", direction, f12_score, f12_detail
-                ))
-        except Exception as e:
-            logger.debug(f"Charm scoring error: {e}")
-
-    # ── Factor 13: Sweep Activity (max 0.75) — v4 NEW ──
+    # ── Factor 5: Sweep Activity (max 1.0) ──
     if sweep_data is not None:
         try:
             from .sweep_detector import score_sweep_activity
-            f13_score, f13_detail = score_sweep_activity(sweep_data, prelim_direction)
-            composite_scores["sweep_activity"] = max(-0.25, min(0.75, f13_score))
-            if abs(f13_score) > 0.05:
-                direction = "bullish" if f13_score > 0 else ("bearish" if f13_score < 0 else "neutral")
+            f5_score, f5_detail = score_sweep_activity(sweep_data, prelim_direction)
+            composite_scores["sweep_activity"] = max(-0.30, min(1.0, f5_score))
+            if abs(f5_score) > 0.05:
+                direction = "bullish" if f5_score > 0 else ("bearish" if f5_score < 0 else "neutral")
                 factors.append(ConfluenceFactor(
-                    "Sweep Flow", direction, f13_score, f13_detail
+                    "Sweep Flow", direction, f5_score, f5_detail
                 ))
         except Exception as e:
             logger.debug(f"Sweep scoring error: {e}")
 
-    # ── Factor 14: Flow Toxicity / VPIN (max 0.5) — v4 NEW ──
-    if vpin_state is not None:
-        try:
-            from .flow_toxicity import score_flow_toxicity
-            f14_score, f14_detail = score_flow_toxicity(vpin_state, prelim_direction)
-            composite_scores["flow_toxicity"] = max(-0.25, min(0.5, f14_score))
-            if abs(f14_score) > 0.05:
-                direction = "bullish" if f14_score > 0 else ("bearish" if f14_score < 0 else "neutral")
-                factors.append(ConfluenceFactor(
-                    "Flow Toxicity", direction, f14_score, f14_detail
-                ))
-        except Exception as e:
-            logger.debug(f"VPIN scoring error: {e}")
+    # ── Factor 6: ORB Breakout (max 1.25) ──
+    f6_score, f6_detail = _score_orb_breakout(levels, flow, session, prelim_direction)
+    composite_scores["orb_breakout"] = max(-0.40, min(1.25, f6_score))
+    if abs(f6_score) > 0.05:
+        direction = prelim_direction if f6_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
+        factors.append(ConfluenceFactor("ORB Breakout", direction, f6_score, f6_detail))
 
-    # ── Factor 15: Sector Divergence + Bonds (max 0.5) — v4 NEW ──
-    if sector_data is not None:
-        try:
-            from .sector_monitor import score_sector_divergence
-            f15_score, f15_detail = score_sector_divergence(sector_data, prelim_direction)
-            composite_scores["sector_divergence"] = max(-0.25, min(0.5, f15_score))
-            if abs(f15_score) > 0.05:
-                direction = "bullish" if f15_score > 0 else ("bearish" if f15_score < 0 else "neutral")
-                factors.append(ConfluenceFactor(
-                    "Sector/Bond", direction, f15_score, f15_detail
-                ))
-        except Exception as e:
-            logger.debug(f"Sector scoring error: {e}")
-
-    # ── Factor 16: Agent Consensus (max 1.5) — v5 NEW ──
-    if agent_verdicts:
-        try:
-            f16_score, f16_detail = _score_agent_consensus(agent_verdicts, prelim_direction)
-            composite_scores["agent_consensus"] = max(-0.5, min(1.5, f16_score))
-            if abs(f16_score) > 0.05:
-                direction = "bullish" if f16_score > 0 else ("bearish" if f16_score < 0 else "neutral")
-                factors.append(ConfluenceFactor(
-                    "AI Agents", direction, f16_score, f16_detail
-                ))
-        except Exception as e:
-            logger.debug(f"Agent consensus scoring error: {e}")
-
-    # ── Factor 17: EMA/SMA Trend as Mean-Reversion Signal (max 0.75) — v13 ──
-    # INVERTED for 0DTE: stacked uptrend on 1-min bars = move exhaustion, not
-    # continuation. Historical data: factor was right 64.2% when OPPOSING signals.
-    # Now scored as mean-reversion: stacked trend = expect reversal.
-    f17_score, f17_detail = _score_ema_sma_trend(levels, prelim_direction)
-    f17_score = -f17_score  # INVERT: trend alignment now opposes signal direction
-    composite_scores["ema_sma_trend"] = max(-0.30, min(0.75, f17_score))
-    if abs(f17_score) > 0.05:
-        direction = prelim_direction if f17_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
-        factors.append(ConfluenceFactor("EMA/SMA Trend", direction, f17_score, f17_detail + " (inverted: mean-reversion)"))
-
-    # ── Factor 18: Bollinger Band Squeeze — NON-DIRECTIONAL (max 0.75) — v13 ──
-    # BB Squeeze detects volatility expansion but CANNOT predict direction.
-    # Historical: 27.4% when confirming direction, 89.7% when opposing.
-    # Now scored as volatility signal only: squeeze present = higher expected
-    # move magnitude (useful for position sizing), but zero directional weight.
-    # "Riding upper band" is exhaustion on 0DTE, not continuation.
-    f18_score, f18_detail = _score_bb_squeeze(levels, prelim_direction)
-    # Only keep the squeeze detection component (non-directional), zero out
-    # any directional scoring (band position, which was anti-predictive)
-    bb_upper = getattr(levels, 'bb_upper', 0)
-    bb_lower = getattr(levels, 'bb_lower', 0)
-    bb_mid = getattr(levels, 'bb_mid', 0)
-    if bb_upper > 0 and bb_lower > 0 and bb_mid > 0:
-        bb_width_pct = ((bb_upper - bb_lower) / bb_mid) * 100
-        avg_width = getattr(levels, 'avg_bb_width_pct', bb_width_pct)
-        is_squeeze = bb_width_pct < avg_width * 0.6 if avg_width > 0 else bb_width_pct < 0.3
-        if is_squeeze:
-            # Squeeze = expect larger move. Score as small positive (non-directional)
-            f18_score = 0.15
-            f18_detail = f"BB squeeze ({bb_width_pct:.2f}% width) — expect larger move (non-directional)"
-        else:
-            f18_score = 0.0
-            f18_detail = "No BB squeeze"
-    else:
-        f18_score = 0.0
-        f18_detail = "BB data unavailable"
-    composite_scores["bb_squeeze"] = max(0.0, min(0.75, f18_score))
-    if f18_score > 0:
-        factors.append(ConfluenceFactor("BB Squeeze", "neutral", f18_score, f18_detail))
-
-    # ── Factor 19: Support/Resistance levels (max 1.0) — v7 NEW ──
-    # Replaces legacy _add_structural_factors for scoring purposes
-    f19_score, f19_detail = _score_support_resistance(flow, levels, session, prelim_direction)
-    composite_scores["support_resistance"] = max(-0.40, min(1.0, f19_score))
-    if abs(f19_score) > 0.05:
-        direction = prelim_direction if f19_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
-        factors.append(ConfluenceFactor("S/R Levels", direction, f19_score, f19_detail))
-
-    # ── Factor 20: Candle Pattern (max 0.5) — v7 NEW ──
-    f20_score, f20_detail = _score_candle_pattern(levels, flow, prelim_direction)
-    composite_scores["candle_pattern"] = max(-0.30, min(0.5, f20_score))
-    if abs(f20_score) > 0.05:
-        direction = prelim_direction if f20_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
-        factors.append(ConfluenceFactor("Candle Pattern", direction, f20_score, f20_detail))
-
-    # ── Factor 21: ORB Breakout (max 1.25) — v8 NEW ──
-    # Research: 30-min ORB has 89% win rate with 1.44 profit factor.
-    # Scores breakout quality during morning, acts as S/R the rest of the day.
-    f21_score, f21_detail = _score_orb_breakout(levels, flow, session, prelim_direction)
-    composite_scores["orb_breakout"] = max(-0.40, min(1.25, f21_score))
-    if abs(f21_score) > 0.05:
-        direction = prelim_direction if f21_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
-        factors.append(ConfluenceFactor("ORB Breakout", direction, f21_score, f21_detail))
-
-    # ── Factor 22: Market Breadth (max 1.0, min -0.40) — v8 NEW ──
-    # Synthetic breadth index from 11 ETFs (sectors + market proxies + risk gauges).
-    # Detects broad market alignment/divergence that single-symbol analysis misses.
-    if breadth_data is not None and breadth_data.symbols_fetched >= 3:
-        f22_score, f22_detail = score_market_breadth(breadth_data, prelim_direction)
-        composite_scores["market_breadth"] = max(-0.40, min(1.0, f22_score))
-        if abs(f22_score) > 0.05:
-            direction = prelim_direction if f22_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
-            factors.append(ConfluenceFactor("Market Breadth", direction, f22_score, f22_detail))
-
-    # ── Factor 23: Vol Edge — IV vs Realized Vol (max 0.75, min -0.30) — v10 NEW ──
-    # When options are cheap (IV < RV), buying premium has a structural edge.
-    # When expensive (IV > RV), premium has a headwind.
-    if vol_data is not None and vol_data.data_quality != "insufficient":
-        f23_score, f23_detail = score_vol_edge(vol_data, prelim_direction)
-        composite_scores["vol_edge"] = max(-0.30, min(0.75, f23_score))
-        if abs(f23_score) > 0.05:
-            direction = prelim_direction if f23_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
-            factors.append(ConfluenceFactor("Vol Edge", direction, f23_score, f23_detail))
+    # ── Factor 7: Support/Resistance levels (max 1.0) ──
+    f7_score, f7_detail = _score_support_resistance(flow, levels, session, prelim_direction)
+    composite_scores["support_resistance"] = max(-0.40, min(1.0, f7_score))
+    if abs(f7_score) > 0.05:
+        direction = prelim_direction if f7_score > 0 else ("bearish" if prelim_direction == "bullish" else "bullish")
+        factors.append(ConfluenceFactor("S/R Levels", direction, f7_score, f7_detail))
 
     # ── Legacy structural display factors (HOD/LOD, etc.) ──
-    # Still added for display in the factor list, but scoring is now handled
-    # by Factor 19 (support_resistance) and Factor 21 (ORB) in composite_scores.
     _add_structural_factors(factors, flow, levels, session, price)
 
     # ── 0DTE Hard Stop (veto) ──
@@ -832,9 +579,6 @@ def evaluate_confluence(
         ))
 
     # ━━━━ ADAPTIVE WEIGHT SCALING — apply learned weights ━━━━
-    # Scale composite scores by ratio of (learned_weight / baseline_weight)
-    # so the weight learner's adjustments affect confidence without modifying
-    # the individual scoring functions.
     active_w = get_active_weights()
     for factor_name, base_score in list(composite_scores.items()):
         baseline = FACTOR_WEIGHTS_BASELINE.get(factor_name, 0)
@@ -843,46 +587,18 @@ def evaluate_confluence(
             scale = learned / baseline
             composite_scores[factor_name] = base_score * scale
 
-    # ━━━━ v11: ANTI-CORRELATION DAMPENING ━━━━
-    # Correlated factor clusters can all fire together (e.g., 5 flow factors),
-    # inflating both the composite score and the confirming count.
-    # Soft-cap each cluster's combined contribution.
-    _dampening_applied = {}
-    for cluster_keys, max_pos, max_neg in CORRELATION_CLUSTERS:
-        cluster_pos = sum(composite_scores.get(k, 0) for k in cluster_keys
-                         if composite_scores.get(k, 0) > 0)
-        cluster_neg = sum(composite_scores.get(k, 0) for k in cluster_keys
-                         if composite_scores.get(k, 0) < 0)
-
-        # Dampen positive cluster scores if over cap
-        if cluster_pos > max_pos and cluster_pos > 0:
-            scale = max_pos / cluster_pos
-            for k in cluster_keys:
-                s = composite_scores.get(k, 0)
-                if s > 0:
-                    composite_scores[k] = round(s * scale, 4)
-            _dampening_applied[cluster_keys[0]] = f"pos_capped_{cluster_pos:.2f}→{max_pos:.2f}"
-
-        # Dampen negative cluster scores if over (abs) cap
-        if cluster_neg < max_neg and cluster_neg < 0:
-            scale = max_neg / cluster_neg
-            for k in cluster_keys:
-                s = composite_scores.get(k, 0)
-                if s < 0:
-                    composite_scores[k] = round(s * scale, 4)
-            _dampening_applied[cluster_keys[0]] = f"neg_capped_{cluster_neg:.2f}→{max_neg:.2f}"
-
-    if _dampening_applied:
-        logger.debug(f"[Confluence] Correlation dampening: {_dampening_applied}")
-
-    # ━━━━ ORDER FLOW VETO — flow must confirm direction ━━━━
-    # Order flow is the ground truth. If flow doesn't show clear directional
-    # aggression, other factors (EMA trend, breadth, PCR) are just noise.
-    # Require order flow imbalance > 55% to allow a trade signal.
+    # ━━━━ ORDER FLOW GATE — flow must not oppose direction ━━━━
+    # v14: Relaxed from hard 55% veto to 52% + CVD confirmation.
+    # With 7 carefully chosen factors, the gate only needs to prevent
+    # trading AGAINST flow, not require overwhelming directional flow.
+    # A 52% imbalance with rising CVD is meaningful with 5000+ ticks.
     flow_imbalance = flow.imbalance  # 0.0 to 1.0, 0.5 = balanced
-    flow_confirms_bullish = flow_imbalance >= 0.55
-    flow_confirms_bearish = flow_imbalance <= 0.45
-    flow_has_direction = flow_confirms_bullish or flow_confirms_bearish
+    cvd_confirms_bullish = flow.cvd_trend == "rising"
+    cvd_confirms_bearish = flow.cvd_trend == "falling"
+    flow_confirms_bullish = flow_imbalance >= 0.52 and (flow_imbalance >= 0.55 or cvd_confirms_bullish)
+    flow_confirms_bearish = flow_imbalance <= 0.48 and (flow_imbalance <= 0.45 or cvd_confirms_bearish)
+    flow_opposes_bullish = flow_imbalance < 0.48  # Clear selling pressure
+    flow_opposes_bearish = flow_imbalance > 0.52  # Clear buying pressure
 
     # ━━━━ AGGREGATE: determine direction and confidence ━━━━
     bullish_weight = sum(f.weight for f in factors if f.direction == "bullish")
@@ -891,38 +607,39 @@ def evaluate_confluence(
     bullish_count = sum(1 for f in factors if f.direction == "bullish")
     bearish_count = sum(1 for f in factors if f.direction == "bearish")
 
-    # Determine direction — order flow must agree
+    # Determine direction — flow must not actively oppose
     if bullish_weight > bearish_weight and bullish_count >= 1:
         if flow_confirms_bullish:
             action = "BUY_CALL"
-        elif not flow_has_direction:
-            action = "NO_TRADE"  # Flow is neutral, don't trade
+        elif flow_opposes_bullish:
+            action = "NO_TRADE"
             factors.append(ConfluenceFactor(
-                "Order Flow Veto", "neutral", 0.0,
-                f"Flow imbalance {flow_imbalance:.1%} too weak to confirm bullish — need >55%"
+                "Flow Gate", "bearish", 0.0,
+                f"Flow imbalance {flow_imbalance:.1%} opposes bullish signal (CVD: {flow.cvd_trend})"
             ))
         else:
-            action = "NO_TRADE"  # Flow opposes
+            # Flow is neutral (48-52%) — allow if other factors are strong enough
+            action = "BUY_CALL"
             factors.append(ConfluenceFactor(
-                "Order Flow Veto", "bearish", 0.0,
-                f"Flow imbalance {flow_imbalance:.1%} opposes bullish signal"
+                "Flow Gate", "neutral", -0.05,
+                f"Flow neutral {flow_imbalance:.1%} — allowing on factor strength"
             ))
         confirming = bullish_count
         opposing = bearish_count
     elif bearish_weight > bullish_weight and bearish_count >= 1:
         if flow_confirms_bearish:
             action = "BUY_PUT"
-        elif not flow_has_direction:
+        elif flow_opposes_bearish:
             action = "NO_TRADE"
             factors.append(ConfluenceFactor(
-                "Order Flow Veto", "neutral", 0.0,
-                f"Flow imbalance {flow_imbalance:.1%} too weak to confirm bearish — need <45%"
+                "Flow Gate", "bullish", 0.0,
+                f"Flow imbalance {flow_imbalance:.1%} opposes bearish signal (CVD: {flow.cvd_trend})"
             ))
         else:
-            action = "NO_TRADE"
+            action = "BUY_PUT"
             factors.append(ConfluenceFactor(
-                "Order Flow Veto", "bullish", 0.0,
-                f"Flow imbalance {flow_imbalance:.1%} opposes bearish signal"
+                "Flow Gate", "neutral", -0.05,
+                f"Flow neutral {flow_imbalance:.1%} — allowing on factor strength"
             ))
         confirming = bearish_count
         opposing = bullish_count
@@ -932,62 +649,39 @@ def evaluate_confluence(
         opposing = 0
 
     # ── Compute confidence ──
-    # v11: Rebalanced for 23-factor system.
-    #   - Active threshold raised from 0.01 → 0.03 (reduce noise inflation)
-    #   - Confluence bonus floors scaled to 23 factors (~43% = TEXTBOOK)
-    #   - Opposing factor penalty increased
-    #   - Minimum strength gate on confirming factors
+    # v14: Simplified for 7-factor system.
+    # Score against active factors only (GEX/sweep may not be available).
     total_composite = sum(max(0, v) for v in composite_scores.values())
-    num_active_factors = len(composite_scores)
-    num_total_factors = len(FACTOR_WEIGHTS_BASELINE)
-
-    # v11: Raised threshold from 0.01 → 0.03 so near-zero scores don't
-    # inflate the active denominator and artificially boost pure_score.
     active_keys = [k for k in composite_scores if abs(composite_scores[k]) > 0.03]
+    num_active = len(active_keys)
     active_max = sum(FACTOR_WEIGHTS_BASELINE.get(k, 0) for k in active_keys)
     if active_max <= 0:
-        active_max = FULL_DENOMINATOR  # fallback
+        active_max = FULL_DENOMINATOR
 
-    if num_active_factors >= 3:
-        # v11: Increased opposing penalty from 0.04 → 0.05
-        penalty = 0.05 * opposing
+    if num_active >= 2:
+        penalty = 0.06 * opposing
 
-        # Coverage discount: floor of 0.55 means 3-5 always-present factors can
-        # still generate signals if strongly aligned.
-        data_coverage = num_active_factors / num_total_factors  # 0.0 - 1.0
-        coverage_discount = max(0.55, data_coverage)
-
-        # Small bonus for near-complete data
-        data_bonus = 0.0
-        if data_coverage >= 0.80:
-            data_bonus = 0.05
-
-        # Pure score against only active factors, then discounted by coverage
+        # Score against active factors' weight budget, not full budget
         pure_score = total_composite / active_max
-        raw_confidence = (pure_score * coverage_discount) + data_bonus - penalty
+        raw_confidence = pure_score - penalty
 
-        # ── v11: Rebalanced confluence bonus floors ──
-        # With 23 factors, the old 8-confirming threshold was ~35% of factors,
-        # making TEXTBOOK too easy. New thresholds:
-        #   TEXTBOOK:  10+ confirming (~43%) AND opposing ≤ 2
-        #   HIGH*0.95:  8+ confirming (~35%) AND opposing ≤ 3
-        #   HIGH*0.85:  6+ confirming (~26%)
-        # Also require the composite score to be meaningful (pure_score > 0.30)
-        # so many weak confirming factors don't override a low actual score.
-        if data_coverage >= 0.50 and pure_score >= 0.30:
-            if confirming >= 10 and opposing <= 2:
+        # Confluence bonus floors — 7 factors, so thresholds are tighter:
+        #   5/7 confirming (~71%) AND opposing ≤ 1 → TEXTBOOK
+        #   4/7 confirming (~57%) AND opposing ≤ 2 → HIGH
+        #   3/7 confirming (~43%) → HIGH * 0.85
+        if pure_score >= 0.30:
+            if confirming >= 5 and opposing <= 1:
                 raw_confidence = max(raw_confidence, TIER_TEXTBOOK)
-            elif confirming >= 8 and opposing <= 3:
+            elif confirming >= 4 and opposing <= 2:
                 raw_confidence = max(raw_confidence, TIER_HIGH * 0.95)
-            elif confirming >= 6:
+            elif confirming >= 3:
                 raw_confidence = max(raw_confidence, TIER_HIGH * 0.85)
     else:
-        # Too few factors — no meaningful signal
         raw_confidence = 0.0
 
     confidence = max(0.0, min(1.0, raw_confidence))
 
-    # ── v3: Apply regime multiplier ──
+    # ── Apply regime multiplier ──
     if regime_state is not None:
         try:
             from .regime_detector import score_regime_alignment
@@ -1004,7 +698,7 @@ def evaluate_confluence(
         except Exception as e:
             logger.debug(f"Regime scoring error: {e}")
 
-    # ── v3: Apply event multiplier ──
+    # ── Apply event multiplier ──
     if event_context is not None:
         try:
             from .event_calendar import score_event_context
@@ -1013,11 +707,10 @@ def evaluate_confluence(
             if abs(event_mult - 1.0) > 0.05:
                 direction = "neutral"
                 if event_mult < 0.5:
-                    direction = "bearish"  # Events suppress confidence
+                    direction = "bearish"
                 factors.append(ConfluenceFactor(
                     "Event Calendar", direction, event_mult - 1.0, event_detail
                 ))
-            # Hard suppress if pre-event
             if hasattr(event_context, 'suppress_entries') and event_context.suppress_entries:
                 action = "NO_TRADE"
                 factors.append(ConfluenceFactor(
@@ -1118,49 +811,79 @@ def _is_trend_signal(
 
 
 def _score_flow_imbalance(flow: OrderFlowState, direction: str) -> Tuple[float, str]:
-    """Factor 1: Order flow imbalance scoring (max 1.5).
+    """Factor 1: Order flow imbalance scoring (max 2.0).
 
-    Thresholds are symmetric around 0.50:
-      Bullish confirms at imb > 0.60, penalized below 0.40
-      Bearish confirms at imb < 0.40, penalized above 0.60
+    v14: Tighter thresholds — real trending markets are 52-55%, not 60%+.
+    Uses continuous scoring instead of dead zones.
+    Also considers aggressive buy/sell percentage for quality.
     """
     imb = flow.imbalance  # 0=all sell, 1=all buy
+    agg_buy = getattr(flow, 'aggressive_buy_pct', 0.5)
+    agg_sell = getattr(flow, 'aggressive_sell_pct', 0.5)
 
     if direction == "bullish":
-        if imb > 0.60:
-            score = min(1.5, 0.5 + (imb - 0.50) * 5.0)
-            return score, f"Strong buy imbalance {imb:.0%} — aggressive buying confirms bullish"
-        elif imb < 0.40:
-            return -1.0, f"Sell imbalance {imb:.0%} — flow contradicts bullish signal"
+        if imb > 0.52:
+            # Continuous score: 0.52 → 0.3, 0.55 → 1.0, 0.60 → 1.5, 0.65+ → 2.0
+            base = min(2.0, (imb - 0.50) * 10.0)
+            # Bonus for aggressive buying (lifting offers, not passive)
+            if agg_buy > 0.60:
+                base = min(2.0, base * 1.2)
+            return base, f"Buy flow {imb:.0%} (agg={agg_buy:.0%}) confirms bullish"
+        elif imb < 0.47:
+            # Opposing: sellers dominate
+            penalty = min(0.75, (0.50 - imb) * 5.0)
+            return -penalty, f"Sell flow {imb:.0%} contradicts bullish"
         return 0.0, f"Balanced flow {imb:.0%}"
 
     elif direction == "bearish":
-        if imb < 0.40:
-            score = min(1.5, 0.5 + (0.50 - imb) * 5.0)
-            return score, f"Strong sell imbalance {imb:.0%} — aggressive selling confirms bearish"
-        elif imb > 0.60:
-            return -1.0, f"Buy imbalance {imb:.0%} — flow contradicts bearish signal"
+        if imb < 0.48:
+            base = min(2.0, (0.50 - imb) * 10.0)
+            if agg_sell > 0.60:
+                base = min(2.0, base * 1.2)
+            return base, f"Sell flow {imb:.0%} (agg={agg_sell:.0%}) confirms bearish"
+        elif imb > 0.53:
+            penalty = min(0.75, (imb - 0.50) * 5.0)
+            return -penalty, f"Buy flow {imb:.0%} contradicts bearish"
         return 0.0, f"Balanced flow {imb:.0%}"
 
     return 0.0, f"Flow imbalance {imb:.0%} (no direction)"
 
 
 def _score_cvd_divergence(flow: OrderFlowState, direction: str) -> Tuple[float, str]:
-    """Factor 2: CVD divergence scoring (max 1.0)."""
+    """Factor 2: CVD divergence + trend scoring (max 1.5).
+
+    v14: Divergence is the strongest signal (hidden buying/selling).
+    CVD trend confirmation also scores meaningfully, scaled by acceleration.
+    """
+    accel = getattr(flow, 'cvd_acceleration', 0)
+
+    # Divergence = strongest CVD signal
     if flow.divergence == "bullish" and direction == "bullish":
-        return 1.0, f"Bullish divergence — price {flow.price_trend} but CVD {flow.cvd_trend} (hidden buying)"
+        return 1.5, f"Bullish divergence — price {flow.price_trend} but CVD {flow.cvd_trend} (hidden buying)"
     elif flow.divergence == "bearish" and direction == "bearish":
-        return 1.0, f"Bearish divergence — price {flow.price_trend} but CVD {flow.cvd_trend} (hidden selling)"
+        return 1.5, f"Bearish divergence — price {flow.price_trend} but CVD {flow.cvd_trend} (hidden selling)"
     elif flow.divergence == "bullish" and direction == "bearish":
         return -0.5, "Bullish divergence contradicts bearish signal"
     elif flow.divergence == "bearish" and direction == "bullish":
         return -0.5, "Bearish divergence contradicts bullish signal"
 
-    # No divergence — check if CVD confirms direction
+    # CVD trend confirms direction — scale by acceleration
     if direction == "bullish" and flow.cvd_trend == "rising":
-        return 0.3, f"CVD confirming — {flow.cvd_trend} with bullish bias"
+        base = 0.6
+        if accel > 500:
+            base = min(1.0, 0.6 + accel / 5000)
+        return base, f"CVD rising (accel={accel:+.0f}) confirms bullish"
     elif direction == "bearish" and flow.cvd_trend == "falling":
-        return 0.3, f"CVD confirming — {flow.cvd_trend} with bearish bias"
+        base = 0.6
+        if accel < -500:
+            base = min(1.0, 0.6 + abs(accel) / 5000)
+        return base, f"CVD falling (accel={accel:+.0f}) confirms bearish"
+
+    # CVD opposes direction
+    if direction == "bullish" and flow.cvd_trend == "falling":
+        return -0.3, f"CVD falling opposes bullish"
+    elif direction == "bearish" and flow.cvd_trend == "rising":
+        return -0.3, f"CVD rising opposes bearish"
 
     return 0.0, f"CVD {flow.cvd_trend}, divergence: {flow.divergence}"
 

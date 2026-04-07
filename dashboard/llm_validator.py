@@ -260,8 +260,17 @@ async def _run_validation(
     }
 
     try:
+        from .llm_rate_limiter import rate_limiter
+        if not rate_limiter.can_call("validator"):
+            verdict["verdict"] = "SKIPPED"
+            verdict["reasoning"] = "Daily API call limit reached"
+            verdict["latency_ms"] = 0
+            _verdicts.append(verdict)
+            return
+
         client = _get_client()
         prompt = _build_prompt(signal, market_context, trade_history, open_positions)
+        rate_limiter.record_call("validator")
 
         # Run blocking SDK call in a thread to avoid blocking the event loop
         loop = asyncio.get_event_loop()

@@ -336,12 +336,18 @@ async def _run_realtime_evaluation(
 ) -> None:
     """Execute real-time Claude evaluation (opt-in mode only)."""
     from .config import cfg
+    from .llm_rate_limiter import rate_limiter
+
+    if not rate_limiter.can_call("exit_advisor"):
+        logger.debug("[ExitAdvisor] Daily API call limit reached, skipping")
+        return
 
     trade_id = position.get("trade_id", "")
     advisory_id = str(uuid.uuid4())[:8]
     t0 = time.monotonic()
 
     model = cfg.LLM_EXIT_ADVISOR_MODEL
+    rate_limiter.record_call("exit_advisor")
 
     advisory: Dict[str, Any] = {
         "id": advisory_id,
