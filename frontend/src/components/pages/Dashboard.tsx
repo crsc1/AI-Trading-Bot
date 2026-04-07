@@ -71,18 +71,18 @@ export const Dashboard: Component = () => {
       <div class="flex-1 flex min-h-0">
         {/* Charts Area */}
         <div class="flex-1 flex flex-col min-w-0">
-          {/* Candle Chart */}
-          <div class="flex-[2] min-h-[250px] border-b border-border-default">
+          {/* Candle Chart — 45% of available space */}
+          <div class="flex-[45] min-h-[180px] border-b border-border-default">
             <CandleChart />
           </div>
 
-          {/* Order Flow Chart */}
-          <div class="flex-1 min-h-[150px] border-b border-border-default">
+          {/* Order Flow Chart — 35% of available space */}
+          <div class="flex-[35] min-h-[140px] border-b border-border-default">
             <OrderFlowChart />
           </div>
 
-          {/* Bottom Panels */}
-          <div class="h-[180px] flex border-b border-border-default shrink-0">
+          {/* Bottom Panels — compact, grows only if space allows */}
+          <div class="flex-[20] min-h-[100px] max-h-[160px] flex shrink-0">
             <div class="flex-1 border-r border-border-default overflow-hidden">
               <SignalPanel />
             </div>
@@ -93,12 +93,12 @@ export const Dashboard: Component = () => {
         </div>
 
         {/* Right Sidebar — Chat + Agent + Research */}
-        <div class="w-[280px] border-l border-border-default flex flex-col bg-surface-1 shrink-0">
+        <div class="w-[260px] border-l border-border-default flex flex-col bg-surface-1 shrink-0">
           <AgentStatus />
-          <div class="flex-[2] min-h-0">
+          <div class="flex-[3] min-h-0">
             <ChatPanel />
           </div>
-          <div class="flex-1 min-h-0 border-t border-border-default max-h-[200px]">
+          <div class="flex-1 min-h-0 border-t border-border-default">
             <ResearchFeed />
           </div>
         </div>
