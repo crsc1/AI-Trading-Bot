@@ -1,4 +1,4 @@
-import { type Component, createEffect, createSignal, createMemo, on } from 'solid-js';
+import { type Component, createEffect, createSignal, createMemo, on, Show } from 'solid-js';
 import { TimeChart } from '@dschz/solid-lightweight-charts';
 import type { ISeriesApi, Time, CandlestickData, HistogramData, LineData } from 'lightweight-charts';
 import { market } from '../../signals/market';
@@ -214,34 +214,35 @@ export const CandleChart: Component = () => {
               onCreateSeries={(s) => {
                 volumeSeries = s;
                 s.priceScale().applyOptions({
-                  scaleMargins: { top: 0.7, bottom: 0 },
+                  scaleMargins: { top: 0.3, bottom: 0 },
                 });
               }}
             />
           </TimeChart.Pane>
 
-          {/* RSI — separate pane */}
-          <TimeChart.Pane>
-            <TimeChart.Series
-              type="Line"
-              data={rsiData()}
-              color={indicatorColors.rsi}
-              lineWidth={1}
-              priceScaleId="rsi"
-              lastValueVisible={true}
-              priceLineVisible={false}
-              onCreateSeries={(s) => {
-                s.priceScale().applyOptions({
-                  scaleMargins: { top: 0.1, bottom: 0.1 },
-                  autoScale: true,
-                });
-                // Add RSI reference lines (30/70) via price lines
-                s.createPriceLine({ price: 70, color: 'rgba(255,80,0,0.3)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
-                s.createPriceLine({ price: 30, color: 'rgba(0,200,5,0.3)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
-                s.createPriceLine({ price: 50, color: 'rgba(255,255,255,0.08)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
-              }}
-            />
-          </TimeChart.Pane>
+          {/* RSI — separate pane, only rendered when enabled */}
+          <Show when={indicators().has('rsi') && rsiData().length > 0}>
+            <TimeChart.Pane>
+              <TimeChart.Series
+                type="Line"
+                data={rsiData()}
+                color={indicatorColors.rsi}
+                lineWidth={1}
+                priceScaleId="rsi"
+                lastValueVisible={true}
+                priceLineVisible={false}
+                onCreateSeries={(s) => {
+                  s.priceScale().applyOptions({
+                    scaleMargins: { top: 0.1, bottom: 0.1 },
+                    autoScale: true,
+                  });
+                  s.createPriceLine({ price: 70, color: 'rgba(255,80,0,0.3)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+                  s.createPriceLine({ price: 30, color: 'rgba(0,200,5,0.3)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+                  s.createPriceLine({ price: 50, color: 'rgba(255,255,255,0.08)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+                }}
+              />
+            </TimeChart.Pane>
+          </Show>
         </TimeChart>
       </div>
     </div>
