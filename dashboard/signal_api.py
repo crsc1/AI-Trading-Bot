@@ -542,8 +542,18 @@ async def _run_brain_cycle():
                 f"conf={decision.confidence:.2f} tier={decision.tier}"
             )
 
-        # Broadcast decision to chat clients
+        # Broadcast decision + pattern recall to chat clients
         await broadcast_decision(decision.to_dict())
+
+        # Broadcast pattern recall for the frontend BrainFeed
+        from .brain_chat import broadcast
+        similar = moments_db.find_similar(snapshot=snapshot, limit=3, min_similarity=0.70)
+        moments_stats = moments_db.get_stats()
+        await broadcast({
+            "type": "pattern_recall",
+            "similar_moments": similar,
+            "moments_stats": moments_stats,
+        })
 
     except Exception as e:
         logger.error(f"[Brain] Cycle error: {e}", exc_info=True)

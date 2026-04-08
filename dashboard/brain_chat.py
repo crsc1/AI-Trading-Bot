@@ -410,6 +410,43 @@ async def get_brain_sources():
     return {"sources": sources, "model": model}
 
 
+@rest_router.get("/moments/recent")
+async def get_recent_moments(limit: int = 20):
+    """Return recent market moments for the Brain feed."""
+    from .market_moments import moments_db
+    return {"moments": moments_db.get_recent(limit=limit)}
+
+
+@rest_router.get("/moments/stats")
+async def get_moments_stats():
+    """Return summary stats for the moments DB."""
+    from .market_moments import moments_db
+    return moments_db.get_stats()
+
+
+@rest_router.get("/moments/similar")
+async def get_similar_moments():
+    """Return similar past moments for the current market state."""
+    from .market_moments import moments_db
+    from .data_collector import collect_snapshot
+    try:
+        # We need the engine for snapshot collection
+        from .signal_api import engine
+        snapshot = await collect_snapshot(engine)
+        similar = moments_db.find_similar(snapshot=snapshot, limit=5)
+        return {"moments": similar}
+    except Exception as e:
+        return {"moments": [], "error": str(e)}
+
+
+@rest_router.get("/moments/pattern-edge")
+async def get_pattern_edge(setup: str = None, regime: str = None, phase: str = None):
+    """Return historical edge for a pattern combination."""
+    from .market_moments import moments_db
+    edge = moments_db.get_pattern_edge(setup_name=setup, regime=regime, session_phase=phase)
+    return {"edge": edge}
+
+
 @rest_router.post("/chat")
 async def post_chat(body: Dict[str, Any]):
     """Send a chat message (REST alternative to WebSocket)."""
