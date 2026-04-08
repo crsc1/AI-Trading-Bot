@@ -19,15 +19,22 @@ of what it just analyzed when the user asks a question.
 import asyncio
 import json
 import logging
+import os
+import shutil
 import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .data_collector import MarketSnapshot, collect_snapshot
 from .brain_router import call_brain, get_router_stats
+
+# Claude Code CLI for analysis cycles (free on Max plan)
+_CLAUDE_BIN = shutil.which("claude") or ""
+_PROJECT_DIR = str(Path(__file__).parent.parent)
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +151,7 @@ class MarketBrain:
     """
 
     def __init__(self):
-        self.conversation: List[Dict[str, str]] = []    # Analysis cycle thread
+        self.conversation: List[Dict[str, str]] = []    # Analysis cycle thread (API fallback)
         self.chat_history: List[Dict[str, str]] = []    # Chat thread (separate)
         self.decisions: deque = deque(maxlen=MAX_DECISIONS)
         self.cycle_count: int = 0
@@ -153,6 +160,9 @@ class MarketBrain:
         self.chat_queue: List[str] = []  # Messages from user waiting for next cycle
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        # Persistent CLI session for the analysis cycle (separate from chat session)
+        self._cycle_session_id: str = str(uuid.uuid4())
+        self._cycle_first_msg: bool = True
 
     def get_state(self) -> Dict[str, Any]:
         """Return current Brain state for the frontend."""
@@ -297,6 +307,81 @@ class MarketBrain:
             logger.debug(f"[Brain] Pattern context error: {e}")
             return ""
 
+    async def _call_cycle_cli(self, prompt: str) -> Dict[str, Any]:
+        """
+        Call claude CLI for the analysis cycle. Uses a persistent session
+        separate from the chat session. Free on Max plan.
+        Falls back to direct API if CLI is unavailable.
+        """
+        if not _CLAUDE_BIN:
+            # Fallback to direct API
+            self.conversation.append({"role": "user", "content": prompt})
+            while len(self.conversation) > MAX_CONVERSATION_TURNS * 2:
+                self.conversation.pop(0)
+            result = await call_brain(SYSTEM_PROMPT, self.conversation, escalate=False)
+            if not result["error"]:
+                self.conversation.append({"role": "assistant", "content": result["content"]})
+            return result
+
+        clean_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        clean_env["CLAUDE_CODE_ENTRYPOINT"] = "brain-cycle"
+
+        if self._cycle_first_msg:
+            session_args = ["--session-id", self._cycle_session_id]
+            self._cycle_first_msg = False
+        else:
+            session_args = ["-r", self._cycle_session_id]
+
+        try:
+            # Prepend the system prompt context on first message
+            full_prompt = prompt
+            if self.cycle_count <= 1:
+                full_prompt = f"{SYSTEM_PROMPT}\n\n{prompt}"
+
+            proc = await asyncio.create_subprocess_exec(
+                _CLAUDE_BIN, "-p", "--output-format", "json",
+                "--model", "opus",
+                *session_args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=_PROJECT_DIR,
+                env=clean_env,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=full_prompt.encode()),
+                timeout=60,
+            )
+            raw = stdout.decode().strip()
+
+            if not raw:
+                logger.warning(f"[Brain] CLI returned empty. stderr: {stderr.decode()[:200]}")
+                return {"content": "", "model": "cli-error", "error": "Empty response",
+                        "latency_ms": 0, "input_tokens": 0, "output_tokens": 0}
+
+            try:
+                data = json.loads(raw)
+                return {
+                    "content": data.get("result", raw),
+                    "model": "claude-opus-4-6 (CLI)",
+                    "latency_ms": data.get("duration_ms", 0),
+                    "input_tokens": data.get("usage", {}).get("input_tokens", 0),
+                    "output_tokens": data.get("usage", {}).get("output_tokens", 0),
+                    "error": None,
+                }
+            except json.JSONDecodeError:
+                return {"content": raw, "model": "cli", "latency_ms": 0,
+                        "input_tokens": 0, "output_tokens": 0, "error": None}
+
+        except asyncio.TimeoutError:
+            logger.error("[Brain] CLI cycle timed out (60s)")
+            return {"content": "", "model": "cli-timeout", "error": "Timeout",
+                    "latency_ms": 60000, "input_tokens": 0, "output_tokens": 0}
+        except Exception as e:
+            logger.error(f"[Brain] CLI cycle error: {e}")
+            return {"content": "", "model": "cli-error", "error": str(e),
+                    "latency_ms": 0, "input_tokens": 0, "output_tokens": 0}
+
     async def analyze_cycle(self, engine: Any, snapshot: Any = None, moments_db: Any = None) -> BrainDecision:
         """
         Run one analysis cycle:
@@ -341,12 +426,8 @@ class MarketBrain:
             while len(self.conversation) > MAX_CONVERSATION_TURNS * 2:
                 self.conversation.pop(0)
 
-            # 4. Call Sonnet
-            result = await call_brain(
-                system_prompt=SYSTEM_PROMPT,
-                messages=self.conversation,
-                escalate=False,
-            )
+            # 4. Call Claude via CLI (free on Max plan)
+            result = await self._call_cycle_cli(user_message)
 
             if result["error"]:
                 self.status = "error"
@@ -356,7 +437,7 @@ class MarketBrain:
                     cycle=cycle,
                     action="HOLD",
                     reasoning=f"Analysis error: {result['error']}",
-                    model=result["model"],
+                    model=result.get("model", "cli"),
                 )
                 self.last_decision = decision
                 self.decisions.append(decision)
@@ -365,43 +446,8 @@ class MarketBrain:
             # 5. Parse JSON response
             raw_content = result["content"].strip()
 
-            # Append assistant response to conversation
-            self.conversation.append({"role": "assistant", "content": raw_content})
-
             decision = self._parse_decision(raw_content, cycle, result)
             decision.snapshot_summary = snapshot_text[:500]
-
-            # 6. Escalate to Opus if TRADE
-            if decision.action == "TRADE" and decision.confidence >= 0.45:
-                self.status = "trading"
-                logger.info(f"[Brain] Escalating to Opus for trade decision: {decision.direction}")
-
-                # Build escalation prompt
-                escalation_msg = (
-                    f"You recommended {decision.direction} with {decision.confidence:.0%} confidence.\n"
-                    f"Reasoning: {decision.reasoning}\n"
-                    f"Key factors: {', '.join(decision.key_factors)}\n\n"
-                    f"As a final check before execution, confirm or reject this trade. "
-                    f"Respond with the same JSON format. If you reject, set action=HOLD."
-                )
-                self.conversation.append({"role": "user", "content": escalation_msg})
-
-                opus_result = await call_brain(
-                    system_prompt=SYSTEM_PROMPT,
-                    messages=self.conversation,
-                    escalate=True,
-                )
-
-                if not opus_result["error"]:
-                    self.conversation.append({"role": "assistant", "content": opus_result["content"]})
-                    opus_decision = self._parse_decision(opus_result["content"], cycle, opus_result)
-                    # Opus has final say
-                    if opus_decision.action != "TRADE":
-                        logger.info(f"[Brain] Opus rejected trade: {opus_decision.reasoning}")
-                        decision = opus_decision
-                    else:
-                        decision.model = opus_result["model"]
-                        decision.latency_ms += opus_result["latency_ms"]
 
             self.status = "idle"
             self.last_decision = decision
