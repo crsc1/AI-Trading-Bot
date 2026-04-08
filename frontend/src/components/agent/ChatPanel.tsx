@@ -1,13 +1,30 @@
 import { type Component, For, Show, createSignal, onMount, onCleanup, createEffect } from 'solid-js';
+import { marked } from 'marked';
 import { agent, addMessage, updateBrain, setChatConnected } from '../../signals/agent';
 import { WSClient } from '../../lib/ws';
 import type { ChatMessage, BrainState } from '../../types/agent';
 
+// Configure marked for clean output
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
+
+function renderMarkdown(text: string): string {
+  try {
+    return marked.parse(text) as string;
+  } catch {
+    return text;
+  }
+}
+
 export const ChatPanel: Component = () => {
   const [input, setInput] = createSignal('');
   const [sending, setSending] = createSignal(false);
+  const [waiting, setWaiting] = createSignal(false);
   let chatWS: WSClient | null = null;
   let messagesEndRef: HTMLDivElement | undefined;
+  let inputRef: HTMLTextAreaElement | undefined;
 
   createEffect(() => {
     void agent.messages.length;
@@ -23,6 +40,7 @@ export const ChatPanel: Component = () => {
           case 'chat_message': {
             const msg = data.message as ChatMessage;
             addMessage(msg);
+            if (msg.role === 'brain') setWaiting(false);
             break;
           }
           case 'brain_state': {
@@ -38,15 +56,6 @@ export const ChatPanel: Component = () => {
               last_reasoning: decision.reasoning,
               model: decision.model,
               cycle_number: decision.cycle,
-            });
-            break;
-          }
-          case 'chat_queued': {
-            addMessage({
-              id: `sys-${Date.now()}`,
-              role: 'system',
-              content: 'Queued for next analysis cycle...',
-              timestamp: new Date().toISOString(),
             });
             break;
           }
@@ -68,13 +77,15 @@ export const ChatPanel: Component = () => {
     if (!text || !chatWS) return;
 
     setSending(true);
+    setWaiting(true);
     chatWS.send({
       type: 'chat',
       message: text,
-      immediate: true,
     });
     setInput('');
     setSending(false);
+    // Resize textarea back
+    if (inputRef) inputRef.style.height = '44px';
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -84,100 +95,132 @@ export const ChatPanel: Component = () => {
     }
   }
 
-  const roleColor = (role: string) => {
-    switch (role) {
-      case 'user': return 'text-accent';
-      case 'brain': return 'text-purple';
-      case 'system': return 'text-text-muted';
-      default: return 'text-text-secondary';
-    }
-  };
-
-  const roleLabel = (role: string) => {
-    switch (role) {
-      case 'user': return 'You';
-      case 'brain': return 'Market Brain';
-      case 'system': return 'System';
-      default: return role;
-    }
-  };
+  function autoResize(el: HTMLTextAreaElement) {
+    el.style.height = '44px';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }
 
   return (
     <div class="flex flex-col h-full">
       {/* Messages */}
-      <div class="flex-1 overflow-y-auto px-4 py-3 space-y-4 min-h-0">
+      <div class="flex-1 overflow-y-auto min-h-0">
         <Show when={agent.messages.length === 0}>
           <div class="flex items-center justify-center h-full">
-            <div class="text-center">
-              <div class="font-ai text-[12px] text-text-secondary mb-2">
-                Market Brain is ready
+            <div class="text-center px-6">
+              <div class="text-[20px] text-text-secondary mb-3" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-weight: 500;">
+                Market Brain
               </div>
-              <div class="font-ai text-[11px] text-text-muted">
-                Ask about market conditions, setups, or give trading instructions
+              <div class="text-[14px] text-text-muted leading-relaxed" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                Ask about market conditions, chart analysis, setups, or anything about the platform.
+                <br />Full Claude Code powers: file access, web search, codebase context.
               </div>
             </div>
           </div>
         </Show>
 
-        <For each={agent.messages}>
-          {(msg) => (
-            <div class={`${msg.role === 'user' ? 'pl-6' : ''}`}>
-              {/* Header row */}
-              <div class="flex items-center gap-2 mb-1">
-                <span class={`font-display text-[11px] font-medium ${roleColor(msg.role)}`}>
-                  {roleLabel(msg.role)}
-                </span>
-                <span class="font-data text-[11px] text-text-muted">
-                  {new Date(msg.timestamp).toLocaleTimeString('en-US', {
-                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-                  })}
-                </span>
-                <Show when={msg.metadata?.action && msg.metadata.action !== 'HOLD'}>
-                  <span class={`font-data text-[11px] px-1.5 py-0.5 rounded ${
-                    msg.metadata!.action === 'TRADE' ? 'bg-positive/15 text-positive' : 'bg-surface-3 text-text-secondary'
-                  }`}>
-                    {msg.metadata!.action}
-                  </span>
-                </Show>
+        <div class="max-w-[800px] mx-auto px-4 py-4 space-y-5">
+          <For each={agent.messages}>
+            {(msg) => (
+              <div class={msg.role === 'user' ? 'flex justify-end' : ''}>
+                <div class={`${msg.role === 'user' ? 'max-w-[85%]' : 'w-full'}`}>
+                  {/* User bubble */}
+                  <Show when={msg.role === 'user'}>
+                    <div class="bg-accent/10 border border-accent/20 rounded-lg px-4 py-3">
+                      <div class="chat-content text-[14px] text-text-primary leading-[1.6]"
+                           style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"
+                           innerHTML={renderMarkdown(msg.content)} />
+                    </div>
+                  </Show>
+
+                  {/* Brain response */}
+                  <Show when={msg.role === 'brain'}>
+                    <div class="py-1">
+                      <div class="flex items-center gap-2 mb-2">
+                        <span class="w-5 h-5 rounded-full bg-purple/20 flex items-center justify-center">
+                          <span class="text-purple text-[10px] font-bold">AI</span>
+                        </span>
+                        <span class="text-[12px] text-text-muted" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                          {new Date(msg.timestamp).toLocaleTimeString('en-US', {
+                            hour: '2-digit', minute: '2-digit', hour12: true,
+                          })}
+                        </span>
+                      </div>
+                      <div class="chat-content text-[14px] text-text-primary leading-[1.7] pl-7"
+                           style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"
+                           innerHTML={renderMarkdown(msg.content)} />
+                    </div>
+                  </Show>
+
+                  {/* System message */}
+                  <Show when={msg.role === 'system'}>
+                    <div class="text-center py-2">
+                      <span class="text-[13px] text-text-muted italic"
+                            style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                        {msg.content}
+                      </span>
+                    </div>
+                  </Show>
+                </div>
               </div>
-              {/* Content */}
-              <div class={`font-ai text-[12px] leading-[1.5] ${
-                msg.role === 'system'
-                  ? 'text-text-muted italic'
-                  : 'text-text-primary'
-              }`}>
-                {msg.content}
+            )}
+          </For>
+
+          {/* Thinking indicator */}
+          <Show when={waiting()}>
+            <div class="flex items-center gap-2 pl-7 py-2">
+              <span class="w-5 h-5 rounded-full bg-purple/20 flex items-center justify-center">
+                <span class="text-purple text-[10px] font-bold">AI</span>
+              </span>
+              <div class="flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-purple/50 animate-pulse" />
+                <span class="w-1.5 h-1.5 rounded-full bg-purple/50 animate-pulse" style="animation-delay: 0.2s" />
+                <span class="w-1.5 h-1.5 rounded-full bg-purple/50 animate-pulse" style="animation-delay: 0.4s" />
               </div>
+              <span class="text-[13px] text-text-muted" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                Thinking...
+              </span>
             </div>
-          )}
-        </For>
+          </Show>
+        </div>
 
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input area */}
-      <div class="px-4 py-3 border-t border-border-default bg-surface-1">
-        <div class="flex items-center gap-2">
-          <input
-            type="text"
-            value={input()}
-            onInput={(e) => setInput(e.currentTarget.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={agent.chatConnected ? 'Ask Market Brain...' : 'Connecting...'}
-            disabled={!agent.chatConnected || sending()}
-            class="flex-1 bg-surface-2 border border-purple/20 rounded px-3 py-2 font-ai text-[12px] text-text-primary placeholder:text-text-muted focus:border-purple/50 focus:outline-none disabled:opacity-40"
-          />
-          <button
-            onClick={sendMessage}
-            disabled={!agent.chatConnected || !input().trim() || sending()}
-            class="px-4 py-2 font-display text-[11px] font-medium bg-purple/80 text-white rounded hover:bg-purple disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            Send
-          </button>
-        </div>
-        <div class="flex items-center gap-2 mt-2 font-data text-[11px] text-text-muted">
-          <span class={`w-1.5 h-1.5 rounded-full ${agent.chatConnected ? 'bg-positive' : 'bg-negative'}`} />
-          <span>{agent.chatConnected ? 'Connected' : 'Disconnected'}</span>
+      <div class="border-t border-border-default bg-surface-1">
+        <div class="max-w-[800px] mx-auto px-4 py-3">
+          <div class="flex items-end gap-2 bg-surface-2 border border-purple/20 rounded-lg px-3 py-2 focus-within:border-purple/50 transition-colors">
+            <textarea
+              ref={inputRef}
+              value={input()}
+              onInput={(e) => {
+                setInput(e.currentTarget.value);
+                autoResize(e.currentTarget);
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder={agent.chatConnected ? 'Message Market Brain...' : 'Connecting...'}
+              disabled={!agent.chatConnected || sending()}
+              rows={1}
+              class="flex-1 bg-transparent text-[14px] text-text-primary placeholder:text-text-muted focus:outline-none disabled:opacity-40 resize-none"
+              style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; height: 44px; max-height: 120px; line-height: 1.5;"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!agent.chatConnected || !input().trim() || sending()}
+              class="shrink-0 w-8 h-8 flex items-center justify-center bg-purple/80 text-white rounded-lg hover:bg-purple disabled:opacity-30 disabled:cursor-not-allowed transition-colors mb-0.5"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
+          </div>
+          <div class="flex items-center gap-2 mt-1.5 px-1">
+            <span class={`w-1.5 h-1.5 rounded-full ${agent.chatConnected ? 'bg-positive' : 'bg-negative'}`} />
+            <span class="text-[12px] text-text-muted" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+              {agent.chatConnected ? 'Connected' : 'Disconnected'}
+            </span>
+          </div>
         </div>
       </div>
     </div>
