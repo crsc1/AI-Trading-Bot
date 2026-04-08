@@ -42,6 +42,7 @@ function getETOffset(unixSec: number): number {
 
 /** Convert UTC unix timestamp to "ET-shifted" timestamp for LWC display */
 function toETTime(unixSec: number): number {
+  if (!unixSec || !isFinite(unixSec)) return unixSec;
   return unixSec + getETOffset(unixSec);
 }
 
@@ -406,27 +407,26 @@ export const CandleChart: Component = () => {
 
     for (const id of activeIds()) {
       if (id === 'net-delta') continue;
-      let plots: { data: LineData<Time>[]; color: string; style: number; width: number }[] = [];
+      let plots: { data: LineData<Time>[]; color: string; style: number; width: number; label?: boolean }[] = [];
 
       if (id === 'vwap') {
-        plots = [{ data: toLineData(calcVWAP(candles)), color: '#00e5ff', style: 0, width: 2 }];
+        plots = [{ data: toLineData(calcVWAP(candles)), color: '#00e5ff', style: 0, width: 2, label: true }];
       } else if (id === 'vwap-bands') {
         const vb = calcVWAPBands(candles);
         plots = [
-          { data: toLineData(vb.vwap), color: '#00e5ff', style: 0, width: 2 },
-          { data: toLineData(vb.upper1), color: 'rgba(0,229,255,0.4)', style: 2, width: 1 },
-          { data: toLineData(vb.lower1), color: 'rgba(0,229,255,0.4)', style: 2, width: 1 },
-          { data: toLineData(vb.upper2), color: 'rgba(0,229,255,0.25)', style: 3, width: 1 },
-          { data: toLineData(vb.lower2), color: 'rgba(0,229,255,0.25)', style: 3, width: 1 },
+          { data: toLineData(vb.vwap), color: '#00e5ff', style: 0, width: 2, label: true },
+          { data: toLineData(vb.upper1), color: '#42a5f5', style: 2, width: 1, label: true },
+          { data: toLineData(vb.lower1), color: '#42a5f5', style: 2, width: 1, label: true },
+          { data: toLineData(vb.upper2), color: '#7e57c2', style: 3, width: 1, label: true },
+          { data: toLineData(vb.lower2), color: '#7e57c2', style: 3, width: 1, label: true },
         ];
       } else if (id === 'prev-day-vwap') {
         const pv = calcPrevDayVWAP(candles);
         if (pv) {
-          // Horizontal line across today's session at prev day's VWAP level
           const lineData = candles
             .filter(c => c.time >= pv.startTime)
             .map(c => ({ time: c.time, value: pv.value }));
-          plots = [{ data: toLineData(lineData), color: '#ffb300', style: 2, width: 1 }];
+          plots = [{ data: toLineData(lineData), color: '#ffb300', style: 2, width: 2, label: true }];
         }
       } else if (id === 'bollinger-bands') {
         const bb = calcBB(candles, 20, 2);
@@ -452,9 +452,14 @@ export const CandleChart: Component = () => {
       }
 
       for (const p of plots) {
+        const showLabel = (p as any).label === true;
         const s = chart.addSeries(LineSeries, {
           color: p.color, lineWidth: p.width as any, lineStyle: p.style,
-          crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
+          crosshairMarkerVisible: false,
+          lastValueVisible: showLabel,
+          priceLineVisible: showLabel,
+          priceLineStyle: p.style || 0,
+          priceLineColor: p.color,
         });
         s.setData(p.data as any);
         overlaySeries.push(s);

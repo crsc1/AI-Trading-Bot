@@ -210,10 +210,8 @@ export function initDataLayer() {
       }
     },
     onConnect: () => {
-      // SIP connected — we can consider this as connected too
       if (!engineWS?.connected) setConnected(true);
-      // Re-fetch candles and quote on reconnect (data may have gone stale)
-      loadCandles();
+      // Only refresh quote on reconnect, not full candle reload (prevents chart drift)
       loadQuote();
     },
     onDisconnect: () => {
@@ -229,11 +227,11 @@ export function initDataLayer() {
   loadCandles();
   loadQuote();
 
-  // Refresh data when user returns to the tab (WS may have been throttled)
+  // Refresh quote when user returns to the tab (WS may have been throttled)
+  // Don't reload candles — pages are permanent, chart stays alive, WS reconnects
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      console.log('[Data] Tab visible — refreshing candles + quote');
-      loadCandles();
+      console.log('[Data] Tab visible — refreshing quote');
       loadQuote();
     } else {
       console.log('[Data] Tab hidden — WS may be throttled by browser');
