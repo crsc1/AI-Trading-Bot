@@ -50,7 +50,7 @@ export const ResearchFeed: Component = () => {
 
   return (
     <div class="flex flex-col h-full">
-      <div class="px-2 py-1.5 text-text-secondary text-[9px] font-semibold tracking-wider border-b border-border-default flex items-center justify-between">
+      <div class="px-2 py-1.5 font-display text-text-secondary text-[9px] font-medium tracking-wider border-b border-border-default flex items-center justify-between">
         <span>RESEARCH</span>
         <Show when={agent.findings.length > 0}>
           <span class="text-[7px] text-text-muted">{agent.findings.length} findings</span>

@@ -1,250 +1,319 @@
-import { type Component, createEffect, createSignal, createMemo, on, Show } from 'solid-js';
-import { TimeChart } from '@dschz/solid-lightweight-charts';
-import type { ISeriesApi, Time, CandlestickData, HistogramData, LineData } from 'lightweight-charts';
+/**
+ * CandleChart — Direct lightweight-charts integration (no wrapper).
+ *
+ * Uses LWC v5 native multi-pane: candles in pane 0, volume in pane 1.
+ * The chart handles separator rendering, crosshair sync, and scroll sync
+ * automatically. No CSS hacks needed.
+ */
+import { type Component, createEffect, createSignal, on, Show, onMount, onCleanup } from 'solid-js';
+import {
+  createChart, CandlestickSeries, LineSeries, HistogramSeries,
+  type IChartApi, type ISeriesApi, type Time, type CandlestickData,
+  type HistogramData, type LineData, type SeriesMarker, type MouseEventParams,
+} from 'lightweight-charts';
 import { market } from '../../signals/market';
-import { chartTheme, indicatorColors } from '../../lib/theme';
-import { calcEMA, calcSMA, calcBB, calcRSI, calcVWAP } from '../../lib/indicators';
+import { signals } from '../../signals/signals';
+import { chartTheme } from '../../lib/theme';
+import { calcVWAP, calcBB } from '../../lib/indicators';
 import type { Candle } from '../../types/market';
-import { ChartControls } from './ChartControls';
+import { ChartControls, getIndicatorColor } from './ChartControls';
+import { ChartLegend } from './ChartLegend';
+import { findIndicator } from '../../lib/indicatorRegistry';
 
-// Convert our candles to LWC candlestick format
-function toCandlestickData(candles: Candle[]): CandlestickData<Time>[] {
-  return candles.map((c) => ({
-    time: c.time as Time,
-    open: c.open,
-    high: c.high,
-    low: c.low,
-    close: c.close,
-  }));
+function toCandlestick(c: Candle): CandlestickData<Time> {
+  return { time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close };
 }
-
-// Convert our candles to LWC volume histogram format
-function toVolumeData(candles: Candle[]): HistogramData<Time>[] {
-  return candles.map((c) => ({
-    time: c.time as Time,
-    value: c.volume,
-    color: c.close >= c.open ? chartTheme.volumeUp : chartTheme.volumeDown,
-  }));
+function toVolume(c: Candle): HistogramData<Time> {
+  return { time: c.time as Time, value: c.volume, color: c.close >= c.open ? chartTheme.volumeUp : chartTheme.volumeDown };
 }
-
-// Convert indicator data to LWC line format
 function toLineData(data: { time: number; value: number }[]): LineData<Time>[] {
-  return data.map((d) => ({ time: d.time as Time, value: d.value }));
+  return data.map(d => ({ time: d.time as Time, value: d.value }));
 }
 
 export const CandleChart: Component = () => {
+  let containerRef: HTMLDivElement | undefined;
+  let chart: IChartApi | undefined;
   let candleSeries: ISeriesApi<'Candlestick'> | undefined;
   let volumeSeries: ISeriesApi<'Histogram'> | undefined;
+  let overlaySeries: ISeriesApi<any>[] = [];
+  let dataLoaded = false;
+  let lastBarCount = 0;
 
-  // Which indicators are enabled
-  const [indicators, setIndicators] = createSignal<Set<string>>(
-    new Set(['ema9', 'ema21', 'vwap'])
+  const savedIds = (() => {
+    try {
+      const stored = localStorage.getItem('chart-indicators');
+      if (stored) return new Set<string>(JSON.parse(stored));
+    } catch {}
+    return new Set<string>();
+  })();
+  const [activeIds, setActiveIds] = createSignal<Set<string>>(savedIds);
+  const [priceScaleMode, setPriceScaleMode] = createSignal(
+    (() => { try { return parseInt(localStorage.getItem('chart-price-scale') || '0'); } catch { return 0; } })()
   );
+  const [crosshairData, setCrosshairData] = createSignal<string | null>(null);
 
   const toggleIndicator = (id: string) => {
-    setIndicators((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    setActiveIds(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      try { localStorage.setItem('chart-indicators', JSON.stringify([...n])); } catch {}
+      return n;
     });
   };
+  const cyclePriceScale = () => {
+    const next = (priceScaleMode() + 1) % 3;
+    setPriceScaleMode(next);
+    chart?.priceScale('right').applyOptions({ mode: next });
+    try { localStorage.setItem('chart-price-scale', String(next)); } catch {}
+  };
 
-  // Compute indicator data from candles
-  const candleData = createMemo(() => toCandlestickData(market.candles));
-  const volumeData = createMemo(() => toVolumeData(market.candles));
+  // ── Create chart once on mount ───────────────────────────────────────
 
-  const ema9Data = createMemo(() => (indicators().has('ema9') ? toLineData(calcEMA(market.candles, 9)) : []));
-  const ema21Data = createMemo(() => (indicators().has('ema21') ? toLineData(calcEMA(market.candles, 21)) : []));
-  const sma50Data = createMemo(() => (indicators().has('sma50') ? toLineData(calcSMA(market.candles, 50)) : []));
-  const vwapData = createMemo(() => (indicators().has('vwap') ? toLineData(calcVWAP(market.candles)) : []));
-  const bbData = createMemo(() => {
-    if (!indicators().has('bb')) return { upper: [], lower: [] };
-    const bb = calcBB(market.candles, 20, 2);
-    return { upper: toLineData(bb.upper), lower: toLineData(bb.lower) };
+  onMount(() => {
+    if (!containerRef) return;
+
+    chart = createChart(containerRef, {
+      autoSize: true,
+      layout: {
+        background: { color: chartTheme.background },
+        textColor: chartTheme.textColor,
+        fontFamily: chartTheme.fontFamily,
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { color: chartTheme.gridColor },
+        horzLines: { color: chartTheme.gridColor },
+      },
+      crosshair: {
+        mode: 0,
+        vertLine: { color: chartTheme.crosshairColor, width: 1, style: 3 },
+        horzLine: { color: chartTheme.crosshairColor, width: 1, style: 3 },
+      },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        borderColor: chartTheme.gridColor,
+        rightOffset: 5,
+        barSpacing: 8,
+        minBarSpacing: 4,
+        shiftVisibleRangeOnNewBar: false,
+        lockVisibleTimeRangeOnResize: true,
+      },
+      rightPriceScale: {
+        borderColor: chartTheme.gridColor,
+        minimumWidth: 65,
+      },
+    });
+
+    // ── Pane 0: Price candles ────────────────────────────────────────
+    candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: chartTheme.upColor,
+      downColor: chartTheme.downColor,
+      wickUpColor: chartTheme.upWickColor,
+      wickDownColor: chartTheme.downWickColor,
+      borderVisible: false,
+    });
+
+    // ── Pane 1: Volume bars (separate pane via third argument) ───────
+    volumeSeries = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: 'volume' },
+      lastValueVisible: false,
+      priceLineVisible: false,
+    }, 1);
+
+    // Set pane sizes: 80% price, 20% volume
+    const panes = chart.panes();
+    if (panes.length >= 2) {
+      panes[0].setStretchFactor(0.8);
+      panes[1].setStretchFactor(0.2);
+    }
+
+    // Crosshair handler
+    let lastCH = 0;
+    chart.subscribeCrosshairMove((param: MouseEventParams<Time>) => {
+      if (!param.time || !param.point) { setCrosshairData(null); return; }
+      const now = performance.now();
+      if (now - lastCH < 100) return;
+      lastCH = now;
+      const c = market.candles.find(c => c.time === (param.time as number));
+      if (c) setCrosshairData(`O ${c.open.toFixed(2)}  H ${c.high.toFixed(2)}  L ${c.low.toFixed(2)}  C ${c.close.toFixed(2)}  V ${(c.volume / 1000).toFixed(0)}K`);
+    });
+
+    // Load data if already available
+    loadInitialData();
   });
-  const rsiData = createMemo(() => (indicators().has('rsi') ? toLineData(calcRSI(market.candles, 14)) : []));
 
-  // Update current candle in real-time
-  createEffect(
-    on(
-      () => market.currentCandle,
-      (candle) => {
-        if (!candle || !candleSeries) return;
-        candleSeries.update({
-          time: candle.time as Time,
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-        });
-        if (volumeSeries) {
-          volumeSeries.update({
-            time: candle.time as Time,
-            value: candle.volume,
-            color: candle.close >= candle.open ? chartTheme.volumeUp : chartTheme.volumeDown,
-          });
-        }
+  onCleanup(() => {
+    if (chart) { chart.remove(); chart = undefined; }
+    candleSeries = undefined;
+    volumeSeries = undefined;
+    overlaySeries = [];
+  });
+
+  // ── Load initial historical data (called once) ───────────────────────
+
+  function loadInitialData() {
+    if (dataLoaded || !candleSeries || !volumeSeries) return;
+    const candles = market.candles;
+    if (candles.length === 0) return;
+
+    candleSeries.setData(candles.map(toCandlestick));
+    volumeSeries.setData(candles.map(toVolume));
+    lastBarCount = candles.length;
+    dataLoaded = true;
+
+    // Set signal markers
+    updateMarkers();
+    // Build overlay indicators
+    rebuildIndicators();
+  }
+
+  // ── React to candles arriving (for initial load timing) ──────────────
+
+  createEffect(on(
+    () => market.candles.length,
+    (len) => {
+      if (!dataLoaded) { loadInitialData(); return; }
+      // New bar appended
+      if (len > lastBarCount && candleSeries && volumeSeries) {
+        const c = market.candles[len - 1];
+        candleSeries.update(toCandlestick(c));
+        volumeSeries.update(toVolume(c));
+        lastBarCount = len;
+        scheduleIndicatorRebuild();
       }
-    )
-  );
+    }
+  ));
+
+  // ── Live tick update: 1 per animation frame ──────────────────────────
+
+  let rafPending = false;
+  createEffect(on(
+    () => market.lastPrice,
+    () => {
+      if (!dataLoaded) { loadInitialData(); return; }
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => {
+        rafPending = false;
+        const c = market.currentCandle;
+        if (!c || !candleSeries) return;
+        candleSeries.update(toCandlestick(c));
+        volumeSeries?.update(toVolume(c));
+      });
+    }
+  ));
+
+  // ── Signal markers ───────────────────────────────────────────────────
+
+  function updateMarkers() {
+    if (!candleSeries) return;
+    const hist = signals.history;
+    if (!hist || hist.length === 0) return;
+    const markers: SeriesMarker<Time>[] = hist
+      .filter(s => s.action !== 'NO_TRADE' && s.timestamp)
+      .slice(0, 50)
+      .map(s => {
+        const ts = Math.floor(new Date(s.timestamp).getTime() / 1000) as Time;
+        const isBuy = s.action === 'BUY_CALL';
+        return {
+          time: ts,
+          position: isBuy ? 'belowBar' as const : 'aboveBar' as const,
+          color: isBuy ? '#00C805' : '#FF5000',
+          shape: isBuy ? 'arrowUp' as const : 'arrowDown' as const,
+          text: `${isBuy ? 'CALL' : 'PUT'} $${s.strike}`,
+        };
+      })
+      .sort((a, b) => (a.time as number) - (b.time as number));
+    (candleSeries as any).setMarkers(markers);
+  }
+
+  // ── Overlay indicators (imperative) ──────────────────────────────────
+
+  let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleIndicatorRebuild() {
+    if (rebuildTimer) return;
+    rebuildTimer = setTimeout(() => { rebuildTimer = null; rebuildIndicators(); }, 1000);
+  }
+  onCleanup(() => { if (rebuildTimer) clearTimeout(rebuildTimer); });
+
+  // Rebuild when active indicator set changes
+  createEffect(on(() => [...activeIds()].sort().join(','), () => rebuildIndicators()));
+
+  function rebuildIndicators() {
+    if (!chart || market.candles.length === 0) return;
+    const candles = market.candles;
+
+    // Remove old
+    for (const s of overlaySeries) { try { chart.removeSeries(s); } catch {} }
+    overlaySeries = [];
+
+    for (const id of activeIds()) {
+      if (id === 'net-delta') continue;
+      let plots: { data: LineData<Time>[]; color: string; style: number; width: number }[] = [];
+
+      if (id === 'vwap') {
+        plots = [{ data: toLineData(calcVWAP(candles)), color: '#00e5ff', style: 0, width: 2 }];
+      } else if (id === 'bollinger-bands') {
+        const bb = calcBB(candles, 20, 2);
+        plots = [
+          { data: toLineData(bb.upper), color: 'rgba(66,165,245,0.4)', style: 2, width: 1 },
+          { data: toLineData(bb.lower), color: 'rgba(66,165,245,0.4)', style: 2, width: 1 },
+        ];
+      } else {
+        const info = findIndicator(id);
+        if (!info || !info.overlay) continue;
+        try {
+          const result = info.module.calculate(candles);
+          if (!result?.plots) continue;
+          const baseColor = getIndicatorColor(id);
+          let pi = 0;
+          for (const [, pd] of Object.entries(result.plots)) {
+            const arr = (pd as any[]).filter(d => d.value != null && isFinite(d.value));
+            if (arr.length === 0) continue;
+            plots.push({ data: toLineData(arr), color: pi === 0 ? baseColor : shiftHue(baseColor, pi * 40), style: pi > 0 ? 2 : 0, width: 1 });
+            pi++;
+          }
+        } catch { continue; }
+      }
+
+      for (const p of plots) {
+        const s = chart.addSeries(LineSeries, {
+          color: p.color, lineWidth: p.width as any, lineStyle: p.style,
+          crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
+        });
+        s.setData(p.data as any);
+        overlaySeries.push(s);
+      }
+    }
+  }
 
   return (
     <div class="flex flex-col h-full min-h-0">
-      <ChartControls indicators={indicators()} onToggle={toggleIndicator} />
+      <ChartControls indicators={activeIds()} onToggle={toggleIndicator}
+        priceScaleMode={priceScaleMode()} onCyclePriceScale={cyclePriceScale} />
 
       <div class="flex-1 min-h-0 relative overflow-hidden">
-        <TimeChart
-          autoSize
-          layout={{
-            background: { color: chartTheme.background },
-            textColor: chartTheme.textColor,
-            fontFamily: "'SF Mono', 'Menlo', 'Consolas', monospace",
-            fontSize: 10,
-          }}
-          grid={{
-            vertLines: { color: chartTheme.gridColor },
-            horzLines: { color: chartTheme.gridColor },
-          }}
-          crosshair={{
-            mode: 0, // Normal
-            vertLine: { color: chartTheme.crosshairColor, width: 1, style: 3 },
-            horzLine: { color: chartTheme.crosshairColor, width: 1, style: 3 },
-          }}
-          timeScale={{
-            timeVisible: true,
-            secondsVisible: false,
-            borderColor: chartTheme.gridColor,
-          }}
-          rightPriceScale={{
-            borderColor: chartTheme.gridColor,
-          }}
-          onCreateChart={(_chart) => {
-            // Chart ref available for future use (drawing tools, etc.)
-          }}
-        >
-          {/* Candlestick Series */}
-          <TimeChart.Series
-            type="Candlestick"
-            data={candleData()}
-            upColor={chartTheme.upColor}
-            downColor={chartTheme.downColor}
-            wickUpColor={chartTheme.upWickColor}
-            wickDownColor={chartTheme.downWickColor}
-            borderVisible={false}
-            onCreateSeries={(s) => { candleSeries = s; }}
-          />
+        <ChartLegend indicators={activeIds()} onRemove={toggleIndicator} />
+        <Show when={crosshairData()}>
+          <div class="absolute top-2 right-16 z-10 px-2 py-1 rounded bg-surface-0/80 pointer-events-none" style={{ "min-width": "320px" }}>
+            <span class="font-data text-[10px] text-text-secondary tabular-nums">{crosshairData()}</span>
+          </div>
+        </Show>
 
-          {/* EMA 9 */}
-          <TimeChart.Series
-            type="Line"
-            data={ema9Data()}
-            color={indicatorColors.ema9}
-            lineWidth={1}
-            crosshairMarkerVisible={false}
-            lastValueVisible={false}
-            priceLineVisible={false}
-          />
-
-          {/* EMA 21 */}
-          <TimeChart.Series
-            type="Line"
-            data={ema21Data()}
-            color={indicatorColors.ema21}
-            lineWidth={1}
-            crosshairMarkerVisible={false}
-            lastValueVisible={false}
-            priceLineVisible={false}
-          />
-
-          {/* SMA 50 */}
-          <TimeChart.Series
-            type="Line"
-            data={sma50Data()}
-            color={indicatorColors.sma50}
-            lineWidth={1}
-            crosshairMarkerVisible={false}
-            lastValueVisible={false}
-            priceLineVisible={false}
-          />
-
-          {/* VWAP */}
-          <TimeChart.Series
-            type="Line"
-            data={vwapData()}
-            color={indicatorColors.vwap}
-            lineWidth={2}
-            lineStyle={0}
-            crosshairMarkerVisible={false}
-            lastValueVisible={false}
-            priceLineVisible={false}
-          />
-
-          {/* Bollinger Upper */}
-          <TimeChart.Series
-            type="Line"
-            data={bbData().upper}
-            color={indicatorColors.bbUpper}
-            lineWidth={1}
-            lineStyle={2}
-            crosshairMarkerVisible={false}
-            lastValueVisible={false}
-            priceLineVisible={false}
-          />
-
-          {/* Bollinger Lower */}
-          <TimeChart.Series
-            type="Line"
-            data={bbData().lower}
-            color={indicatorColors.bbLower}
-            lineWidth={1}
-            lineStyle={2}
-            crosshairMarkerVisible={false}
-            lastValueVisible={false}
-            priceLineVisible={false}
-          />
-
-          {/* Volume — separate pane */}
-          <TimeChart.Pane>
-            <TimeChart.Series
-              type="Histogram"
-              data={volumeData()}
-              priceFormat={{ type: 'volume' }}
-              priceScaleId="volume"
-              onCreateSeries={(s) => {
-                volumeSeries = s;
-                s.priceScale().applyOptions({
-                  scaleMargins: { top: 0.3, bottom: 0 },
-                });
-              }}
-            />
-          </TimeChart.Pane>
-
-          {/* RSI — separate pane, only rendered when enabled */}
-          <Show when={indicators().has('rsi') && rsiData().length > 0}>
-            <TimeChart.Pane>
-              <TimeChart.Series
-                type="Line"
-                data={rsiData()}
-                color={indicatorColors.rsi}
-                lineWidth={1}
-                priceScaleId="rsi"
-                lastValueVisible={true}
-                priceLineVisible={false}
-                onCreateSeries={(s) => {
-                  s.priceScale().applyOptions({
-                    scaleMargins: { top: 0.1, bottom: 0.1 },
-                    autoScale: true,
-                  });
-                  s.createPriceLine({ price: 70, color: 'rgba(255,80,0,0.3)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
-                  s.createPriceLine({ price: 30, color: 'rgba(0,200,5,0.3)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
-                  s.createPriceLine({ price: 50, color: 'rgba(255,255,255,0.08)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
-                }}
-              />
-            </TimeChart.Pane>
-          </Show>
-        </TimeChart>
+        <div ref={containerRef} class="w-full h-full" />
       </div>
     </div>
   );
 };
+
+function shiftHue(hex: string, deg: number): string {
+  const r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  let h = 0, s = 0; const l = (mx + mn) / 2;
+  if (mx !== mn) { const d = mx - mn; s = l > .5 ? d / (2 - mx - mn) : d / (mx + mn); if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6; else if (mx === g) h = ((b - r) / d + 2) / 6; else h = ((r - g) / d + 4) / 6; }
+  h = ((h * 360 + deg) % 360) / 360; if (h < 0) h += 1;
+  const h2r = (p: number, q: number, t: number) => { if (t < 0) t += 1; if (t > 1) t -= 1; if (t < 1 / 6) return p + (q - p) * 6 * t; if (t < 1 / 2) return q; if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6; return p; };
+  const q = l < .5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  return `#${Math.round(h2r(p, q, h + 1 / 3) * 255).toString(16).padStart(2, '0')}${Math.round(h2r(p, q, h) * 255).toString(16).padStart(2, '0')}${Math.round(h2r(p, q, h - 1 / 3) * 255).toString(16).padStart(2, '0')}`;
+}

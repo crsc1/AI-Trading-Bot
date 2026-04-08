@@ -21,7 +21,7 @@ export const api = {
     }),
 
   // Market data
-  getBars: (symbol: string, timeframe: string, limit = 500) =>
+  getBars: (symbol: string, timeframe: string, limit = 1000) =>
     request<{ bars: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> }>(
       `/api/bars?symbol=${symbol}&timeframe=${timeframe}&limit=${limit}`
     ),
@@ -44,10 +44,12 @@ export const api = {
   exitPosition: (id: string) => request<any>(`/api/pm/exit`, { method: 'POST', body: JSON.stringify({ id }) }),
 
   // Order flow
-  getFlowClouds: (symbol: string, minutes = 5) =>
-    request<{ clouds: any[]; bars_summary: any[]; meta: any }>(
-      `/api/orderflow/clouds?symbol=${symbol}&bar_minutes=${minutes}`
-    ),
+  getFlowClouds: (symbol: string, minutes = 1) => {
+    const today = new Date().toISOString().split('T')[0];
+    return request<{ clouds: any[]; bars_summary: any[]; meta: any }>(
+      `/api/orderflow/clouds?symbol=${symbol}&bar_minutes=${minutes}&date=${today}`
+    );
+  },
 
   // GEX
   getGex: () => request<any>('/api/signals/gex'),

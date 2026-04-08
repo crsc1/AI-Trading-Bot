@@ -1,14 +1,21 @@
 import { createStore } from 'solid-js/store';
 import type { MarketState, Candle, Tick, Quote, Timeframe } from '../types/market';
 
+function loadPref<T>(key: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? JSON.parse(v) : fallback;
+  } catch { return fallback; }
+}
+
 const initialState: MarketState = {
-  symbol: 'SPY',
+  symbol: loadPref('chart-symbol', 'SPY'),
   lastPrice: 0,
   lastTick: null,
   candles: [],
   currentCandle: null,
   quote: null,
-  timeframe: '5Min',
+  timeframe: loadPref('chart-timeframe', '5Min'),
   connected: false,
 };
 
@@ -52,6 +59,12 @@ export function updateQuote(quote: Quote) {
 
 export function setTimeframe(tf: Timeframe) {
   setMarket('timeframe', tf);
+  try { localStorage.setItem('chart-timeframe', JSON.stringify(tf)); } catch {}
+}
+
+export function setSymbol(symbol: string) {
+  setMarket('symbol', symbol);
+  try { localStorage.setItem('chart-symbol', JSON.stringify(symbol)); } catch {}
 }
 
 export function setConnected(connected: boolean) {

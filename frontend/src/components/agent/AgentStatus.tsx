@@ -12,9 +12,9 @@ export const AgentStatus: Component = () => {
   const brain = () => agent.brain;
 
   return (
-    <div class="p-2 border-b border-border-default">
+    <div class="p-2 border-b border-border-default font-ai">
       <div class="flex items-center justify-between mb-1">
-        <span class="text-text-secondary text-[9px] font-semibold tracking-wider">MARKET BRAIN</span>
+        <span class="font-display text-purple text-[9px] font-medium tracking-wider">MARKET BRAIN</span>
         <span class={`text-[8px] px-1.5 py-0.5 rounded ${
           brain().status === 'analyzing' ? 'bg-positive/15 text-positive' :
           brain().status === 'trading' ? 'bg-warning/15 text-warning' :

@@ -1,7 +1,8 @@
-/** Chart theme constants matching our design tokens */
+/** Chart theme constants matching our design tokens (see DESIGN.md) */
 export const chartTheme = {
   background: '#0a0a12',
   textColor: '#6e6e88',
+  fontFamily: "'Geist Mono', 'SF Mono', 'Menlo', monospace",
   gridColor: 'rgba(255,255,255,0.03)',
 
   upColor: '#00C805',
@@ -29,4 +30,7 @@ export const indicatorColors = {
   macdLine: '#42a5f5',
   macdSignal: '#ff7043',
   macdHist: '#00C805',
+  atr: '#26a69a',
+  stochK: '#ef5350',
+  stochD: '#42a5f5',
 };

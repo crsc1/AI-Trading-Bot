@@ -37,7 +37,7 @@ export const PositionPanel: Component = () => {
   return (
     <div class="flex flex-col h-full">
       <div class="px-2 py-1.5 flex items-center justify-between border-b border-border-default">
-        <span class="text-text-secondary text-[9px] font-semibold tracking-wider">POSITIONS</span>
+        <span class="font-display text-text-secondary text-[9px] font-medium tracking-wider">POSITIONS</span>
         <div class="flex items-center gap-2 text-[8px]">
           <span class={pnlColor(signals.daily.total_pnl)}>
             {pnlSign(signals.daily.total_pnl)}${signals.daily.total_pnl.toFixed(2)}

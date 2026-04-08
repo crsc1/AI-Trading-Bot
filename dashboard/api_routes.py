@@ -363,9 +363,9 @@ async def _fetch_alpaca_bars(symbol: str, timeframe: str, limit: int, feed: str)
     elif alpaca_tf == "15Min":
         start_dt = datetime.now() - timedelta(days=min(limit // 26 + 2, 30))
     elif alpaca_tf == "5Min":
-        start_dt = datetime.now() - timedelta(days=min(limit // 78 + 2, 14))
+        start_dt = datetime.now() - timedelta(days=min(limit // 78 + 3, 30))
     else:  # 1Min
-        start_dt = datetime.now() - timedelta(days=min(limit // 390 + 2, 7))
+        start_dt = datetime.now() - timedelta(days=min(limit // 390 + 3, 14))
 
     start = start_dt.strftime("%Y-%m-%dT00:00:00Z")
 

@@ -49,7 +49,7 @@ const COLORS = {
   positive: '#00C805',
   negative: '#FF5000',
   warning: '#ffb300',
-  fontFamily: '"SF Mono", Menlo, monospace',
+  fontFamily: '"Geist Mono", "SF Mono", Menlo, monospace',
 };
 
 /**

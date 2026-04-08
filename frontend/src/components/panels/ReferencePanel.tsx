@@ -16,7 +16,7 @@ const GexPanel: Component = () => {
 
   return (
     <div class="p-3 h-full flex flex-col">
-      <div class="text-[10px] font-semibold text-accent mb-2">GEX EXPOSURE</div>
+      <div class="font-display text-[10px] font-medium text-accent mb-2">GEX EXPOSURE</div>
       <Show when={gex()} fallback={<div class="text-text-muted text-[9px]">Loading GEX data...</div>}>
         {(data) => {
           const d = data();
@@ -83,7 +83,7 @@ interface DataItem {
 const DataGrid: Component<{ title: string; items: DataItem[]; loading?: boolean }> = (props) => {
   return (
     <div class="p-3 h-full flex flex-col">
-      <div class="text-[10px] font-semibold text-accent mb-2">{props.title}</div>
+      <div class="font-display text-[10px] font-medium text-accent mb-2">{props.title}</div>
       <Show when={!props.loading} fallback={<div class="text-text-muted text-[9px]">Loading...</div>}>
         <div class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[9px]">
           <For each={props.items}>
@@ -105,7 +105,7 @@ const DataGrid: Component<{ title: string; items: DataItem[]; loading?: boolean 
 const VolumeProfilePanel: Component = () => {
   return (
     <div class="p-3 h-full flex flex-col">
-      <div class="text-[10px] font-semibold text-accent mb-2">VOLUME PROFILE</div>
+      <div class="font-display text-[10px] font-medium text-accent mb-2">VOLUME PROFILE</div>
       <div class="flex-1 flex items-center justify-center text-text-muted text-[9px]">
         Volume profile visualization renders in the order flow chart.
         <br />See the price ladder on the right side of the flow chart.
@@ -149,7 +149,7 @@ const GreeksSurfacePanel: Component = () => {
 const SectorPanel: Component = () => {
   return (
     <div class="p-3 h-full flex flex-col">
-      <div class="text-[10px] font-semibold text-accent mb-2">SECTOR ROTATION</div>
+      <div class="font-display text-[10px] font-medium text-accent mb-2">SECTOR ROTATION</div>
       <div class="flex-1 flex items-center justify-center text-text-muted text-[9px]">
         Sector data available via /api/signals config.
         <br />Requires sector_monitor data provider.
@@ -163,7 +163,7 @@ const SectorPanel: Component = () => {
 const MarketInternalsPanel: Component = () => {
   return (
     <div class="p-3 h-full flex flex-col">
-      <div class="text-[10px] font-semibold text-accent mb-2">MARKET INTERNALS</div>
+      <div class="font-display text-[10px] font-medium text-accent mb-2">MARKET INTERNALS</div>
       <div class="flex-1 flex items-center justify-center text-text-muted text-[9px]">
         TICK, ADD, VOLD breadth data.
         <br />Requires market_internals data provider.
@@ -177,7 +177,7 @@ const MarketInternalsPanel: Component = () => {
 const CalendarPanel: Component = () => {
   return (
     <div class="p-3 h-full flex flex-col">
-      <div class="text-[10px] font-semibold text-accent mb-2">ECONOMIC CALENDAR</div>
+      <div class="font-display text-[10px] font-medium text-accent mb-2">ECONOMIC CALENDAR</div>
       <div class="flex-1 flex items-center justify-center text-text-muted text-[9px]">
         Event calendar available via event_calendar provider.
       </div>

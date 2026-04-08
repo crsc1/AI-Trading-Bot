@@ -47,7 +47,7 @@ export const SignalPanel: Component = () => {
 
   return (
     <div class="flex flex-col h-full">
-      <div class="px-2 py-1.5 text-text-secondary text-[9px] font-semibold tracking-wider border-b border-border-default">
+      <div class="px-2 py-1.5 font-display text-text-secondary text-[9px] font-medium tracking-wider border-b border-border-default">
         SIGNALS
       </div>
 

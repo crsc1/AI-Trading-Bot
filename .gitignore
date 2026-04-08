@@ -34,10 +34,14 @@ flow-engine/target/
 
 # ── Logs & databases ──────────────────────────────────────────
 logs/
+data/session_logs/
 *.log
 *.db
 *.sqlite
 *.sqlite3
+
+# ── Local context (browser extension, etc.) ──────────────────
+.context/
 
 # ── IDE / editor ──────────────────────────────────────────────
 .idea/

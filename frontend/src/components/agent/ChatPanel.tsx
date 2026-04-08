@@ -105,7 +105,7 @@ export const ChatPanel: Component = () => {
   };
 
   return (
-    <div class="flex flex-col h-full">
+    <div class="flex flex-col h-full font-ai">
       {/* Messages */}
       <div class="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
         <Show when={agent.messages.length === 0}>
@@ -157,7 +157,7 @@ export const ChatPanel: Component = () => {
             onKeyDown={handleKeyDown}
             placeholder={agent.chatConnected ? 'Ask Market Brain...' : 'Connecting...'}
             disabled={!agent.chatConnected || sending()}
-            class="flex-1 bg-surface-2 border border-border-default rounded px-2 py-1 text-[10px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none disabled:opacity-40"
+            class="flex-1 bg-surface-2 border border-purple/20 rounded px-2 py-1 text-[10px] text-text-primary placeholder:text-text-muted focus:border-purple/50 focus:outline-none disabled:opacity-40"
           />
           <button
             onClick={sendMessage}

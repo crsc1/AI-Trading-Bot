@@ -9,6 +9,7 @@ export interface WSConfig {
   onDisconnect?: () => void;
   maxRetries?: number;
   encoding?: 'json' | 'protobuf';
+  skipTypes?: string[];  // Skip messages containing these strings (pre-JSON.parse filter)
 }
 
 export class WSClient {
@@ -41,10 +42,17 @@ export class WSClient {
       this.ws.onmessage = (event) => {
         try {
           if (this.config.encoding === 'json') {
-            const data = JSON.parse(event.data);
+            // Fast pre-filter: skip high-frequency messages we don't use.
+            // Avoids JSON.parse() overhead on ~2,400 theta_quote messages/sec.
+            const raw = event.data as string;
+            if (this.config.skipTypes) {
+              for (const skip of this.config.skipTypes) {
+                if (raw.indexOf(skip) < 20 && raw.indexOf(skip) >= 0) return;
+              }
+            }
+            const data = JSON.parse(raw);
             this.config.onMessage(data);
           } else {
-            // Protobuf decode path — will be implemented when backend adds support
             this.config.onMessage(event.data);
           }
         } catch (e) {

@@ -1,13 +1,14 @@
 /**
- * Order Flow Chart — SolidJS wrapper for Canvas 2D + PixiJS GPU rendering.
+ * Order Flow Chart — Canvas 2D + PixiJS GPU rendering.
  *
- * Architecture:
- * - SolidJS component manages the container div and lifecycle
- * - FlowBubbleRenderer (PixiJS) handles GPU-accelerated bubble sprites
- * - flowCanvas (Canvas 2D) handles grids, labels, ladder, volume bars, indicators
- * - requestAnimationFrame batches all rendering at 60fps
+ * Architecture (matches original dashboard/static/js/flow.js):
+ * - Accumulates raw ticks from Rust engine WS into a tick buffer
+ * - Aggregates ticks into FlowCloudCells on render (at aggSeconds intervals)
+ * - Canvas 2D draws grids, labels, price ladder, volume bars
+ * - PixiJS renders GPU-accelerated volume bubbles
+ * - Continuous render loop redraws at configured interval
  */
-import { type Component, onMount, onCleanup, createEffect, on } from 'solid-js';
+import { type Component, onMount, onCleanup } from 'solid-js';
 import { FlowBubbleRenderer } from '../../lib/flowRenderer';
 import {
   computeLayout,
@@ -16,25 +17,59 @@ import {
   drawTrail,
   type FlowCloudCell,
 } from '../../lib/flowCanvas';
-import { flow } from '../../signals/flow';
-import { api } from '../../lib/api';
-import { setClouds } from '../../signals/flow';
+import { WSClient } from '../../lib/ws';
 
-const WINDOW_MS = 4 * 60 * 1000;  // 4 minute visible window
-const AGG_SECONDS = 1;             // 1 second aggregation
-const PRICE_TICK = 0.05;           // SPY price tick
+const PRICE_TICK = 0.05;
+const MAX_TICKS = 50000;
+
+interface RawTick {
+  price: number;
+  size: number;
+  side: 'buy' | 'sell' | 'neutral';
+  ts: number; // ms timestamp
+}
 
 export const OrderFlowChart: Component = () => {
   let containerRef: HTMLDivElement | undefined;
   let canvas: HTMLCanvasElement | undefined;
   let ctx: CanvasRenderingContext2D | null = null;
   let bubbleRenderer: FlowBubbleRenderer | null = null;
-  let rafId: number | null = null;
+  let animTimer: ReturnType<typeof setTimeout> | null = null;
   let resizeObserver: ResizeObserver | null = null;
+  let flowWS: WSClient | null = null;
 
-  // Current data (mutable for perf — no reactive overhead on 60fps renders)
-  let currentCells: FlowCloudCell[] = [];
-  let needsRender = true;
+  // Live tick buffer (matches original liveFlow.ticks)
+  let ticks: RawTick[] = [];
+  let prevPrice = 0;
+  let prevSide: 'buy' | 'sell' | 'neutral' = 'neutral';
+
+  // Adaptive noise filter: recalculated from recent tick distribution
+  let minSize = 10; // starting default, will adapt
+  let recentSizes: number[] = []; // last N raw tick sizes (before filtering)
+  const ADAPT_SAMPLE = 500; // recalc threshold after this many raw ticks
+  let adaptCounter = 0;
+
+  function recalcThreshold() {
+    if (recentSizes.length < 50) return;
+    // Volume-weighted 25th percentile: drops bottom 25% of volume (noise), keeps 75%
+    const sorted = [...recentSizes].sort((a, b) => a - b);
+    const totalVol = sorted.reduce((s, v) => s + v, 0);
+    let cumVol = 0;
+    let threshold = sorted[0];
+    for (const s of sorted) {
+      cumVol += s;
+      if (cumVol >= totalVol * 0.25) { threshold = s; break; }
+    }
+    // Clamp: never below 5 (absolute noise), never above 500 (would filter real flow)
+    minSize = Math.max(5, Math.min(500, threshold));
+    recentSizes = []; // reset for next window
+    adaptCounter = 0;
+  }
+
+  // Config (matches original defaults)
+  let aggSeconds = 0.25;       // 250ms aggregation for smooth trail
+  let visibleWindowMs = 2 * 60 * 1000;  // 2-minute sliding window
+  let renderInterval = 80;     // ms between renders (~12fps)
 
   function ensureCanvas(): boolean {
     if (!containerRef) return false;
@@ -54,11 +89,57 @@ export const OrderFlowChart: Component = () => {
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
-      needsRender = true;
     }
 
     return true;
   }
+
+  // ── Aggregate ticks into FlowCloudCells (matches original) ───────────
+
+  function ticksToCells(): FlowCloudCell[] {
+    if (ticks.length === 0) return [];
+
+    const now = Date.now();
+    const cutoff = now - visibleWindowMs;
+    const aggMs = aggSeconds * 1000;
+
+    // Build grid: (timeBucket, priceBucket) → {buy_vol, sell_vol}
+    const grid = new Map<string, { price: number; time: number; buy: number; sell: number }>();
+
+    for (let i = ticks.length - 1; i >= 0; i--) {
+      const t = ticks[i];
+      if (t.ts < cutoff) break; // ticks are roughly time-ordered
+
+      const timeBucket = Math.floor(t.ts / aggMs) * aggMs;
+      const priceBucket = Math.round(t.price / PRICE_TICK) * PRICE_TICK;
+      const key = `${timeBucket}:${priceBucket.toFixed(2)}`;
+
+      let cell = grid.get(key);
+      if (!cell) {
+        cell = { price: priceBucket, time: timeBucket, buy: 0, sell: 0 };
+        grid.set(key, cell);
+      }
+
+      if (t.side === 'buy') cell.buy += t.size;
+      else if (t.side === 'sell') cell.sell += t.size;
+      else {
+        // Split evenly for neutral
+        cell.buy += Math.floor(t.size / 2);
+        cell.sell += Math.ceil(t.size / 2);
+      }
+    }
+
+    return Array.from(grid.values()).map(c => ({
+      price: c.price,
+      time: new Date(c.time).toISOString(),
+      buy_vol: c.buy,
+      sell_vol: c.sell,
+      delta: c.buy - c.sell,
+      total_vol: c.buy + c.sell,
+    }));
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────
 
   function render(): void {
     if (!ensureCanvas() || !ctx || !canvas) return;
@@ -67,125 +148,148 @@ export const OrderFlowChart: Component = () => {
     const W = canvas.width;
     const H = canvas.height;
 
-    const cells = currentCells;
+    const cells = ticksToCells();
     if (!cells.length) {
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = '#0a0a12';
       ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = '#6e6e88';
-      ctx.font = `${12 * dpr}px "SF Mono", Menlo, monospace`;
+      ctx.font = `${12 * dpr}px "Geist Mono", "SF Mono", Menlo, monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('Waiting for order flow data...', W / 2, H / 2);
       return;
     }
 
-    const hasLiveData = false; // Will be true when WS ticks arrive
-    const layout = computeLayout(W, H, dpr, cells, WINDOW_MS, AGG_SECONDS, PRICE_TICK, hasLiveData);
+    const layout = computeLayout(W, H, dpr, cells, visibleWindowMs, aggSeconds, PRICE_TICK, true);
     if (!layout) return;
 
-    // 1. Draw Canvas 2D layer (grids, labels, ladder, volume bars, indicators)
-    drawFlowCanvas(ctx, layout, cells, AGG_SECONDS, PRICE_TICK);
+    drawFlowCanvas(ctx, layout, cells, aggSeconds, PRICE_TICK);
 
-    // 2. Compute bubble positions
-    const points = computeBubblePoints(layout, cells, AGG_SECONDS, false);
+    const points = computeBubblePoints(layout, cells, aggSeconds, false);
 
-    // 3. Draw trail shadow on Canvas 2D
-    const minR = Math.max(4 * dpr, (layout.plotW / Math.max(WINDOW_MS / (AGG_SECONDS * 1000), 1)) * 0.55);
+    const minR = Math.max(4 * dpr, (layout.plotW / Math.max(visibleWindowMs / (aggSeconds * 1000), 1)) * 0.55);
     drawTrail(ctx, points, dpr, minR);
 
-    // 4. Render GPU bubbles via PixiJS
     if (bubbleRenderer?.isReady) {
       bubbleRenderer.resize(
         containerRef!.getBoundingClientRect().width,
         containerRef!.getBoundingClientRect().height
       );
-      const pulseThreshold = Math.max(AGG_SECONDS * 2000, 3000);
+      const pulseThreshold = Math.max(aggSeconds * 2000, 3000);
       bubbleRenderer.renderBubbles(points, dpr, pulseThreshold);
     }
   }
 
-  function renderLoop(): void {
-    if (needsRender) {
-      render();
-      needsRender = false;
+  // ── Continuous animation loop (matches original setTimeout approach) ──
+
+  let animRunning = false;
+
+  function startAnimLoop() {
+    if (animRunning) return;
+    animRunning = true;
+
+    function tick() {
+      if (!animRunning) { animTimer = null; return; }
+      if (ticks.length > 0) {
+        render();
+      }
+      animTimer = setTimeout(tick, renderInterval);
     }
-    rafId = requestAnimationFrame(renderLoop);
+    animTimer = setTimeout(tick, renderInterval);
   }
 
-  async function loadFlowData(): Promise<void> {
-    try {
-      const data = await api.getFlowClouds('SPY', 5);
-      if (data.clouds && data.clouds.length > 0) {
-        const cells: FlowCloudCell[] = data.clouds.map((c: any) => ({
-          price: c.price,
-          time: c.time,
-          buy_vol: c.buy_vol || 0,
-          sell_vol: c.sell_vol || 0,
-          delta: c.delta || 0,
-          total_vol: c.total_vol || (c.buy_vol || 0) + (c.sell_vol || 0),
-        }));
-        currentCells = cells;
-        setClouds(
-          cells.map((c) => ({
-            price: c.price,
-            time: new Date(c.time).getTime() / 1000,
-            buy_vol: c.buy_vol,
-            sell_vol: c.sell_vol,
-            delta: c.delta,
-          })),
-          data.meta || null
-        );
-        needsRender = true;
+  function stopAnimLoop() {
+    animRunning = false;
+    if (animTimer) { clearTimeout(animTimer); animTimer = null; }
+  }
+
+  // ── Handle raw ticks from Rust engine WS ─────────────────────────────
+
+  function handleMessage(data: any): void {
+    if (data.type === 'tick' || data.type === 'Tick') {
+      const price = data.price ?? data.p;
+      const size = data.size ?? data.s ?? 1;
+      let side: 'buy' | 'sell' | 'neutral' = 'neutral';
+
+      // Tick-rule classification
+      const rawSide = data.side ?? 'unknown';
+      if (rawSide === 'buy' || rawSide === 'sell') {
+        side = rawSide;
+      } else if (price > prevPrice) {
+        side = 'buy';
+      } else if (price < prevPrice) {
+        side = 'sell';
+      } else {
+        side = prevSide;
       }
-    } catch (e) {
-      console.warn('[OrderFlow] Failed to load clouds:', e);
+      prevPrice = price;
+      prevSide = side;
+
+      const ts = data.timestamp
+        ? new Date(data.timestamp).getTime()
+        : Date.now();
+
+      // Feed ALL ticks into the adaptive threshold calculator
+      recentSizes.push(size);
+      adaptCounter++;
+      if (adaptCounter >= ADAPT_SAMPLE) recalcThreshold();
+
+      // Adaptive noise filter: drops the bottom 25% of volume (odd lots, fractional fills)
+      // Threshold auto-adjusts to market conditions (higher at open, lower midday)
+      if (size < minSize) return;
+
+      ticks.push({
+        price: Math.round(price * 100) / 100,
+        size,
+        side,
+        ts,
+      });
+
+      // Cap memory
+      if (ticks.length > MAX_TICKS) {
+        ticks = ticks.slice(-Math.floor(MAX_TICKS * 0.8));
+      }
     }
   }
+
+  // ── Lifecycle ────────────────────────────────────────────────────────
 
   onMount(async () => {
     if (!containerRef) return;
     containerRef.style.position = 'relative';
 
-    // Initialize PixiJS bubble renderer
+    // Initialize PixiJS
     bubbleRenderer = new FlowBubbleRenderer();
     await bubbleRenderer.init(containerRef);
 
-    // Start render loop
-    renderLoop();
-
-    // Watch for container resizes
-    resizeObserver = new ResizeObserver(() => {
-      needsRender = true;
-    });
+    // Watch for resizes
+    resizeObserver = new ResizeObserver(() => { /* render loop handles it */ });
     resizeObserver.observe(containerRef);
 
-    // Load initial data
-    loadFlowData();
+    // Connect to Rust engine WS for raw ticks
+    const wsHost = window.location.hostname || 'localhost';
+    flowWS = new WSClient({
+      url: `ws://${wsHost}:8081/ws`,
+      onMessage: handleMessage,
+    });
+    flowWS.connect();
 
-    // Refresh every 15 seconds
-    const interval = setInterval(loadFlowData, 15000);
-    onCleanup(() => clearInterval(interval));
+    // Start continuous render loop
+    startAnimLoop();
   });
 
   onCleanup(() => {
-    if (rafId !== null) cancelAnimationFrame(rafId);
+    stopAnimLoop();
     if (resizeObserver) resizeObserver.disconnect();
     if (bubbleRenderer) bubbleRenderer.destroy();
+    if (flowWS) flowWS.destroy();
     bubbleRenderer = null;
+    flowWS = null;
     canvas = undefined;
     ctx = null;
+    ticks = [];
   });
-
-  // Re-render when flow store updates
-  createEffect(
-    on(
-      () => flow.clouds.length,
-      () => {
-        needsRender = true;
-      }
-    )
-  );
 
   return (
     <div

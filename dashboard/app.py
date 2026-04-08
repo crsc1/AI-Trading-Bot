@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -191,6 +192,10 @@ async def startup_event():
         """Forward Alpaca stream events to connected dashboard clients + persist trades."""
         await manager.broadcast(event)
 
+        # Feed SPY price to theta_stream for Greeks computation
+        if event.get("type") == "trade" and event.get("price") and event.get("symbol") == "SPY":
+            theta_stream.update_underlying_price(event["price"])
+
         # Persist trade ticks to SQLite (non-blocking — buffered writes)
         if event.get("type") == "trade" and event.get("price"):
             ts_ms = int(event.get("timestamp_ms", 0))
@@ -286,8 +291,13 @@ async def startup_event():
         async def broadcast_theta_quote(event: dict):
             await manager.broadcast(event)
 
-        # Broadcast theta trade events (for sweep detection / order flow)
+        # Broadcast theta trade events enriched with premium and notional
         async def broadcast_theta_trade(event: dict):
+            # Enrich with premium (price * size * 100 for options)
+            price = event.get("price", 0)
+            size = event.get("size", 0)
+            event["premium"] = round(price * size * 100, 2)  # Options are 100 shares per contract
+            event["timestamp"] = event.get("timestamp") or __import__("time").time()
             await manager.broadcast(event)
 
         # Broadcast connection status changes
@@ -298,8 +308,21 @@ async def startup_event():
         theta_stream.on_trade(broadcast_theta_trade)
         theta_stream.on_status(broadcast_theta_status)
 
+        await theta_stream.load_market_calendar()
         await theta_stream.connect()
         logger.info(f"ThetaData WS stream started — {cfg.THETA_WS_URL}")
+
+        # Auto-subscribe to 0DTE option trades once connected
+        async def _subscribe_when_ready():
+            """Wait for ThetaData WS to connect, then subscribe to 0DTE trades."""
+            for _ in range(30):  # Wait up to 30 seconds
+                if theta_stream.connected:
+                    await theta_stream.auto_subscribe_0dte("SPY")
+                    return
+                await asyncio.sleep(1)
+            logger.warning("ThetaData WS did not connect in time for 0DTE subscription")
+
+        asyncio.create_task(_subscribe_when_ready())
     else:
         logger.info(
             "ThetaData WS streaming disabled (set THETA_STREAM_ENABLED=true to enable). "

@@ -19,7 +19,7 @@
   --border-strong: rgba(255,255,255,0.12);
 
   /* Text */
-  --text-primary: #d0d0da;
+  --text-primary: #e0e0ea;
   --text-secondary: #6e6e88;
   --text-muted: #44445a;
 
@@ -50,6 +50,23 @@
   /* Font families */
   --font-mono: 'SF Mono', 'Menlo', 'Consolas', monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-data: 'Geist Mono', 'SF Mono', 'Menlo', monospace;
+  --font-ai: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Spacing */
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+
+  /* Border radius */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-full: 9999px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -65,7 +82,7 @@
 
   --color-border-default: #22223a;
 
-  --color-text-primary: #d0d0da;
+  --color-text-primary: #e0e0ea;
   --color-text-secondary: #6e6e88;
   --color-text-muted: #44445a;
 
@@ -84,6 +101,9 @@
 
   --font-mono: 'SF Mono', 'Menlo', 'Consolas', monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-data: 'Geist Mono', 'SF Mono', 'Menlo', monospace;
+  --font-ai: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -96,7 +116,7 @@ html, body, #root {
   padding: 0;
   background: var(--surface-0);
   color: var(--text-primary);
-  font-family: var(--font-mono);
+  font-family: var(--font-data);
   font-size: 11px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
