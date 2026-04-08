@@ -45,9 +45,10 @@ _PROJECT_DIR = str(Path(__file__).parent.parent)
 _session_id: str = str(uuid.uuid4())
 _session_first_msg: bool = True  # First message uses --session-id, subsequent use -r
 
-# Rolling conversation context for the claude CLI
-_chat_turns: List[str] = []
-_MAX_CHAT_CONTEXT = 10  # Keep last N exchanges for context
+# Cached market context — refreshed at most every 60s, not every message
+_market_context_cache: str = ""
+_market_context_ts: float = 0
+_MARKET_CONTEXT_TTL = 60  # seconds
 
 
 async def _call_claude_code(user_message: str) -> Dict[str, Any]:
@@ -60,12 +61,26 @@ async def _call_claude_code(user_message: str) -> Dict[str, Any]:
         resp = await brain.chat_immediate(user_message)
         return {"content": resp, "duration_ms": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0}
 
-    # Fetch live market data to prepend
+    # Only fetch market data for market-related questions, and cache it
+    global _market_context_cache, _market_context_ts
+    import time as _time
+    market_keywords = {"spy", "price", "chart", "market", "level", "support", "resistance",
+                       "trade", "setup", "flow", "volume", "candle", "bar", "vwap", "ema",
+                       "hod", "lod", "open", "close", "high", "low", "bearish", "bullish",
+                       "put", "call", "options", "strike", "premium", "gex", "gamma"}
+    msg_lower = user_message.lower()
+    needs_market = any(kw in msg_lower for kw in market_keywords)
+
     context = ""
-    try:
-        context = await brain._fetch_chat_context()
-    except Exception:
-        pass
+    if needs_market:
+        now = _time.time()
+        if now - _market_context_ts > _MARKET_CONTEXT_TTL or not _market_context_cache:
+            try:
+                _market_context_cache = await brain._fetch_chat_context()
+                _market_context_ts = now
+            except Exception:
+                pass
+        context = _market_context_cache
 
     full_prompt = f"{context}\n\n{user_message}" if context else user_message
 
@@ -83,7 +98,9 @@ async def _call_claude_code(user_message: str) -> Dict[str, Any]:
             session_args = ["-r", _session_id]
 
         proc = await asyncio.create_subprocess_exec(
-            _CLAUDE_BIN, "-p", "--output-format", "json", *session_args,
+            _CLAUDE_BIN, "-p", "--output-format", "json",
+            "--model", "sonnet",
+            *session_args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -389,7 +406,7 @@ async def get_brain_sources():
     except Exception:
         pass
 
-    model = "Claude Code" if _CLAUDE_BIN else "claude-opus-4-6 (API)"
+    model = "Claude Code (Sonnet)" if _CLAUDE_BIN else "claude-opus-4-6 (API)"
     return {"sources": sources, "model": model}
 
 
