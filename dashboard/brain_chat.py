@@ -99,7 +99,7 @@ async def _call_claude_code(user_message: str) -> Dict[str, Any]:
 
         proc = await asyncio.create_subprocess_exec(
             _CLAUDE_BIN, "-p", "--output-format", "json",
-            "--model", "sonnet",
+            "--model", "opus",
             *session_args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
@@ -406,7 +406,7 @@ async def get_brain_sources():
     except Exception:
         pass
 
-    model = "Claude Code (Sonnet)" if _CLAUDE_BIN else "claude-opus-4-6 (API)"
+    model = "Claude Code (Opus 4.6)" if _CLAUDE_BIN else "claude-opus-4-6 (API)"
     return {"sources": sources, "model": model}
 
 
