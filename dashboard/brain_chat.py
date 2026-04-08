@@ -71,13 +71,17 @@ async def _call_claude_code(user_message: str) -> str:
     full_prompt = f"{preamble}\nUser: {user_message}" if preamble else user_message
 
     try:
+        # Strip ANTHROPIC_API_KEY so claude uses Max subscription, not the API key
+        clean_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        clean_env["CLAUDE_CODE_ENTRYPOINT"] = "brain-chat"
+
         proc = await asyncio.create_subprocess_exec(
             _CLAUDE_BIN, "-p", "--output-format", "text",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=_PROJECT_DIR,
-            env={**os.environ, "CLAUDE_CODE_ENTRYPOINT": "brain-chat"},
+            env=clean_env,
         )
         stdout, stderr = await asyncio.wait_for(
             proc.communicate(input=full_prompt.encode()),
