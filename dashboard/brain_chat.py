@@ -27,6 +27,13 @@ router = APIRouter()
 # Connected WebSocket clients
 _clients: Set[WebSocket] = set()
 
+# Message history — replayed on reconnect so no messages are lost
+_message_history: List[Dict[str, Any]] = []
+_MAX_HISTORY = 50
+
+# Thinking state — True while claude CLI is processing
+_thinking: bool = False
+
 # ── Claude Code Bridge ────────────────────────────────────────────────────────
 # Routes chat messages through `claude -p` subprocess, giving the chat full
 # Claude Code capabilities: file access, bash, web search, codebase context.
@@ -110,7 +117,13 @@ async def _call_claude_code(user_message: str) -> str:
 
 
 async def broadcast(data: Dict[str, Any]) -> None:
-    """Broadcast a message to all connected chat clients."""
+    """Broadcast a message to all connected chat clients and store in history."""
+    # Store chat messages in history for replay on reconnect
+    if data.get("type") == "chat_message":
+        _message_history.append(data)
+        while len(_message_history) > _MAX_HISTORY:
+            _message_history.pop(0)
+
     if not _clients:
         return
     msg = json.dumps(data)
@@ -172,12 +185,18 @@ async def chat_websocket(ws: WebSocket):
     _clients.add(ws)
     logger.info(f"[BrainChat] Client connected ({len(_clients)} total)")
 
-    # Send current state on connect
+    # Send current state + message history on connect
     try:
         await ws.send_text(json.dumps({
             "type": "brain_state",
             "state": brain.get_state(),
         }))
+        # Replay message history so reconnecting clients don't lose messages
+        for msg in _message_history:
+            await ws.send_text(json.dumps(msg))
+        # If currently thinking, tell the client
+        if _thinking:
+            await ws.send_text(json.dumps({"type": "thinking", "active": True}))
     except Exception:
         pass
 
@@ -211,8 +230,16 @@ async def chat_websocket(ws: WebSocket):
                 # Decide: immediate response or queue for next cycle
                 immediate = data.get("immediate", False)
 
+                # Broadcast thinking state
+                global _thinking
+                _thinking = True
+                await broadcast({"type": "thinking", "active": True})
+
                 # Route through Claude Code CLI for full capabilities
                 response = await _call_claude_code(user_message)
+
+                _thinking = False
+                await broadcast({"type": "thinking", "active": False})
                 await broadcast({
                     "type": "chat_message",
                     "message": {

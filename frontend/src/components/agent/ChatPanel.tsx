@@ -43,6 +43,10 @@ export const ChatPanel: Component = () => {
             if (msg.role === 'brain') setWaiting(false);
             break;
           }
+          case 'thinking': {
+            setWaiting(data.active === true);
+            break;
+          }
           case 'brain_state': {
             const state = data.state as BrainState;
             updateBrain(state);

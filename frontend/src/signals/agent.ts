@@ -23,7 +23,11 @@ const [agent, setAgent] = createStore(initialState);
 export { agent, setAgent };
 
 export function addMessage(msg: ChatMessage) {
-  setAgent('messages', (prev) => [...prev, msg]);
+  // Deduplicate by id (server replays history on reconnect)
+  setAgent('messages', (prev) => {
+    if (prev.some((m) => m.id === msg.id)) return prev;
+    return [...prev, msg];
+  });
 }
 
 export function updateBrain(state: Partial<BrainState>) {
