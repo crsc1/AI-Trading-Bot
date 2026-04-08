@@ -491,6 +491,51 @@ def record_trade_outcome(exit_reason: str):
         _consecutive_losses = 0
 
 
+async def _trigger_brain_on_setup(signal: dict):
+    """
+    On-demand Brain: triggered only when the non-LLM engine finds a setup.
+    Asks Opus to validate the setup with full market context.
+    ~5-20 calls/day instead of ~780 from the 30s cycle.
+    """
+    try:
+        from .market_brain import brain
+        from .brain_chat import broadcast_decision, broadcast_brain_state
+        from .market_moments import moments_db
+        from .data_collector import collect_snapshot
+
+        setup_name = signal.get("setup_name", signal.get("reasoning", "unknown")[:50])
+        direction = signal.get("signal", "?")
+        confidence = signal.get("confidence", 0)
+
+        logger.info(f"[Brain] On-demand trigger: {setup_name} {direction} conf={confidence:.2f}")
+
+        snapshot = await collect_snapshot(engine, signal_history)
+        decision = await brain.analyze_cycle(engine, snapshot=snapshot, moments_db=moments_db)
+
+        await broadcast_brain_state()
+
+        # Record moment
+        asyncio.create_task(asyncio.to_thread(
+            moments_db.record_moment,
+            trigger_type="setup",
+            trigger_name=setup_name,
+            trigger_detail=f"{direction} conf={confidence:.2f} — Brain says: {decision.action}",
+            brain_action=decision.action,
+            brain_confidence=decision.confidence,
+            snapshot=snapshot,
+        ))
+
+        await broadcast_decision(decision.to_dict())
+
+        logger.info(
+            f"[Brain] On-demand result: {decision.action} conf={decision.confidence:.2f} "
+            f"reason={decision.reasoning[:100]}"
+        )
+
+    except Exception as e:
+        logger.error(f"[Brain] On-demand trigger error: {e}", exc_info=True)
+
+
 async def _run_brain_cycle():
     """Market Brain analysis cycle: collect snapshot → LLM decision → record moment."""
     try:
@@ -805,6 +850,9 @@ async def _run_analysis_cycle():
             logger.info(f"[SignalLoop] Signal generated: id={signal['id']} {signal.get('signal')} "
                         f"confidence={signal.get('confidence', 0):.0%} "
                         f"tier={signal.get('tier', '?')}")
+
+            # On-demand Brain: only call Opus when the non-LLM engine finds a setup
+            asyncio.create_task(_trigger_brain_on_setup(signal))
             # Record training data for every actionable signal
             try:
                 training_collector.record_signal(signal, get_active_weights())
