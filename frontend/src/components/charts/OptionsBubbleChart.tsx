@@ -62,7 +62,7 @@ export const OptionsBubbleChart: Component = () => {
 
   // Config — same as equity flow defaults
   let aggSeconds = 0.5;
-  let visibleWindowMs = 60 * 60 * 1000;  // 1 hour visible window (full session scrolls)
+  let visibleWindowMs = 5 * 60 * 1000;  // 5 min visible window, scrolls with new trades
   let renderInterval = 100;
 
   function ensureCanvas(): boolean {
