@@ -13,10 +13,12 @@ NOT a raw trade dump. This scanner:
 import asyncio
 import logging
 import math
+import sqlite3
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 
@@ -65,14 +67,44 @@ class FlowAlert:
         return asdict(self)
 
 
+_SCANNER_DB_PATH = Path(__file__).parent.parent / "data" / "scanner_alerts.db"
+
+_SCANNER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS alerts (
+    id              TEXT PRIMARY KEY,
+    timestamp       TEXT NOT NULL,
+    date            TEXT NOT NULL,
+    symbol          TEXT NOT NULL,
+    alert_type      TEXT NOT NULL,
+    direction       TEXT NOT NULL,
+    strike          REAL,
+    right           TEXT,
+    expiration      INTEGER,
+    size            INTEGER,
+    premium         REAL,
+    avg_price       REAL,
+    fills           INTEGER,
+    side            TEXT,
+    score           INTEGER,
+    repeat_count    INTEGER,
+    detail          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_date ON alerts(date);
+CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON alerts(symbol);
+CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(timestamp);
+"""
+
+
 class FlowScanner:
     """Smart options flow scanner with aggregation, filtering, and scoring."""
 
     def __init__(self):
-        self._alerts: deque = deque(maxlen=200)
+        self._alerts: List[FlowAlert] = []  # All alerts this session, no cap
         self._symbol_prices: Dict[str, float] = {}
         self._subscribed_symbols: Set[str] = set()
         self._broadcast_fn = None
+        self._db_path = str(_SCANNER_DB_PATH)
+        self._init_db()
 
         # Order aggregation: key = "SYM-STRIKE-RIGHT-SIDE" → list of fills within 1s
         self._agg_buffer: Dict[str, List[Dict]] = defaultdict(list)
@@ -87,6 +119,34 @@ class FlowScanner:
         self._total_trades_seen = 0
         self._total_premium_seen = 0.0
         self._alerts_today = 0
+
+    def _init_db(self):
+        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self._db_path) as conn:
+            conn.executescript(_SCANNER_SCHEMA)
+
+    def _persist_alert(self, alert: FlowAlert):
+        try:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute(
+                    """INSERT OR IGNORE INTO alerts
+                       (id, timestamp, date, symbol, alert_type, direction,
+                        strike, right, expiration, size, premium, avg_price,
+                        fills, side, score, repeat_count, detail)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        alert.id, alert.timestamp,
+                        datetime.now(_ET).strftime("%Y-%m-%d"),
+                        alert.symbol, alert.alert_type, alert.direction,
+                        alert.strike, alert.right, alert.expiration,
+                        alert.size, alert.premium, alert.avg_price,
+                        alert.fills, alert.side, alert.score,
+                        alert.repeat_count, alert.detail,
+                    ),
+                )
+        except Exception as e:
+            logger.debug(f"[Scanner] DB persist error: {e}")
 
     def set_broadcast(self, fn):
         self._broadcast_fn = fn
@@ -310,6 +370,7 @@ class FlowScanner:
     def _emit_alert(self, alert: FlowAlert):
         self._alerts.append(alert)
         self._alerts_today += 1
+        self._persist_alert(alert)
         logger.info(f"[Scanner] [{alert.score}] {alert.detail}")
 
         if self._broadcast_fn:
@@ -323,9 +384,30 @@ class FlowScanner:
             except Exception:
                 pass
 
-    def get_recent_alerts(self, limit: int = 50) -> List[Dict]:
-        # Most recent first (newest at top)
-        return [a.to_dict() for a in reversed(list(self._alerts))][:limit]
+    def get_recent_alerts(self, limit: int = 200) -> List[Dict]:
+        # Most recent first (newest at top) from memory
+        return [a.to_dict() for a in reversed(self._alerts)][:limit]
+
+    def get_historical_alerts(self, date: str = None, symbol: str = None, limit: int = 500) -> List[Dict]:
+        """Query persisted alerts from SQLite for analysis."""
+        try:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                query = "SELECT * FROM alerts WHERE 1=1"
+                params: list = []
+                if date:
+                    query += " AND date = ?"
+                    params.append(date)
+                if symbol:
+                    query += " AND symbol = ?"
+                    params.append(symbol)
+                query += " ORDER BY timestamp DESC LIMIT ?"
+                params.append(limit)
+                rows = conn.execute(query, params).fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            logger.debug(f"[Scanner] Historical query error: {e}")
+            return []
 
     def get_stats(self) -> Dict:
         return {

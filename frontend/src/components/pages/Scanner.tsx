@@ -166,7 +166,7 @@ export const Scanner: Component = () => {
                       {alert.score}
                     </span>
                   </td>
-                  <td class="px-2 py-2 font-data text-[11px] text-text-muted">
+                  <td class="px-2 py-2 font-data text-[12px] text-accent">
                     {formatTime(alert.timestamp)}
                   </td>
                   <td class="px-2 py-2">

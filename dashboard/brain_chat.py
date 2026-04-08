@@ -418,6 +418,13 @@ async def get_scanner_alerts(limit: int = 50):
     return {"alerts": flow_scanner.get_recent_alerts(limit=limit)}
 
 
+@rest_router.get("/scanner/history")
+async def get_scanner_history(date: str = None, symbol: str = None, limit: int = 500):
+    """Query historical scanner alerts from SQLite."""
+    from .flow_scanner import flow_scanner
+    return {"alerts": flow_scanner.get_historical_alerts(date=date, symbol=symbol, limit=limit)}
+
+
 @rest_router.get("/scanner/stats")
 async def get_scanner_stats():
     """Return flow scanner status."""
