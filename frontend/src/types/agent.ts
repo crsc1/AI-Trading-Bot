@@ -25,6 +25,8 @@ export interface BrainState {
 }
 
 export interface BrainDecision {
+  id?: string;
+  timestamp?: string;
   action: 'TRADE' | 'HOLD' | 'EXIT' | 'ADJUST';
   direction?: 'BUY_CALL' | 'BUY_PUT';
   confidence: number;
@@ -33,6 +35,40 @@ export interface BrainDecision {
   key_factors: string[];
   chat_response?: string;
   risk_notes?: string;
+  cycle?: number;
+  model?: string;
+  latency_ms?: number;
+}
+
+export interface MarketMoment {
+  id: string;
+  timestamp: string;
+  trigger_type: string;
+  trigger_name?: string;
+  trigger_detail?: string;
+  spy_price: number;
+  session_phase?: string;
+  regime?: string;
+  setup_name?: string;
+  setup_quality?: number;
+  outcome_direction?: string;
+  outcome_magnitude?: string;
+  move_pct_15min?: number;
+  similarity?: number;
+  brain_action?: string;
+  brain_confidence?: number;
+  was_traded?: boolean;
+  trade_pnl?: number;
+}
+
+export interface PatternRecall {
+  similar_moments: MarketMoment[];
+  moments_stats: {
+    total_moments: number;
+    with_outcomes: number;
+    today: number;
+    cache_size: number;
+  };
 }
 
 export interface ResearchFinding {
@@ -48,6 +84,9 @@ export interface ResearchFinding {
 export interface AgentState {
   brain: BrainState;
   messages: ChatMessage[];
+  decisions: BrainDecision[];
+  patternRecall: PatternRecall | null;
   findings: ResearchFinding[];
   chatConnected: boolean;
+  activeTab: 'brain' | 'chat';
 }

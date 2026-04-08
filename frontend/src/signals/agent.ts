@@ -1,5 +1,5 @@
 import { createStore } from 'solid-js/store';
-import type { AgentState, ChatMessage, BrainState, ResearchFinding } from '../types/agent';
+import type { AgentState, ChatMessage, BrainState, BrainDecision, PatternRecall, ResearchFinding } from '../types/agent';
 
 const initialBrain: BrainState = {
   status: 'idle',
@@ -7,15 +7,18 @@ const initialBrain: BrainState = {
   last_action: 'HOLD',
   last_confidence: 0,
   last_reasoning: '',
-  model: 'sonnet-4.6',
+  model: '',
   uptime_s: 0,
 };
 
 const initialState: AgentState = {
   brain: initialBrain,
   messages: [],
+  decisions: [],
+  patternRecall: null,
   findings: [],
   chatConnected: false,
+  activeTab: 'brain',
 };
 
 const [agent, setAgent] = createStore(initialState);
@@ -30,6 +33,18 @@ export function addMessage(msg: ChatMessage) {
   });
 }
 
+export function addDecision(decision: BrainDecision) {
+  setAgent('decisions', (prev) => {
+    // Keep last 50 decisions
+    const next = [decision, ...prev];
+    return next.slice(0, 50);
+  });
+}
+
+export function setPatternRecall(recall: PatternRecall) {
+  setAgent('patternRecall', recall);
+}
+
 export function updateBrain(state: Partial<BrainState>) {
   setAgent('brain', (prev) => ({ ...prev, ...state }));
 }
@@ -40,4 +55,8 @@ export function setFindings(findings: ResearchFinding[]) {
 
 export function setChatConnected(connected: boolean) {
   setAgent('chatConnected', connected);
+}
+
+export function setActiveTab(tab: 'brain' | 'chat') {
+  setAgent('activeTab', tab);
 }

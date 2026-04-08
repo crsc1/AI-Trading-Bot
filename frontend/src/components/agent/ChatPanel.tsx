@@ -1,8 +1,8 @@
 import { type Component, For, Show, createSignal, onMount, onCleanup, createEffect } from 'solid-js';
 import { marked } from 'marked';
-import { agent, addMessage, updateBrain, setChatConnected } from '../../signals/agent';
+import { agent, addMessage, addDecision, setPatternRecall, updateBrain, setChatConnected } from '../../signals/agent';
 import { WSClient } from '../../lib/ws';
-import type { ChatMessage, BrainState } from '../../types/agent';
+import type { ChatMessage, BrainState, BrainDecision, PatternRecall } from '../../types/agent';
 
 // Configure marked for clean output
 marked.setOptions({
@@ -53,14 +53,19 @@ export const ChatPanel: Component = () => {
             break;
           }
           case 'brain_decision': {
-            const decision = data.decision;
+            const decision = data.decision as BrainDecision;
             updateBrain({
               last_action: decision.action,
               last_confidence: decision.confidence,
               last_reasoning: decision.reasoning,
-              model: decision.model,
-              cycle_number: decision.cycle,
+              model: decision.model || '',
+              cycle_number: decision.cycle || 0,
             });
+            addDecision(decision);
+            break;
+          }
+          case 'pattern_recall': {
+            setPatternRecall(data as PatternRecall);
             break;
           }
         }
