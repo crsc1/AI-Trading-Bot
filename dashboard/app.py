@@ -275,15 +275,15 @@ async def startup_event():
     except Exception:
         logger.info("Rust engine not detected on port 8081")
 
+    # Always start Python Alpaca stream — the dashboard WebSocket
+    # needs trade ticks for real-time chart updates. Rust engine handles
+    # order flow analysis separately on port 8081.
     if engine_active:
-        logger.info(
-            "Rust engine is actively streaming — "
-            "Python WS stream will stay idle. REST polling provides fallback data."
-        )
+        logger.info("Rust engine detected — starting Python SIP stream alongside for dashboard ticks")
     else:
         logger.info("No active Rust engine — starting Python Alpaca SIP stream...")
-        await alpaca_stream.start(symbols)
-        logger.info(f"Alpaca SIP stream started for: {symbols}")
+    await alpaca_stream.start(symbols)
+    logger.info(f"Alpaca SIP stream started for: {symbols}")
 
     # ── ThetaData WebSocket streaming (opt-in via THETA_STREAM_ENABLED) ──
     if cfg.THETA_STREAM_ENABLED:
