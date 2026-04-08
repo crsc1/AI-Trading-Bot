@@ -1,8 +1,16 @@
 import { type Component, type JSX, onMount, onCleanup } from 'solid-js';
+import { useLocation } from '@solidjs/router';
 import { Sidebar } from './Sidebar';
 import { market } from '../../signals/market';
 import { agent } from '../../signals/agent';
 import { initDataLayer, destroyDataLayer } from '../../lib/data';
+
+// Import all pages so they stay mounted
+import { Dashboard } from '../pages/Dashboard';
+import { Charts } from '../pages/Charts';
+import { Flow } from '../pages/Flow';
+import { Agent } from '../pages/Agent';
+import { Reference } from '../pages/Reference';
 
 interface Props {
   children?: JSX.Element;
@@ -11,6 +19,10 @@ interface Props {
 export const Layout: Component<Props> = (props) => {
   onMount(() => initDataLayer());
   onCleanup(() => destroyDataLayer());
+
+  const location = useLocation();
+  const path = () => location.pathname;
+
   const priceColor = () => {
     if (market.lastPrice <= 0) return 'text-text-muted';
     if (market.candles.length > 1) {
@@ -55,9 +67,23 @@ export const Layout: Component<Props> = (props) => {
           </div>
         </header>
 
-        {/* Page Content */}
-        <main class="flex-1 min-h-0 overflow-hidden">
-          {props.children}
+        {/* All pages rendered permanently, visibility toggled by CSS */}
+        <main class="flex-1 min-h-0 overflow-hidden relative">
+          <div class="absolute inset-0" style={{ display: path() === '/' ? 'block' : 'none' }}>
+            <Dashboard />
+          </div>
+          <div class="absolute inset-0" style={{ display: path() === '/charts' ? 'block' : 'none' }}>
+            <Charts />
+          </div>
+          <div class="absolute inset-0" style={{ display: path() === '/flow' ? 'block' : 'none' }}>
+            <Flow />
+          </div>
+          <div class="absolute inset-0" style={{ display: path() === '/agent' ? 'block' : 'none' }}>
+            <Agent />
+          </div>
+          <div class="absolute inset-0" style={{ display: path() === '/reference' ? 'block' : 'none' }}>
+            <Reference />
+          </div>
         </main>
       </div>
     </div>
