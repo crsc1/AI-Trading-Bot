@@ -10,8 +10,11 @@ Provides:
 import asyncio
 import json
 import logging
+import os
+import shutil
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -23,6 +26,83 @@ router = APIRouter()
 
 # Connected WebSocket clients
 _clients: Set[WebSocket] = set()
+
+# ── Claude Code Bridge ────────────────────────────────────────────────────────
+# Routes chat messages through `claude -p` subprocess, giving the chat full
+# Claude Code capabilities: file access, bash, web search, codebase context.
+
+_CLAUDE_BIN = shutil.which("claude") or ""
+_PROJECT_DIR = str(Path(__file__).parent.parent)
+
+# Rolling conversation context for the claude CLI
+_chat_turns: List[str] = []
+_MAX_CHAT_CONTEXT = 10  # Keep last N exchanges for context
+
+
+async def _call_claude_code(user_message: str) -> str:
+    """
+    Call the claude CLI in print mode with the user's message.
+    Includes recent conversation history and live market context as a preamble.
+    """
+    if not _CLAUDE_BIN:
+        logger.warning("[BrainChat] claude CLI not found, falling back to API")
+        return await brain.chat_immediate(user_message)
+
+    # Build context preamble
+    preamble_parts = []
+
+    # Conversation history
+    if _chat_turns:
+        preamble_parts.append("Recent conversation:")
+        for turn in _chat_turns[-_MAX_CHAT_CONTEXT:]:
+            preamble_parts.append(turn)
+        preamble_parts.append("")
+
+    # Fetch live market data inline
+    try:
+        context = await brain._fetch_chat_context()
+        if context:
+            preamble_parts.append(context)
+            preamble_parts.append("")
+    except Exception:
+        pass
+
+    preamble = "\n".join(preamble_parts)
+    full_prompt = f"{preamble}\nUser: {user_message}" if preamble else user_message
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            _CLAUDE_BIN, "-p", "--output-format", "text",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=_PROJECT_DIR,
+            env={**os.environ, "CLAUDE_CODE_ENTRYPOINT": "brain-chat"},
+        )
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=full_prompt.encode()),
+            timeout=120,
+        )
+        response = stdout.decode().strip()
+
+        if not response and stderr:
+            logger.warning(f"[BrainChat] claude stderr: {stderr.decode()[:200]}")
+            return await brain.chat_immediate(user_message)
+
+        # Store turn for context
+        _chat_turns.append(f"User: {user_message}")
+        _chat_turns.append(f"Assistant: {response[:500]}")
+        while len(_chat_turns) > _MAX_CHAT_CONTEXT * 2:
+            _chat_turns.pop(0)
+
+        return response
+
+    except asyncio.TimeoutError:
+        logger.error("[BrainChat] claude CLI timed out (120s)")
+        return "Sorry, that took too long. Try a simpler question."
+    except Exception as e:
+        logger.error(f"[BrainChat] claude CLI error: {e}")
+        return await brain.chat_immediate(user_message)
 
 
 async def broadcast(data: Dict[str, Any]) -> None:
@@ -127,25 +207,17 @@ async def chat_websocket(ws: WebSocket):
                 # Decide: immediate response or queue for next cycle
                 immediate = data.get("immediate", False)
 
-                if immediate:
-                    # Respond immediately using last snapshot context
-                    response = await brain.chat_immediate(user_message)
-                    await broadcast({
-                        "type": "chat_message",
-                        "message": {
-                            "id": str(uuid.uuid4())[:8],
-                            "role": "brain",
-                            "content": response,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        },
-                    })
-                else:
-                    # Queue for next analysis cycle (Brain responds with full market context)
-                    brain.queue_chat_message(user_message)
-                    await broadcast({
-                        "type": "chat_queued",
-                        "message": "Message queued for next analysis cycle",
-                    })
+                # Route through Claude Code CLI for full capabilities
+                response = await _call_claude_code(user_message)
+                await broadcast({
+                    "type": "chat_message",
+                    "message": {
+                        "id": str(uuid.uuid4())[:8],
+                        "role": "brain",
+                        "content": response,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                })
 
             elif msg_type == "get_state":
                 await ws.send_text(json.dumps({
@@ -265,7 +337,8 @@ async def get_brain_sources():
     except Exception:
         pass
 
-    return {"sources": sources, "model": "claude-opus-4-6"}
+    model = "Claude Code" if _CLAUDE_BIN else "claude-opus-4-6 (API)"
+    return {"sources": sources, "model": model}
 
 
 @rest_router.post("/chat")
@@ -275,11 +348,5 @@ async def post_chat(body: Dict[str, Any]):
     if not message:
         return {"error": "Empty message"}
 
-    immediate = body.get("immediate", True)
-
-    if immediate:
-        response = await brain.chat_immediate(message)
-        return {"response": response}
-    else:
-        brain.queue_chat_message(message)
-        return {"status": "queued"}
+    response = await _call_claude_code(message)
+    return {"response": response}
