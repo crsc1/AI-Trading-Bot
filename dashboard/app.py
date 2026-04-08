@@ -143,9 +143,12 @@ async def get_root():
     )
 
 
+@app.get("/charts")
+@app.get("/flow")
+@app.get("/agent")
 @app.get("/reference")
-async def get_reference():
-    """SPA route — serve same index.html for client-side routing."""
+async def spa_route():
+    """SPA routes — serve index.html for client-side routing."""
     new_index = FRONTEND_DIST / "index.html"
     if new_index.exists():
         return FileResponse(
@@ -441,11 +444,8 @@ async def get_trading_redirect():
     return RedirectResponse(url="/", status_code=301)
 
 
-@app.get("/flow")
-async def get_flow_redirect():
-    """Legacy URL — redirect to unified dashboard."""
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/", status_code=301)
+
+
 
 
 @app.get("/api/theta/eod")
