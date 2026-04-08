@@ -14,7 +14,7 @@ import {
 import { market } from '../../signals/market';
 import { signals } from '../../signals/signals';
 import { chartTheme } from '../../lib/theme';
-import { calcVWAP, calcBB } from '../../lib/indicators';
+import { calcVWAP, calcVWAPBands, calcPrevDayVWAP, calcBB } from '../../lib/indicators';
 import type { Candle } from '../../types/market';
 import { ChartControls, getIndicatorColor } from './ChartControls';
 import { ChartLegend } from './ChartLegend';
@@ -128,8 +128,7 @@ export const CandleChart: Component = () => {
       const stored = localStorage.getItem('chart-indicators');
       if (stored) return new Set<string>(JSON.parse(stored));
     } catch {}
-    // Default: VWAP + EMA enabled on first visit
-    return new Set<string>(['vwap', 'ema']);
+    return new Set<string>();
   })();
   const [activeIds, setActiveIds] = createSignal<Set<string>>(savedIds);
   const [priceScaleMode, setPriceScaleMode] = createSignal(
@@ -411,6 +410,24 @@ export const CandleChart: Component = () => {
 
       if (id === 'vwap') {
         plots = [{ data: toLineData(calcVWAP(candles)), color: '#00e5ff', style: 0, width: 2 }];
+      } else if (id === 'vwap-bands') {
+        const vb = calcVWAPBands(candles);
+        plots = [
+          { data: toLineData(vb.vwap), color: '#00e5ff', style: 0, width: 2 },
+          { data: toLineData(vb.upper1), color: 'rgba(0,229,255,0.4)', style: 2, width: 1 },
+          { data: toLineData(vb.lower1), color: 'rgba(0,229,255,0.4)', style: 2, width: 1 },
+          { data: toLineData(vb.upper2), color: 'rgba(0,229,255,0.25)', style: 3, width: 1 },
+          { data: toLineData(vb.lower2), color: 'rgba(0,229,255,0.25)', style: 3, width: 1 },
+        ];
+      } else if (id === 'prev-day-vwap') {
+        const pv = calcPrevDayVWAP(candles);
+        if (pv) {
+          // Horizontal line across today's session at prev day's VWAP level
+          const lineData = candles
+            .filter(c => c.time >= pv.startTime)
+            .map(c => ({ time: c.time, value: pv.value }));
+          plots = [{ data: toLineData(lineData), color: '#ffb300', style: 2, width: 1 }];
+        }
       } else if (id === 'bollinger-bands') {
         const bb = calcBB(candles, 20, 2);
         plots = [

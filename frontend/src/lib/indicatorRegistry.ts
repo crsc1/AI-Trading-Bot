@@ -637,7 +637,35 @@ function buildRegistry(): IndicatorInfo[] {
   return result;
 }
 
-export const indicators = buildRegistry();
+const _registry = buildRegistry();
+
+// Custom indicators not in lightweight-charts-indicators (our own calculations)
+const customIndicators: IndicatorInfo[] = [
+  {
+    id: 'vwap',
+    title: 'Volume Weighted Average Price',
+    shortTitle: 'VWAP',
+    overlay: true,
+    module: { metadata: { title: 'VWAP', shortTitle: 'VWAP', overlay: true }, calculate: () => null } as any,
+  },
+  {
+    id: 'vwap-bands',
+    title: 'VWAP Standard Deviation Bands (±1σ, ±2σ)',
+    shortTitle: 'VWAP Bands',
+    overlay: true,
+    module: { metadata: { title: 'VWAP Bands', shortTitle: 'VWAP Bands', overlay: true }, calculate: () => null } as any,
+  },
+  {
+    id: 'prev-day-vwap',
+    title: 'Previous Day VWAP (yesterday\'s final value)',
+    shortTitle: 'Prev VWAP',
+    overlay: true,
+    module: { metadata: { title: 'Prev VWAP', shortTitle: 'Prev VWAP', overlay: true }, calculate: () => null } as any,
+  },
+];
+
+// Put custom indicators at the top of the overlay list
+export const indicators = [...customIndicators, ..._registry];
 export const overlayIndicators = indicators.filter(i => i.overlay);
 export const oscillatorIndicators = indicators.filter(i => !i.overlay);
 
