@@ -152,10 +152,10 @@ export const BrainFeed: Component = () => {
             <span class={`w-2 h-2 rounded-full ${
               agent.lastCycle!.action !== 'NO_TRADE' ? 'bg-positive animate-pulse' : 'bg-text-muted'
             }`} />
-            <span class="text-[12px] text-text-secondary" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <span class="text-[12px] text-text-secondary truncate" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
               {agent.lastCycle!.action !== 'NO_TRADE'
                 ? `Setup: ${agent.lastCycle!.reasoning.substring(0, 80)}`
-                : agent.lastCycle!.reasoning.substring(0, 80) || 'Scanning...'
+                : (agent.lastCycle as any)?.levels || agent.lastCycle!.reasoning.substring(0, 60) || 'Scanning...'
               }
             </span>
           </div>

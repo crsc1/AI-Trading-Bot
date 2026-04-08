@@ -868,6 +868,14 @@ async def _run_analysis_cycle():
         try:
             from .brain_chat import broadcast
             opts = getattr(engine, '_cached_options_flow', None) or {}
+            levels = getattr(engine, '_cached_levels', None)
+            lvl_str = ""
+            if levels:
+                vwap = getattr(levels, 'vwap', 0) or 0
+                hod = getattr(levels, 'hod', 0) or 0
+                lod = getattr(levels, 'lod', 0) or 0
+                if vwap > 0:
+                    lvl_str = f"VWAP ${vwap:.2f} | HOD ${hod:.2f} | LOD ${lod:.2f}"
             await broadcast({
                 "type": "cycle_update",
                 "cycle": {
@@ -880,6 +888,8 @@ async def _run_analysis_cycle():
                     "options_vpin_level": opts.get("vpin_level", ""),
                     "options_pcr": opts.get("pcr_premium", 0),
                     "high_sms": opts.get("high_sms_count", 0),
+                    "levels": lvl_str,
+                    "price": underlying_price,
                     "timestamp": datetime.now().isoformat(),
                 },
             })

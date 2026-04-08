@@ -486,10 +486,10 @@ def _check_absorption_reversal(
     abs_lvl = state.last_absorption_level
 
     # ── Chop zone detection (fix #1) ──
-    # Suppress if the same price zone has been tested 5+ times
+    # Suppress if the same price zone has been tested 10+ times
     level_key = round(abs_lvl * 4) / 4  # Round to nearest $0.25
     test_count, _last_test_ts = state.absorption_level_tests.get(level_key, (0, 0))
-    if test_count >= 5:
+    if test_count >= 10:
         logger.info(
             f"[SetupDetector] Chop zone: ${abs_lvl:.2f} tested {test_count}x, suppressing"
         )
