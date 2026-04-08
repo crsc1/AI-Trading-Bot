@@ -43,6 +43,7 @@ function getTodayETMidnightMs(): number {
 let engineWS: WSClient | null = null;
 let sipWS: WSClient | null = null;
 let tickThrottler: ReturnType<typeof createThrottledUpdater<Tick>> | null = null;
+let _barPollInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Load historical candle data from REST API.
@@ -221,6 +222,36 @@ export function initDataLayer() {
   // Load initial data
   loadCandles();
   loadQuote();
+
+  // Poll for fresh bars every 15s as fallback when Python stream is idle
+  // (Rust engine handles ticks but doesn't push bar aggregations via WS)
+  _barPollInterval = setInterval(async () => {
+    try {
+      const tf = market.timeframe || '5Min';
+      const data = await api.get<{ bars: any[] }>(`/api/bars?symbol=SPY&timeframe=${tf}&limit=3`);
+      if (data?.bars?.length) {
+        const latest = data.bars[data.bars.length - 1];
+        const candle: Candle = {
+          time: latest.time ?? latest.t,
+          open: latest.open ?? latest.o,
+          high: latest.high ?? latest.h,
+          low: latest.low ?? latest.l,
+          close: latest.close ?? latest.c,
+          volume: latest.volume ?? latest.v ?? 0,
+        };
+        // Check if this is a new bar or update to current
+        const existing = market.candles;
+        if (existing.length > 0) {
+          const lastTime = existing[existing.length - 1].time;
+          if (candle.time > lastTime) {
+            appendCandle(candle);
+          } else if (candle.time === lastTime) {
+            setMarket('currentCandle', candle);
+          }
+        }
+      }
+    } catch {}
+  }, 15000);
 }
 
 /**
@@ -230,7 +261,9 @@ export function destroyDataLayer() {
   engineWS?.destroy();
   sipWS?.destroy();
   tickThrottler?.destroy();
+  if (_barPollInterval) clearInterval(_barPollInterval);
   engineWS = null;
   sipWS = null;
   tickThrottler = null;
+  _barPollInterval = null;
 }
