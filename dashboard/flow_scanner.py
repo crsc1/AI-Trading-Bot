@@ -320,10 +320,8 @@ class FlowScanner:
                 pass
 
     def get_recent_alerts(self, limit: int = 50) -> List[Dict]:
-        # Return sorted by score (highest first)
-        alerts = [a.to_dict() for a in self._alerts]
-        alerts.sort(key=lambda x: x.get("score", 0), reverse=True)
-        return alerts[:limit]
+        # Most recent first (newest at top)
+        return [a.to_dict() for a in reversed(list(self._alerts))][:limit]
 
     def get_stats(self) -> Dict:
         return {

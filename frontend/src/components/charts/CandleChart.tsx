@@ -128,7 +128,8 @@ export const CandleChart: Component = () => {
       const stored = localStorage.getItem('chart-indicators');
       if (stored) return new Set<string>(JSON.parse(stored));
     } catch {}
-    return new Set<string>();
+    // Default: VWAP + EMA enabled on first visit
+    return new Set<string>(['vwap', 'ema']);
   })();
   const [activeIds, setActiveIds] = createSignal<Set<string>>(savedIds);
   const [priceScaleMode, setPriceScaleMode] = createSignal(
