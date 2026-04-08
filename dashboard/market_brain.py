@@ -152,6 +152,77 @@ class MarketBrain:
         self.chat_queue.append(message)
         logger.info(f"[Brain] Chat message queued: {message[:80]}")
 
+    async def _fetch_chat_context(self) -> str:
+        """
+        Fetch live market data from our own REST APIs to give the Brain
+        current context for answering chat questions.
+        """
+        import aiohttp
+        lines = []
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Market data (price, source)
+                async with session.get("http://localhost:8000/api/market", timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        spy = data.get("spy", {})
+                        price = spy.get("price", 0)
+                        if price > 0:
+                            lines.append(f"SPY: ${price:.2f} (source: {spy.get('source', 'unknown')})")
+                            lines.append(f"Ticks: {spy.get('ticks', 0)}")
+
+                # Candle bars for chart analysis
+                async with session.get("http://localhost:8000/api/bars?symbol=SPY&timeframe=5Min&limit=50", timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        bars = data.get("bars", [])
+                        if bars:
+                            lines.append(f"\nRECENT 5-MIN BARS ({len(bars)} bars):")
+                            for bar in bars[-20:]:
+                                # Handle both unix timestamp and ISO format
+                                t = bar.get("time", bar.get("t", ""))
+                                if isinstance(t, (int, float)) and t > 1000000000:
+                                    from datetime import datetime as _dt, timezone as _tz
+                                    time_str = _dt.fromtimestamp(t, tz=_tz.utc).strftime("%H:%M")
+                                elif isinstance(t, str) and "T" in t:
+                                    time_str = t.split("T")[1][:5]
+                                else:
+                                    time_str = str(t)
+                                o = bar.get("open", bar.get("o", 0))
+                                h = bar.get("high", bar.get("h", 0))
+                                l = bar.get("low", bar.get("l", 0))
+                                c = bar.get("close", bar.get("c", 0))
+                                v = bar.get("volume", bar.get("v", 0))
+                                direction = "+" if c >= o else "-"
+                                lines.append(
+                                    f"  {time_str} O={o:.2f} H={h:.2f} L={l:.2f} C={c:.2f} V={v:,.0f} {direction}"
+                                )
+                            if len(bars) >= 2:
+                                highs = [b.get("high", b.get("h", 0)) for b in bars]
+                                lows = [b.get("low", b.get("l", 0)) for b in bars]
+                                first_open = bars[0].get("open", bars[0].get("o", 0))
+                                highs = [x for x in highs if x > 0]
+                                lows = [x for x in lows if x > 0]
+                                if highs and lows and first_open:
+                                    lines.append(f"\nSESSION: HOD=${max(highs):.2f}, LOD=${min(lows):.2f}, Open=${first_open:.2f}")
+
+                # Order flow stats
+                async with session.get("http://localhost:8000/api/stream/stats", timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("connected"):
+                            lines.append(f"\nSTREAM: Connected, {data.get('trades_received', 0)} trades")
+                            nbbo = data.get("nbbo", {})
+                            if nbbo.get("bid"):
+                                lines.append(f"NBBO: ${nbbo['bid']:.2f} / ${nbbo['ask']:.2f}")
+
+        except Exception as e:
+            logger.debug(f"[Brain] Chat context fetch error: {e}")
+
+        if lines:
+            return "[Live Market Data]\n" + "\n".join(lines)
+        return ""
+
     async def analyze_cycle(self, engine: Any) -> BrainDecision:
         """
         Run one analysis cycle:
@@ -279,10 +350,15 @@ class MarketBrain:
 
     async def chat_immediate(self, message: str) -> str:
         """
-        Handle an immediate chat message (between analysis cycles).
-        Uses last snapshot context, doesn't fetch new data.
+        Handle an immediate chat message.
+        Fetches a fresh market snapshot so the Brain always has current data.
         """
-        self.conversation.append({"role": "user", "content": f"USER ASKS: {message}"})
+        # Fetch live market context so the Brain can answer with real data
+        context = await self._fetch_chat_context()
+        if context:
+            self.conversation.append({"role": "user", "content": f"{context}\n\nUSER ASKS: {message}"})
+        else:
+            self.conversation.append({"role": "user", "content": f"USER ASKS: {message}"})
 
         while len(self.conversation) > MAX_CONVERSATION_TURNS * 2:
             self.conversation.pop(0)
