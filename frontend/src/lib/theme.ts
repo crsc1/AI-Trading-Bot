@@ -10,8 +10,19 @@ export const chartTheme = {
   upWickColor: '#00C805',
   downWickColor: '#FF5000',
 
+  // Extended hours: dimmed candles
+  extUpColor: 'rgba(0,200,5,0.35)',
+  extDownColor: 'rgba(255,80,0,0.35)',
+  extUpWickColor: 'rgba(0,200,5,0.35)',
+  extDownWickColor: 'rgba(255,80,0,0.35)',
+
   volumeUp: 'rgba(0,200,5,0.25)',
   volumeDown: 'rgba(255,80,0,0.25)',
+  extVolumeUp: 'rgba(0,200,5,0.10)',
+  extVolumeDown: 'rgba(255,80,0,0.10)',
+
+  // Session boundary lines
+  sessionLineColor: 'rgba(255,255,255,0.12)',
 
   crosshairColor: 'rgba(255,255,255,0.15)',
 };

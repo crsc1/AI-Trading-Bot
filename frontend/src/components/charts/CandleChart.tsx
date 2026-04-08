@@ -20,14 +20,97 @@ import { ChartControls, getIndicatorColor } from './ChartControls';
 import { ChartLegend } from './ChartLegend';
 import { findIndicator } from '../../lib/indicatorRegistry';
 
-function toCandlestick(c: Candle): CandlestickData<Time> {
-  return { time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close };
+// ET session boundaries in seconds from midnight UTC
+// Market open: 9:30 AM ET = 13:30 UTC (EST+5) or 13:30 UTC (EDT+4)
+// We compute per-bar since DST shifts
+
+/**
+ * Get the ET offset in seconds for a given UTC timestamp.
+ * Handles EST (-5h) vs EDT (-4h) automatically.
+ */
+function getETOffset(unixSec: number): number {
+  const d = new Date(unixSec * 1000);
+  // Compare UTC hour with ET hour to determine offset
+  const utcH = d.getUTCHours();
+  const etStr = d.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit' });
+  const etH = parseInt(etStr);
+  let diff = etH - utcH;
+  if (diff > 12) diff -= 24;
+  if (diff < -12) diff += 24;
+  return diff * 3600;
+}
+
+/** Convert UTC unix timestamp to "ET-shifted" timestamp for LWC display */
+function toETTime(unixSec: number): number {
+  return unixSec + getETOffset(unixSec);
+}
+
+/** Get ET hour and minute from a unix timestamp */
+function getETHourMin(unixSec: number): { h: number; m: number } {
+  const d = new Date(unixSec * 1000);
+  const etStr = d.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
+  const [h, m] = etStr.split(':').map(Number);
+  return { h, m };
+}
+
+/** Check if a unix timestamp falls within RTH (9:30 AM - 4:00 PM ET) */
+function isRTH(unixSec: number): boolean {
+  const { h, m } = getETHourMin(unixSec);
+  const totalMin = h * 60 + m;
+  return totalMin >= 570 && totalMin < 960; // 9:30=570, 16:00=960
+}
+
+function toCandlestick(c: Candle): CandlestickData<Time> & { color?: string; wickColor?: string; borderColor?: string } {
+  const rth = isRTH(c.time);
+  const up = c.close >= c.open;
+  return {
+    time: toETTime(c.time) as Time,
+    open: c.open, high: c.high, low: c.low, close: c.close,
+    color: rth ? (up ? chartTheme.upColor : chartTheme.downColor) : (up ? chartTheme.extUpColor : chartTheme.extDownColor),
+    wickColor: rth ? (up ? chartTheme.upWickColor : chartTheme.downWickColor) : (up ? chartTheme.extUpWickColor : chartTheme.extDownWickColor),
+    borderColor: rth ? (up ? chartTheme.upColor : chartTheme.downColor) : (up ? chartTheme.extUpColor : chartTheme.extDownColor),
+  };
 }
 function toVolume(c: Candle): HistogramData<Time> {
-  return { time: c.time as Time, value: c.volume, color: c.close >= c.open ? chartTheme.volumeUp : chartTheme.volumeDown };
+  const rth = isRTH(c.time);
+  const up = c.close >= c.open;
+  return {
+    time: toETTime(c.time) as Time,
+    value: c.volume,
+    color: rth ? (up ? chartTheme.volumeUp : chartTheme.volumeDown) : (up ? chartTheme.extVolumeUp : chartTheme.extVolumeDown),
+  };
+}
+
+/** Find session boundary timestamps (9:30 AM and 4:00 PM ET) within a set of candles */
+function findSessionBoundaries(candles: Candle[]): { opens: number[]; closes: number[] } {
+  const opens: number[] = [];
+  const closes: number[] = [];
+  const seen = new Set<string>();
+
+  for (const c of candles) {
+    const d = new Date(c.time * 1000);
+    const dateStr = d.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+    const { h, m } = getETHourMin(c.time);
+    const totalMin = h * 60 + m;
+
+    const openKey = `open-${dateStr}`;
+    const closeKey = `close-${dateStr}`;
+
+    // Market open at 9:30 — find the bar closest to it
+    if (totalMin >= 570 && totalMin <= 575 && !seen.has(openKey)) {
+      opens.push(toETTime(c.time));
+      seen.add(openKey);
+    }
+    // Market close at 16:00 — find the bar closest to it
+    if (totalMin >= 955 && totalMin <= 960 && !seen.has(closeKey)) {
+      closes.push(toETTime(c.time));
+      seen.add(closeKey);
+    }
+  }
+  return { opens, closes };
 }
 function toLineData(data: { time: number; value: number }[]): LineData<Time>[] {
-  return data.map(d => ({ time: d.time as Time, value: d.value }));
+  return data.map(d => ({ time: toETTime(d.time) as Time, value: d.value }));
 }
 
 export const CandleChart: Component = () => {
@@ -135,7 +218,8 @@ export const CandleChart: Component = () => {
       const now = performance.now();
       if (now - lastCH < 100) return;
       lastCH = now;
-      const c = market.candles.find(c => c.time === (param.time as number));
+      const t = param.time as number;
+      const c = market.candles.find(c => toETTime(c.time) === t);
       if (c) setCrosshairData(`O ${c.open.toFixed(2)}  H ${c.high.toFixed(2)}  L ${c.low.toFixed(2)}  C ${c.close.toFixed(2)}  V ${(c.volume / 1000).toFixed(0)}K`);
     });
 
@@ -161,6 +245,9 @@ export const CandleChart: Component = () => {
     volumeSeries.setData(candles.map(toVolume));
     lastBarCount = candles.length;
     dataLoaded = true;
+
+    // Add session boundary lines (9:30 AM / 4:00 PM ET)
+    addSessionLines(candles);
 
     // Set signal markers
     updateMarkers();
@@ -214,7 +301,8 @@ export const CandleChart: Component = () => {
       .filter(s => s.action !== 'NO_TRADE' && s.timestamp)
       .slice(0, 50)
       .map(s => {
-        const ts = Math.floor(new Date(s.timestamp).getTime() / 1000) as Time;
+        const rawTs = Math.floor(new Date(s.timestamp).getTime() / 1000);
+        const ts = toETTime(rawTs) as Time;
         const isBuy = s.action === 'BUY_CALL';
         return {
           time: ts,
@@ -226,6 +314,58 @@ export const CandleChart: Component = () => {
       })
       .sort((a, b) => (a.time as number) - (b.time as number));
     (candleSeries as any).setMarkers(markers);
+  }
+
+  // ── Session boundary lines ───────────────────────────────────────────
+
+  let sessionLineSeries: ISeriesApi<any>[] = [];
+
+  function addSessionLines(candles: Candle[]) {
+    if (!chart) return;
+
+    // Remove old session lines
+    for (const s of sessionLineSeries) { try { chart.removeSeries(s); } catch {} }
+    sessionLineSeries = [];
+
+    const { opens, closes } = findSessionBoundaries(candles);
+
+    // Create a line series for session boundaries (vertical lines via markers)
+    // LWC doesn't have native vertical lines, so we use markers on the candle series
+    // Instead, use a hidden line series with markers at session boundaries
+    const allBoundaries = [
+      ...opens.map(t => ({ time: t, label: 'OPEN', color: 'rgba(88,136,238,0.5)' })),
+      ...closes.map(t => ({ time: t, label: 'CLOSE', color: 'rgba(88,136,238,0.5)' })),
+    ].sort((a, b) => a.time - b.time);
+
+    if (allBoundaries.length === 0) return;
+
+    // Use a transparent line series to hold markers
+    const markerSeries = chart.addSeries(LineSeries, {
+      color: 'transparent',
+      lineWidth: 0,
+      crosshairMarkerVisible: false,
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+
+    // Set minimal data so the series exists
+    const lineData = allBoundaries.map(b => ({
+      time: b.time as Time,
+      value: candles[0]?.close || 0,
+    }));
+    markerSeries.setData(lineData);
+
+    // Add markers at session boundaries
+    const markers: SeriesMarker<Time>[] = allBoundaries.map(b => ({
+      time: b.time as Time,
+      position: 'aboveBar' as const,
+      color: b.color,
+      shape: 'square' as const,
+      text: b.label === 'OPEN' ? '9:30' : '4:00',
+    }));
+    (markerSeries as any).setMarkers(markers);
+
+    sessionLineSeries.push(markerSeries);
   }
 
   // ── Overlay indicators (imperative) ──────────────────────────────────
