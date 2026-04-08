@@ -182,6 +182,7 @@ export function initDataLayer() {
             sms: data.sms ?? 0,
             tag: 'normal',
             clusterId: null,  // Assigned by addOptionTrade()
+            spyPrice: market.lastPrice,  // SPY price at time of trade for bubble chart replay
           };
           if (trade.price > 0 && trade.size > 0) {
             addOptionTrade(trade);

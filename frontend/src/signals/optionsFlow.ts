@@ -19,6 +19,7 @@ export interface OptionTrade {
   sms: number;           // Smart Money Score (0-100)
   tag: 'normal' | 'sweep' | 'block' | 'whale'; // classified after ingestion
   clusterId: number | null;  // parent-order cluster ID (null = unclustered)
+  spyPrice: number;      // SPY price when this trade happened (for bubble chart Y-axis)
 }
 
 export interface FlowCluster {

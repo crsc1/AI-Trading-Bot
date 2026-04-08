@@ -94,13 +94,11 @@ export const OptionsBubbleChart: Component = () => {
     const newTrades = optionsFlow.trades.slice(0, newCount);
     const now = Date.now();
 
-    // Use SPY's current price as the Y-axis position (penny-level resolution).
-    // This shows WHERE SPY was when the option trade happened, not the strike.
-    // Strike is encoded in color (call=green, put=red).
-    const spyPrice = market.lastPrice;
-    if (spyPrice <= 0) return; // No underlying price yet
-
     for (const t of newTrades) {
+      // Use stored SPY price (set at ingestion time) for correct Y-axis on replay
+      const spyPrice = t.spyPrice || market.lastPrice;
+      if (spyPrice <= 0) continue;
+
       // Weight size by Smart Money Score: SMS 70+ trades appear 2x larger,
       // SMS <30 trades appear 0.5x. This makes institutional flow visually dominant.
       const smsWeight = 0.5 + (t.sms / 100) * 1.5;  // 0.5 at SMS=0, 2.0 at SMS=100
