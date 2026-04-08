@@ -181,6 +181,7 @@ async def chat_websocket(ws: WebSocket):
         - {"type": "brain_state", "state": {...}}
         - {"type": "brain_decision", "decision": {...}}
     """
+    global _thinking
     await ws.accept()
     _clients.add(ws)
     logger.info(f"[BrainChat] Client connected ({len(_clients)} total)")
@@ -227,11 +228,7 @@ async def chat_websocket(ws: WebSocket):
                     "message": user_msg,
                 })
 
-                # Decide: immediate response or queue for next cycle
-                immediate = data.get("immediate", False)
-
                 # Broadcast thinking state
-                global _thinking
                 _thinking = True
                 await broadcast({"type": "thinking", "active": True})
 
