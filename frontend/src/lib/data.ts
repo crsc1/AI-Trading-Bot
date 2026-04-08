@@ -107,6 +107,7 @@ export function initDataLayer() {
   // Rust flow engine WebSocket (port 8081) — ticks, signals
   const wsHost = window.location.hostname || 'localhost';
   engineWS = new WSClient({
+    name: 'Engine',
     url: `ws://${wsHost}:8081/ws`,
     onMessage: (data) => {
       if (data.type === 'Tick' || data.type === 'tick') {
@@ -131,6 +132,7 @@ export function initDataLayer() {
 
   // SIP WebSocket (dashboard backend) — trades, quotes, bars, theta events
   sipWS = new WSClient({
+    name: 'SIP',
     url: `ws://${wsHost}:8000/ws`,
     skipTypes: ['"theta_quote"'],  // Skip ~2,400/sec quote spam before JSON.parse
     onMessage: (data) => {
@@ -229,8 +231,11 @@ export function initDataLayer() {
   // Refresh data when user returns to the tab (WS may have been throttled)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
+      console.log('[Data] Tab visible — refreshing candles + quote');
       loadCandles();
       loadQuote();
+    } else {
+      console.log('[Data] Tab hidden — WS may be throttled by browser');
     }
   });
 

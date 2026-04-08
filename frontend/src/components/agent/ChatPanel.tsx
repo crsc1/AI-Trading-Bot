@@ -34,6 +34,7 @@ export const ChatPanel: Component = () => {
   onMount(() => {
     const wsHost = window.location.hostname || 'localhost';
     chatWS = new WSClient({
+      name: 'Chat',
       url: `ws://${wsHost}:8000/ws/chat`,
       onMessage: (data) => {
         switch (data.type) {

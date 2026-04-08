@@ -1,9 +1,10 @@
 /**
  * WebSocket client with auto-reconnect and message routing.
- * Supports both JSON (current) and Protobuf (future) encoding.
+ * Logs connect/disconnect events for debugging.
  */
 export interface WSConfig {
   url: string;
+  name?: string;  // Identifier for logging (e.g. 'SIP', 'Engine', 'Chat')
   onMessage: (data: any) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
@@ -18,6 +19,7 @@ export class WSClient {
   private retryCount = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
+  private label: string;
 
   constructor(config: WSConfig) {
     this.config = {
@@ -25,16 +27,20 @@ export class WSClient {
       encoding: 'json',
       ...config,
     };
+    this.label = config.name || new URL(config.url).pathname;
   }
 
   connect() {
     if (this.destroyed) return;
     if (this.ws?.readyState === WebSocket.OPEN) return;
 
+    console.log(`[WS:${this.label}] Connecting to ${this.config.url}...`);
+
     try {
       this.ws = new WebSocket(this.config.url);
 
       this.ws.onopen = () => {
+        console.log(`[WS:${this.label}] Connected (retry count was ${this.retryCount})`);
         this.retryCount = 0;
         this.config.onConnect?.();
       };
@@ -43,7 +49,6 @@ export class WSClient {
         try {
           if (this.config.encoding === 'json') {
             // Fast pre-filter: skip high-frequency messages we don't use.
-            // Avoids JSON.parse() overhead on ~2,400 theta_quote messages/sec.
             const raw = event.data as string;
             if (this.config.skipTypes) {
               for (const skip of this.config.skipTypes) {
@@ -56,29 +61,35 @@ export class WSClient {
             this.config.onMessage(event.data);
           }
         } catch (e) {
-          console.warn('[WS] Failed to parse message:', e);
+          console.warn(`[WS:${this.label}] Parse error:`, e);
         }
       };
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (ev) => {
+        console.warn(`[WS:${this.label}] Disconnected (code=${ev.code} reason="${ev.reason || 'none'}")`);
         this.config.onDisconnect?.();
         this.scheduleReconnect();
       };
 
       this.ws.onerror = () => {
-        // onclose will fire after onerror
+        // onclose fires after onerror
       };
     } catch (e) {
+      console.error(`[WS:${this.label}] Connection error:`, e);
       this.scheduleReconnect();
     }
   }
 
   private scheduleReconnect() {
     if (this.destroyed) return;
-    if (this.retryCount >= (this.config.maxRetries ?? 10)) return;
+    if (this.retryCount >= (this.config.maxRetries ?? 10)) {
+      console.error(`[WS:${this.label}] Max retries (${this.config.maxRetries}) reached, giving up`);
+      return;
+    }
 
     const delay = Math.min(3000 * Math.pow(2, this.retryCount), 60000);
     this.retryCount++;
+    console.log(`[WS:${this.label}] Reconnecting in ${delay}ms (attempt ${this.retryCount})...`);
 
     this.retryTimer = setTimeout(() => {
       this.connect();
@@ -95,7 +106,7 @@ export class WSClient {
     this.destroyed = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.ws) {
-      this.ws.onclose = null; // Prevent reconnect on intentional close
+      this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
     }

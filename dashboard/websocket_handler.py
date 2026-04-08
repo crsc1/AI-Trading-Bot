@@ -3,14 +3,19 @@ WebSocket connection manager for real-time dashboard updates
 Handles broadcasting to multiple connected clients
 """
 
+from collections import deque
 from fastapi import WebSocket
 from typing import List
 import asyncio
+import json
 import logging
 from datetime import datetime
 from .config import cfg
 
 logger = logging.getLogger(__name__)
+
+# Max recent theta trades to buffer for replay on reconnect
+_THETA_TRADE_BUFFER_SIZE = 200
 
 
 class ConnectionManager:
@@ -27,19 +32,18 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
         self._lock = asyncio.Lock()
         self.heartbeat_task = None
+        # Buffer recent theta trades for replay when clients reconnect
+        self._theta_trade_buffer: deque = deque(maxlen=_THETA_TRADE_BUFFER_SIZE)
 
     async def connect(self, websocket: WebSocket):
         """
-        Accept a new WebSocket connection
-
-        Args:
-            websocket: The WebSocket connection to add
+        Accept a new WebSocket connection and replay buffered theta trades.
         """
         await websocket.accept()
         async with self._lock:
             self.active_connections.append(websocket)
             count = len(self.active_connections)
-        logger.info(f"Client connected. Total connections: {count}")
+        logger.info(f"[WS] Client connected. Total: {count}")
 
         # Send welcome message
         await websocket.send_json({
@@ -48,43 +52,51 @@ class ConnectionManager:
             "timestamp": datetime.now().isoformat()
         })
 
-    async def disconnect(self, websocket: WebSocket):
-        """
-        Remove a disconnected WebSocket connection
+        # Replay recent theta trades so reconnecting clients recover options flow
+        if self._theta_trade_buffer:
+            replayed = 0
+            for trade in self._theta_trade_buffer:
+                try:
+                    await websocket.send_json(trade)
+                    replayed += 1
+                except Exception:
+                    break
+            if replayed:
+                logger.info(f"[WS] Replayed {replayed} theta trades to reconnecting client")
 
-        Args:
-            websocket: The WebSocket connection to remove
-        """
+    async def disconnect(self, websocket: WebSocket):
+        """Remove a disconnected WebSocket connection."""
         async with self._lock:
             if websocket in self.active_connections:
                 self.active_connections.remove(websocket)
             count = len(self.active_connections)
-        logger.info(f"Client disconnected. Total connections: {count}")
+        logger.info(f"[WS] Client disconnected. Remaining: {count}. Theta buffer: {len(self._theta_trade_buffer)} trades")
 
     async def broadcast(self, message: dict):
         """
-        Broadcast a message to all connected clients
-
-        Args:
-            message: Dictionary with message data (should include 'type' field)
+        Broadcast a message to all connected clients.
+        Buffers theta_trade events for replay on reconnect.
         """
         # Add timestamp if not present
         if "timestamp" not in message:
             message["timestamp"] = datetime.now().isoformat()
 
-        # Snapshot connections under lock to avoid mutation during iteration
+        # Buffer theta trades for replay
+        if message.get("type") == "theta_trade":
+            self._theta_trade_buffer.append(message)
+
+        # Snapshot connections under lock
         async with self._lock:
             if not self.active_connections:
                 return
             snapshot = list(self.active_connections)
 
-        # Send to all connected clients (outside lock to avoid holding it during I/O)
+        # Send to all connected clients
         disconnected = []
         for connection in snapshot:
             try:
                 await connection.send_json(message)
-            except Exception as e:
-                logger.error(f"Error sending message to client: {e}")
+            except Exception:
                 disconnected.append(connection)
 
         # Clean up disconnected clients
@@ -93,6 +105,8 @@ class ConnectionManager:
                 for connection in disconnected:
                     if connection in self.active_connections:
                         self.active_connections.remove(connection)
+                count = len(self.active_connections)
+            logger.warning(f"[WS] {len(disconnected)} client(s) disconnected during broadcast. Remaining: {count}")
 
     async def broadcast_signal(self, signal_data: dict):
         """
