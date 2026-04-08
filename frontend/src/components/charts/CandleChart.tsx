@@ -7,8 +7,8 @@
  */
 import { type Component, createEffect, createSignal, on, Show, onMount, onCleanup } from 'solid-js';
 import {
-  createChart, CandlestickSeries, LineSeries, HistogramSeries,
-  type IChartApi, type ISeriesApi, type Time, type CandlestickData,
+  createChart, createSeriesMarkers, CandlestickSeries, LineSeries, HistogramSeries,
+  type IChartApi, type ISeriesApi, type ISeriesMarkersPluginApi, type Time, type CandlestickData,
   type HistogramData, type LineData, type SeriesMarker, type MouseEventParams,
 } from 'lightweight-charts';
 import { market } from '../../signals/market';
@@ -119,6 +119,7 @@ export const CandleChart: Component = () => {
   let candleSeries: ISeriesApi<'Candlestick'> | undefined;
   let volumeSeries: ISeriesApi<'Histogram'> | undefined;
   let overlaySeries: ISeriesApi<any>[] = [];
+  let markersPlugin: ISeriesMarkersPluginApi<Time> | undefined;
   let dataLoaded = false;
   let lastBarCount = 0;
 
@@ -246,10 +247,7 @@ export const CandleChart: Component = () => {
     lastBarCount = candles.length;
     dataLoaded = true;
 
-    // Add session boundary lines (9:30 AM / 4:00 PM ET)
-    addSessionLines(candles);
-
-    // Set signal markers
+    // Set signal markers (includes session boundaries)
     updateMarkers();
     // Build overlay indicators
     rebuildIndicators();
@@ -295,77 +293,66 @@ export const CandleChart: Component = () => {
 
   function updateMarkers() {
     if (!candleSeries) return;
+    const allMarkers: SeriesMarker<Time>[] = [];
+
+    // Signal markers
     const hist = signals.history;
-    if (!hist || hist.length === 0) return;
-    const markers: SeriesMarker<Time>[] = hist
-      .filter(s => s.action !== 'NO_TRADE' && s.timestamp)
-      .slice(0, 50)
-      .map(s => {
+    if (hist && hist.length > 0) {
+      for (const s of hist.filter(s => s.action !== 'NO_TRADE' && s.timestamp).slice(0, 50)) {
         const rawTs = Math.floor(new Date(s.timestamp).getTime() / 1000);
         const ts = toETTime(rawTs) as Time;
         const isBuy = s.action === 'BUY_CALL';
-        return {
+        allMarkers.push({
           time: ts,
           position: isBuy ? 'belowBar' as const : 'aboveBar' as const,
           color: isBuy ? '#00C805' : '#FF5000',
           shape: isBuy ? 'arrowUp' as const : 'arrowDown' as const,
           text: `${isBuy ? 'CALL' : 'PUT'} $${s.strike}`,
-        };
-      })
-      .sort((a, b) => (a.time as number) - (b.time as number));
-    (candleSeries as any).setMarkers(markers);
+        });
+      }
+    }
+
+    // Session boundary markers
+    const sessionMarkers = getSessionMarkers(market.candles);
+    allMarkers.push(...sessionMarkers);
+
+    // Sort by time (required by LWC)
+    allMarkers.sort((a, b) => (a.time as number) - (b.time as number));
+
+    // LWC v5: use createSeriesMarkers plugin instead of series.setMarkers()
+    if (markersPlugin) {
+      markersPlugin.setMarkers(allMarkers);
+    } else {
+      markersPlugin = createSeriesMarkers(candleSeries, allMarkers);
+    }
   }
 
   // ── Session boundary lines ───────────────────────────────────────────
 
-  let sessionLineSeries: ISeriesApi<any>[] = [];
-
-  function addSessionLines(candles: Candle[]) {
-    if (!chart) return;
-
-    // Remove old session lines
-    for (const s of sessionLineSeries) { try { chart.removeSeries(s); } catch {} }
-    sessionLineSeries = [];
-
+  /** Build session boundary markers to merge into the candle series markers */
+  function getSessionMarkers(candles: Candle[]): SeriesMarker<Time>[] {
     const { opens, closes } = findSessionBoundaries(candles);
+    const markers: SeriesMarker<Time>[] = [];
 
-    // Create a line series for session boundaries (vertical lines via markers)
-    // LWC doesn't have native vertical lines, so we use markers on the candle series
-    // Instead, use a hidden line series with markers at session boundaries
-    const allBoundaries = [
-      ...opens.map(t => ({ time: t, label: 'OPEN', color: 'rgba(88,136,238,0.5)' })),
-      ...closes.map(t => ({ time: t, label: 'CLOSE', color: 'rgba(88,136,238,0.5)' })),
-    ].sort((a, b) => a.time - b.time);
-
-    if (allBoundaries.length === 0) return;
-
-    // Use a transparent line series to hold markers
-    const markerSeries = chart.addSeries(LineSeries, {
-      color: 'transparent',
-      lineWidth: 0,
-      crosshairMarkerVisible: false,
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
-
-    // Set minimal data so the series exists
-    const lineData = allBoundaries.map(b => ({
-      time: b.time as Time,
-      value: candles[0]?.close || 0,
-    }));
-    markerSeries.setData(lineData);
-
-    // Add markers at session boundaries
-    const markers: SeriesMarker<Time>[] = allBoundaries.map(b => ({
-      time: b.time as Time,
-      position: 'aboveBar' as const,
-      color: b.color,
-      shape: 'square' as const,
-      text: b.label === 'OPEN' ? '9:30' : '4:00',
-    }));
-    (markerSeries as any).setMarkers(markers);
-
-    sessionLineSeries.push(markerSeries);
+    for (const t of opens) {
+      markers.push({
+        time: t as Time,
+        position: 'aboveBar',
+        color: 'rgba(88,136,238,0.6)',
+        shape: 'square',
+        text: '9:30 OPEN',
+      });
+    }
+    for (const t of closes) {
+      markers.push({
+        time: t as Time,
+        position: 'aboveBar',
+        color: 'rgba(88,136,238,0.6)',
+        shape: 'square',
+        text: '4:00 CLOSE',
+      });
+    }
+    return markers;
   }
 
   // ── Overlay indicators (imperative) ──────────────────────────────────
