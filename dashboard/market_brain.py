@@ -96,6 +96,23 @@ If the user gives an instruction (e.g., "tighten stops", "go bearish only"), ack
 - If you recommend EXIT, explain which position and why
 """
 
+CHAT_SYSTEM_PROMPT = """You are Market Brain, the AI trading assistant built into a personal 0DTE SPY/SPX options trading platform.
+
+You speak like a sharp, experienced trader who actually looks at charts. Direct, concrete, no fluff. You reference specific price levels, times, and patterns. Think senior trader at a prop desk explaining the day to a colleague.
+
+When you receive market data (bars, price, etc.), analyze it thoroughly:
+- Identify the trend, key levels, support/resistance
+- Note volume patterns and significant candles
+- Call out specific times and prices, not generalities
+- If asked about setups, give actionable levels
+
+Keep responses concise but substantive. Use plain text, not JSON. Format with line breaks for readability. Use $ for prices.
+
+You have access to live market data that gets attached to each message. Use it. Reference specific numbers from the data. If the data shows SPY at $673.64 with HOD $675.15 and LOD $651.06, say exactly that.
+
+When the market is closed, you can still analyze the day's chart, identify patterns, and discuss what happened. Don't refuse to analyze just because the session ended.
+"""
+
 
 @dataclass
 class BrainDecision:
@@ -125,7 +142,8 @@ class MarketBrain:
     """
 
     def __init__(self):
-        self.conversation: List[Dict[str, str]] = []
+        self.conversation: List[Dict[str, str]] = []    # Analysis cycle thread
+        self.chat_history: List[Dict[str, str]] = []    # Chat thread (separate)
         self.decisions: deque = deque(maxlen=MAX_DECISIONS)
         self.cycle_count: int = 0
         self.status: str = "idle"       # idle, analyzing, trading, error
@@ -351,21 +369,27 @@ class MarketBrain:
     async def chat_immediate(self, message: str) -> str:
         """
         Handle an immediate chat message.
-        Fetches a fresh market snapshot so the Brain always has current data.
+        Uses a separate conversation thread with a chat-specific prompt
+        so the Brain responds naturally instead of in JSON.
         """
-        # Fetch live market context so the Brain can answer with real data
+        # Fetch live market context
         context = await self._fetch_chat_context()
-        if context:
-            self.conversation.append({"role": "user", "content": f"{context}\n\nUSER ASKS: {message}"})
-        else:
-            self.conversation.append({"role": "user", "content": f"USER ASKS: {message}"})
 
-        while len(self.conversation) > MAX_CONVERSATION_TURNS * 2:
-            self.conversation.pop(0)
+        # Build the user message with context
+        if context:
+            user_msg = f"{context}\n\n{message}"
+        else:
+            user_msg = message
+
+        self.chat_history.append({"role": "user", "content": user_msg})
+
+        # Trim chat history
+        while len(self.chat_history) > MAX_CONVERSATION_TURNS * 2:
+            self.chat_history.pop(0)
 
         result = await call_brain(
-            system_prompt=SYSTEM_PROMPT,
-            messages=self.conversation,
+            system_prompt=CHAT_SYSTEM_PROMPT,
+            messages=self.chat_history,
             escalate=False,
         )
 
@@ -373,14 +397,8 @@ class MarketBrain:
             return f"Sorry, I encountered an error: {result['error']}"
 
         content = result["content"].strip()
-        self.conversation.append({"role": "assistant", "content": content})
-
-        # Try to extract chat_response from JSON
-        try:
-            parsed = json.loads(content)
-            return parsed.get("chat_response", content)
-        except json.JSONDecodeError:
-            return content
+        self.chat_history.append({"role": "assistant", "content": content})
+        return content
 
     def _parse_decision(self, raw: str, cycle: int, result: Dict) -> BrainDecision:
         """Parse JSON response from Claude into a BrainDecision."""
