@@ -36,6 +36,8 @@ const typeLabels: Record<string, string> = {
 const dirColors: Record<string, string> = {
   bullish: 'text-positive',
   bearish: 'text-negative',
+  exit_bullish: 'text-text-secondary',
+  exit_bearish: 'text-text-secondary',
   neutral: 'text-text-muted',
 };
 
@@ -178,7 +180,10 @@ export const Scanner: Component = () => {
                     <span class={`font-data text-[11px] font-medium ${
                       dirColors[alert.direction] || 'text-text-muted'
                     }`}>
-                      {alert.direction === 'bullish' ? '▲ BULL' : alert.direction === 'bearish' ? '▼ BEAR' : '—'}
+                      {alert.direction === 'bullish' ? '▲ BULL' :
+                       alert.direction === 'bearish' ? '▼ BEAR' :
+                       alert.direction === 'exit_bullish' ? '↗ EXIT' :
+                       alert.direction === 'exit_bearish' ? '↙ EXIT' : '—'}
                     </span>
                   </td>
                   <td class="px-2 py-2 font-data text-[12px] text-text-primary font-medium">

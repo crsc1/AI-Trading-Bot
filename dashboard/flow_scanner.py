@@ -193,11 +193,15 @@ class FlowScanner:
         else:
             alert_type = "whale"  # Large premium, few fills
 
-        # Direction inference
-        if right == "C":
-            direction = "bullish" if side == "buy" else "bearish"
+        # Direction inference — based on what the BUYER is doing
+        # BUY call at ask = bullish conviction (paying up for upside)
+        # BUY put at ask = bearish conviction (paying up for downside)
+        # SELL at bid = exiting/closing, less directional signal
+        if side == "buy":
+            direction = "bullish" if right == "C" else "bearish"
         else:
-            direction = "bearish" if side == "buy" else "bullish"
+            # Selling = closing or writing. Less clear, mark as exit
+            direction = "exit_bearish" if right == "P" else "exit_bullish"
 
         # Score the alert (0-100)
         score = self._score_alert(
