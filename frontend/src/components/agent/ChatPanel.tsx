@@ -152,6 +152,25 @@ export const ChatPanel: Component = () => {
                       <div class="chat-content text-[14px] text-text-primary leading-[1.7] pl-7"
                            style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"
                            innerHTML={renderMarkdown(msg.content)} />
+                      {/* Token & timing stats */}
+                      <Show when={msg.metadata?.duration_ms}>
+                        <div class="pl-7 mt-2 flex items-center gap-3 text-[11px] text-text-muted font-data">
+                          <span title="Time to respond">
+                            {((msg.metadata!.duration_ms! / 1000)).toFixed(1)}s
+                          </span>
+                          <span class="w-px h-3 bg-border-default" />
+                          <span title="Input tokens (including cache)">
+                            {(msg.metadata!.input_tokens! || 0).toLocaleString()} in
+                          </span>
+                          <span title="Output tokens">
+                            {(msg.metadata!.output_tokens! || 0).toLocaleString()} out
+                          </span>
+                          <span class="w-px h-3 bg-border-default" />
+                          <span title="Cost for this message">
+                            ${(msg.metadata!.cost_usd! || 0).toFixed(4)}
+                          </span>
+                        </div>
+                      </Show>
                     </div>
                   </Show>
 

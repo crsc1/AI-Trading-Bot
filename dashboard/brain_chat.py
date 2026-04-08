@@ -46,14 +46,15 @@ _chat_turns: List[str] = []
 _MAX_CHAT_CONTEXT = 10  # Keep last N exchanges for context
 
 
-async def _call_claude_code(user_message: str) -> str:
+async def _call_claude_code(user_message: str) -> Dict[str, Any]:
     """
     Call the claude CLI in print mode with the user's message.
-    Includes recent conversation history and live market context as a preamble.
+    Returns {"content": str, "duration_ms": int, "input_tokens": int, "output_tokens": int, "cost_usd": float}.
     """
     if not _CLAUDE_BIN:
         logger.warning("[BrainChat] claude CLI not found, falling back to API")
-        return await brain.chat_immediate(user_message)
+        resp = await brain.chat_immediate(user_message)
+        return {"content": resp, "duration_ms": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0}
 
     # Build context preamble
     preamble_parts = []
@@ -83,7 +84,7 @@ async def _call_claude_code(user_message: str) -> str:
         clean_env["CLAUDE_CODE_ENTRYPOINT"] = "brain-chat"
 
         proc = await asyncio.create_subprocess_exec(
-            _CLAUDE_BIN, "-p", "--output-format", "text",
+            _CLAUDE_BIN, "-p", "--output-format", "json",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -94,11 +95,28 @@ async def _call_claude_code(user_message: str) -> str:
             proc.communicate(input=full_prompt.encode()),
             timeout=120,
         )
-        response = stdout.decode().strip()
+        raw = stdout.decode().strip()
 
-        if not response and stderr:
+        if not raw and stderr:
             logger.warning(f"[BrainChat] claude stderr: {stderr.decode()[:200]}")
-            return await brain.chat_immediate(user_message)
+            resp = await brain.chat_immediate(user_message)
+            return {"content": resp, "duration_ms": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0}
+
+        # Parse JSON output from claude CLI
+        try:
+            data = json.loads(raw)
+            response = data.get("result", raw)
+            duration_ms = data.get("duration_ms", 0)
+            usage = data.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0) + usage.get("cache_read_input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            cost_usd = data.get("total_cost_usd", 0)
+        except json.JSONDecodeError:
+            response = raw
+            duration_ms = 0
+            input_tokens = 0
+            output_tokens = 0
+            cost_usd = 0
 
         # Store turn for context
         _chat_turns.append(f"User: {user_message}")
@@ -106,14 +124,21 @@ async def _call_claude_code(user_message: str) -> str:
         while len(_chat_turns) > _MAX_CHAT_CONTEXT * 2:
             _chat_turns.pop(0)
 
-        return response
+        return {
+            "content": response,
+            "duration_ms": duration_ms,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost_usd": cost_usd,
+        }
 
     except asyncio.TimeoutError:
         logger.error("[BrainChat] claude CLI timed out (120s)")
-        return "Sorry, that took too long. Try a simpler question."
+        return {"content": "Sorry, that took too long. Try a simpler question.", "duration_ms": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0}
     except Exception as e:
         logger.error(f"[BrainChat] claude CLI error: {e}")
-        return await brain.chat_immediate(user_message)
+        resp = await brain.chat_immediate(user_message)
+        return {"content": resp, "duration_ms": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0}
 
 
 async def broadcast(data: Dict[str, Any]) -> None:
@@ -233,7 +258,7 @@ async def chat_websocket(ws: WebSocket):
                 await broadcast({"type": "thinking", "active": True})
 
                 # Route through Claude Code CLI for full capabilities
-                response = await _call_claude_code(user_message)
+                result = await _call_claude_code(user_message)
 
                 _thinking = False
                 await broadcast({"type": "thinking", "active": False})
@@ -242,8 +267,14 @@ async def chat_websocket(ws: WebSocket):
                     "message": {
                         "id": str(uuid.uuid4())[:8],
                         "role": "brain",
-                        "content": response,
+                        "content": result["content"],
                         "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "metadata": {
+                            "duration_ms": result["duration_ms"],
+                            "input_tokens": result["input_tokens"],
+                            "output_tokens": result["output_tokens"],
+                            "cost_usd": result["cost_usd"],
+                        },
                     },
                 })
 
@@ -376,5 +407,11 @@ async def post_chat(body: Dict[str, Any]):
     if not message:
         return {"error": "Empty message"}
 
-    response = await _call_claude_code(message)
-    return {"response": response}
+    result = await _call_claude_code(message)
+    return {
+        "response": result["content"],
+        "duration_ms": result["duration_ms"],
+        "input_tokens": result["input_tokens"],
+        "output_tokens": result["output_tokens"],
+        "cost_usd": result["cost_usd"],
+    }

@@ -7,6 +7,10 @@ export interface ChatMessage {
     cycle_number?: number;
     confidence?: number;
     action?: string;
+    duration_ms?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    cost_usd?: number;
   };
 }
 
