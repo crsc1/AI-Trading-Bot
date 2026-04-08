@@ -244,26 +244,87 @@ class MarketBrain:
             return "[Live Market Data — all times Eastern]\n" + "\n".join(lines)
         return ""
 
-    async def analyze_cycle(self, engine: Any) -> BrainDecision:
+    def _build_pattern_context(self, snapshot: Any, moments_db: Any) -> str:
+        """
+        Query market moments DB for similar past situations.
+        Returns compact text block for the analysis prompt (~200 tokens).
+        """
+        if not moments_db:
+            return ""
+
+        try:
+            similar = moments_db.find_similar(snapshot=snapshot, limit=3, min_similarity=0.70)
+            if not similar:
+                return ""
+
+            lines = ["PATTERN MEMORY:"]
+            for m in similar:
+                ts = m.get("timestamp", "")
+                time_str = ts[5:16].replace("T", " ") if "T" in ts else ts[:16]
+                name = m.get("trigger_name") or m.get("setup_name") or "similar"
+                sim = m.get("similarity", 0)
+                regime = m.get("regime", "?")
+                phase = m.get("session_phase", "?")
+                outcome = m.get("outcome_direction")
+                move = m.get("move_pct_15min")
+
+                if outcome and move is not None:
+                    lines.append(
+                        f"  {time_str} — {name} in {regime}/{phase} (sim={sim:.2f}): "
+                        f"SPY {'+' if move >= 0 else ''}{move:.2f}% in 15min ({outcome})"
+                    )
+                else:
+                    lines.append(
+                        f"  {time_str} — {name} in {regime}/{phase} (sim={sim:.2f}): outcome pending"
+                    )
+
+            # Add pattern edge if a setup is active
+            setups = getattr(snapshot, "setups", []) or []
+            if setups and isinstance(setups[0], dict):
+                setup_name = setups[0].get("name")
+                regime = getattr(snapshot, "regime", None)
+                phase = getattr(snapshot, "session_phase", None)
+                edge = moments_db.get_pattern_edge(setup_name, regime, phase)
+                if edge:
+                    lines.append(
+                        f"PATTERN STATS: {edge['pattern_key']}: "
+                        f"{edge['win_rate']:.0%} win ({edge['sample_size']} samples), "
+                        f"avg move {edge['avg_move_pct']:+.2f}%"
+                    )
+
+            return "\n".join(lines)
+        except Exception as e:
+            logger.debug(f"[Brain] Pattern context error: {e}")
+            return ""
+
+    async def analyze_cycle(self, engine: Any, snapshot: Any = None, moments_db: Any = None) -> BrainDecision:
         """
         Run one analysis cycle:
-        1. Collect market snapshot
-        2. Format as prompt
-        3. Call Claude
-        4. Parse response
-        5. Escalate to Opus if TRADE
+        1. Collect market snapshot (or use provided one)
+        2. Build pattern context from moments DB
+        3. Format as prompt
+        4. Call Claude
+        5. Parse response
+        6. Escalate to Opus if TRADE
         """
         self.status = "analyzing"
         self.cycle_count += 1
         cycle = self.cycle_count
 
         try:
-            # 1. Collect snapshot
-            snapshot = await collect_snapshot(engine)
+            # 1. Collect snapshot (use provided or fetch new)
+            if snapshot is None:
+                snapshot = await collect_snapshot(engine)
             snapshot_text = snapshot.to_prompt()
 
-            # 2. Build user message with snapshot + any queued chat
+            # 2. Build pattern context from moments DB
+            pattern_context = self._build_pattern_context(snapshot, moments_db)
+
+            # 3. Build user message with snapshot + pattern context + queued chat
             user_parts = [f"[Cycle {cycle}] Market data:\n{snapshot_text}"]
+
+            if pattern_context:
+                user_parts.append(f"\n{pattern_context}")
 
             # Include queued chat messages
             if self.chat_queue:

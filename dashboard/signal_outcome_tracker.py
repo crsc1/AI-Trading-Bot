@@ -203,8 +203,6 @@ class SignalOutcomeTracker:
     async def _process_pending(self):
         """Check all outcome rows that still need a 15-min or 30-min price."""
         pending = get_pending_outcomes(max_age_hours=2)
-        if not pending:
-            return
 
         # Fetch current SPY price once for the whole batch
         try:
@@ -216,6 +214,12 @@ class SignalOutcomeTracker:
 
         if not spy_now or spy_now <= 0:
             logger.debug("[OutcomeTracker] No valid SPY price — skipping cycle")
+            return
+
+        # Also check market moment outcomes
+        await self._check_moment_outcomes(spy_now)
+
+        if not pending:
             return
 
         now_utc = datetime.now(timezone.utc)
@@ -317,6 +321,47 @@ class SignalOutcomeTracker:
             )
         except Exception as e:
             logger.warning(f"[OutcomeTracker] WeightLearner feed error: {e}")
+
+    # ── Market Moments Outcome Tracking ────────────────────────────────────────
+
+    async def _check_moment_outcomes(self, spy_now: float):
+        """Fill in moment outcomes at 5/15/30 min marks."""
+        try:
+            from .market_moments import moments_db
+            pending = moments_db.get_pending_outcomes(max_age_hours=1)
+            if not pending:
+                return
+
+            now = datetime.now(timezone.utc)
+            processed = 0
+
+            for m in pending:
+                try:
+                    ts = datetime.fromisoformat(m["timestamp"].replace("Z", "+00:00"))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    age_min = (now - ts).total_seconds() / 60
+
+                    if age_min >= 5 and not m["checked_5min"]:
+                        moments_db.update_outcome(m["id"], "5min", spy_now)
+                        processed += 1
+
+                    if age_min >= 15 and not m["checked_15min"]:
+                        moments_db.update_outcome(m["id"], "15min", spy_now)
+                        processed += 1
+
+                    if age_min >= 30 and not m["checked_30min"]:
+                        moments_db.update_outcome(m["id"], "30min", spy_now)
+                        processed += 1
+
+                except Exception as e:
+                    logger.debug(f"[OutcomeTracker] Moment outcome error: {e}")
+
+            if processed:
+                logger.info(f"[OutcomeTracker] Updated {processed} moment outcomes")
+
+        except Exception as e:
+            logger.debug(f"[OutcomeTracker] Moment outcome check error: {e}")
 
     # ── Stats ─────────────────────────────────────────────────────────────────
 

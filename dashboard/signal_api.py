@@ -492,18 +492,37 @@ def record_trade_outcome(exit_reason: str):
 
 
 async def _run_brain_cycle():
-    """Market Brain analysis cycle: collect snapshot → LLM decision."""
+    """Market Brain analysis cycle: collect snapshot → LLM decision → record moment."""
     try:
         if not _is_market_hours():
             return
 
         from .market_brain import brain
         from .brain_chat import broadcast_decision, broadcast_brain_state
+        from .market_moments import moments_db
+        from .data_collector import collect_snapshot
 
-        decision = await brain.analyze_cycle(engine)
+        # 1. Collect snapshot for pattern recall
+        snapshot = await collect_snapshot(engine, signal_history)
+
+        # 2. Run Brain analysis (uses direct API or CLI based on config)
+        decision = await brain.analyze_cycle(engine, snapshot=snapshot, moments_db=moments_db)
 
         # Broadcast state to WebSocket clients
         await broadcast_brain_state()
+
+        # 3. Record market moment (async, non-blocking)
+        setups = snapshot.setups if hasattr(snapshot, 'setups') else []
+        trigger_name = setups[0].get("name") if setups else None
+        asyncio.create_task(asyncio.to_thread(
+            moments_db.record_moment,
+            trigger_type="signal" if decision.action == "TRADE" else "cycle",
+            trigger_name=trigger_name or decision.action,
+            trigger_detail=decision.reasoning[:200] if decision.reasoning else None,
+            brain_action=decision.action,
+            brain_confidence=decision.confidence,
+            snapshot=snapshot,
+        ))
 
         if decision.action == "TRADE" and decision.direction and decision.confidence >= 0.45:
             # Convert Brain decision to signal format for position_manager
