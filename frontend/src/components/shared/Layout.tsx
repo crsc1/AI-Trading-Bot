@@ -11,6 +11,7 @@ import { Charts } from '../pages/Charts';
 import { Flow } from '../pages/Flow';
 import { Agent } from '../pages/Agent';
 import { Reference } from '../pages/Reference';
+import { Scanner } from '../pages/Scanner';
 
 interface Props {
   children?: JSX.Element;
@@ -83,6 +84,9 @@ export const Layout: Component<Props> = (props) => {
           </div>
           <div class="absolute inset-0" style={{ display: path() === '/reference' ? 'block' : 'none' }}>
             <Reference />
+          </div>
+          <div class="absolute inset-0" style={{ display: path() === '/scanner' ? 'block' : 'none' }}>
+            <Scanner />
           </div>
         </main>
       </div>

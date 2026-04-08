@@ -146,6 +146,7 @@ async def get_root():
 @app.get("/charts")
 @app.get("/flow")
 @app.get("/agent")
+@app.get("/scanner")
 @app.get("/reference")
 async def spa_route():
     """SPA routes — serve index.html for client-side routing."""
@@ -295,17 +296,58 @@ async def startup_event():
             await manager.broadcast(event)
 
         # Broadcast theta trade events enriched with premium and notional
+        from .flow_scanner import flow_scanner
+        flow_scanner.set_broadcast(manager.broadcast)
+
         async def broadcast_theta_trade(event: dict):
             # Enrich with premium (price * size * 100 for options)
             price = event.get("price", 0)
             size = event.get("size", 0)
-            event["premium"] = round(price * size * 100, 2)  # Options are 100 shares per contract
+            event["premium"] = round(price * size * 100, 2)
             event["timestamp"] = event.get("timestamp") or __import__("time").time()
             await manager.broadcast(event)
+            # Feed to flow scanner for multi-symbol alert detection
+            flow_scanner.on_trade(event)
 
         # Broadcast connection status changes
         async def broadcast_theta_status(event: dict):
             await manager.broadcast(event)
+
+        async def _init_flow_scanner():
+            """Fetch prices for scanner symbols and subscribe to their options."""
+            import aiohttp
+            from .flow_scanner import flow_scanner, SCANNER_SYMBOLS
+            from datetime import date
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    for sym in SCANNER_SYMBOLS:
+                        if sym == "SPY":
+                            # SPY already subscribed via auto_subscribe_0dte
+                            continue
+                        try:
+                            # Get price from Alpaca
+                            async with session.get(
+                                f"https://data.alpaca.markets/v2/stocks/{sym}/snapshot",
+                                headers=cfg.ALPACA_HEADERS,
+                                timeout=aiohttp.ClientTimeout(total=3),
+                            ) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    price = data.get("latestTrade", {}).get("p", 0)
+                                    if price > 0:
+                                        flow_scanner.update_price(sym, price)
+                        except Exception:
+                            pass
+
+                # SPY price from our own feed
+                flow_scanner.update_price("SPY", theta_stream._underlying_price)
+
+                # Subscribe all symbols that have prices
+                await flow_scanner.subscribe_all(theta_stream)
+
+            except Exception as e:
+                logger.warning(f"[Scanner] Init failed: {e}")
 
         theta_stream.on_quote(broadcast_theta_quote)
         theta_stream.on_trade(broadcast_theta_trade)
@@ -317,10 +359,12 @@ async def startup_event():
 
         # Auto-subscribe to 0DTE option trades once connected
         async def _subscribe_when_ready():
-            """Wait for ThetaData WS to connect, then subscribe to 0DTE trades."""
+            """Wait for ThetaData WS to connect, then subscribe to 0DTE trades + scanner symbols."""
             for _ in range(30):  # Wait up to 30 seconds
                 if theta_stream.connected:
                     await theta_stream.auto_subscribe_0dte("SPY")
+                    # Subscribe scanner symbols (fetch prices from Alpaca first)
+                    await _init_flow_scanner()
                     return
                 await asyncio.sleep(1)
             logger.warning("ThetaData WS did not connect in time for 0DTE subscription")

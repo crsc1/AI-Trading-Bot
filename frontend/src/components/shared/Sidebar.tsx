@@ -12,6 +12,7 @@ const navItems: NavItem[] = [
   { path: '/charts', label: 'Charts', icon: '⊟' },
   { path: '/flow', label: 'Order Flow', icon: '⊡' },
   { path: '/agent', label: 'AI Agent', icon: '◈' },
+  { path: '/scanner', label: 'Scanner', icon: '⊛' },
   { path: '/reference', label: 'Reference', icon: '◉' },
 ];
 

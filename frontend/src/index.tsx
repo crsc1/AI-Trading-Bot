@@ -18,6 +18,7 @@ render(
       <Route path="/flow" component={Noop} />
       <Route path="/agent" component={Noop} />
       <Route path="/reference" component={Noop} />
+      <Route path="/scanner" component={Noop} />
     </Router>
   ),
   root!

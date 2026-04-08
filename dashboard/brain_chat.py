@@ -411,6 +411,20 @@ async def get_brain_sources():
     return {"sources": sources, "model": model}
 
 
+@rest_router.get("/scanner/alerts")
+async def get_scanner_alerts(limit: int = 50):
+    """Return recent flow scanner alerts."""
+    from .flow_scanner import flow_scanner
+    return {"alerts": flow_scanner.get_recent_alerts(limit=limit)}
+
+
+@rest_router.get("/scanner/stats")
+async def get_scanner_stats():
+    """Return flow scanner status."""
+    from .flow_scanner import flow_scanner
+    return flow_scanner.get_stats()
+
+
 @rest_router.get("/signals/recent")
 async def get_recent_signals(limit: int = 20):
     """Return recent signals from the non-LLM engine for the BrainFeed."""
