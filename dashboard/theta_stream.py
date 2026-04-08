@@ -86,6 +86,69 @@ class ThetaStreamClient:
         if price > 0:
             self._underlying_price = price
 
+    def get_options_flow_context(self) -> dict:
+        """
+        Return a snapshot of options flow state for the signal engine.
+        Called every 15s cycle. All data is pre-computed, no latency.
+        """
+        vpin_state = self._options_vpin.get_state()
+
+        # Compute recent trade stats from the last 60s of trade callbacks
+        # We track running totals in _trade_stats (updated on each trade)
+        buy_premium = getattr(self, '_recent_buy_premium', 0)
+        sell_premium = getattr(self, '_recent_sell_premium', 0)
+        total_premium = buy_premium + sell_premium
+        call_premium = getattr(self, '_recent_call_premium', 0)
+        put_premium = getattr(self, '_recent_put_premium', 0)
+
+        # Sweep count from recent trades
+        sweep_count = getattr(self, '_recent_sweep_count', 0)
+        high_sms_count = getattr(self, '_recent_high_sms_count', 0)
+
+        return {
+            "connected": self.connected,
+            "trades_received": self.trades_received,
+            # VPIN — flow toxicity (0-1, >0.7 = toxic)
+            "vpin": vpin_state.vpin if vpin_state.bucket_count >= 5 else None,
+            "vpin_level": vpin_state.toxicity_level,
+            # Volume split
+            "buy_volume": vpin_state.buy_volume,
+            "sell_volume": vpin_state.sell_volume,
+            "volume_imbalance": vpin_state.imbalance_ratio,
+            # Premium split (from running totals)
+            "buy_premium": buy_premium,
+            "sell_premium": sell_premium,
+            "call_premium": call_premium,
+            "put_premium": put_premium,
+            "pcr_premium": (put_premium / call_premium) if call_premium > 0 else 1.0,
+            # Smart money
+            "high_sms_count": high_sms_count,  # trades with SMS >= 70
+            "sweep_count": sweep_count,
+            # Greeks book
+            "greeks_book_size": len(self._greeks_book),
+            "underlying_price": self._underlying_price,
+        }
+
+    def _update_running_stats(self, event: dict):
+        """Update running trade stats for get_options_flow_context(). Called on each trade."""
+        premium = event.get("price", 0) * event.get("size", 0) * 100
+        side = event.get("side", "mid")
+        right = event.get("right", "C")
+        sms = event.get("sms", 0)
+
+        if side == "buy":
+            self._recent_buy_premium = getattr(self, '_recent_buy_premium', 0) + premium
+        elif side == "sell":
+            self._recent_sell_premium = getattr(self, '_recent_sell_premium', 0) + premium
+
+        if right == "C":
+            self._recent_call_premium = getattr(self, '_recent_call_premium', 0) + premium
+        else:
+            self._recent_put_premium = getattr(self, '_recent_put_premium', 0) + premium
+
+        if sms >= 70:
+            self._recent_high_sms_count = getattr(self, '_recent_high_sms_count', 0) + 1
+
     _ET = ZoneInfo("America/New_York")
 
     # Market calendar from Alpaca API. Stores trading days with close times.
@@ -720,6 +783,7 @@ class ThetaStreamClient:
                 f"${strike_dollars} {right} "
                 f"price={event['price']} size={event['size']}"
             )
+            self._update_running_stats(event)
             await self._emit_trade(event)
 
         else:

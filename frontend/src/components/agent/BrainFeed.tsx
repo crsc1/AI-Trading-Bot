@@ -160,8 +160,15 @@ export const BrainFeed: Component = () => {
             </span>
           </div>
           <div class="flex items-center gap-3 font-data text-[11px] text-text-muted">
+            <Show when={(agent.lastCycle as any)?.options_vpin != null}>
+              <span class={(agent.lastCycle as any)?.options_vpin_level === 'toxic' ? 'text-negative' : (agent.lastCycle as any)?.options_vpin_level === 'elevated' ? 'text-warning' : ''}>
+                VPIN {(((agent.lastCycle as any)?.options_vpin || 0) * 100).toFixed(0)}%
+              </span>
+            </Show>
+            <Show when={(agent.lastCycle as any)?.high_sms > 0}>
+              <span>SMS70+ {(agent.lastCycle as any)?.high_sms}</span>
+            </Show>
             <span>{agent.lastCycle!.trade_count} ticks</span>
-            <span>{agent.lastCycle!.trades_source}</span>
             <span>{new Date(agent.lastCycle!.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
           </div>
         </div>

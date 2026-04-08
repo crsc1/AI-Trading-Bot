@@ -71,6 +71,15 @@ class MarketSnapshot:
     pcr: float = 0.0
     max_pain: float = 0.0
 
+    # Options flow (from ThetaData real-time stream)
+    options_vpin: float = 0.0
+    options_vpin_level: str = ""
+    options_pcr_premium: float = 0.0
+    options_high_sms_count: int = 0
+    options_sweep_count: int = 0
+    options_buy_premium: float = 0.0
+    options_sell_premium: float = 0.0
+
     # Positions
     open_positions: List[Dict[str, Any]] = field(default_factory=list)
     daily_pnl: float = 0.0
@@ -125,6 +134,18 @@ class MarketSnapshot:
 
         # Options
         lines.append(f"OPTIONS: IV Rank {self.iv_rank:.0f}, PCR {self.pcr:.2f}, Max Pain ${self.max_pain:.2f}")
+        if self.options_vpin > 0:
+            lines.append(
+                f"OPTIONS FLOW: VPIN {self.options_vpin:.0%} ({self.options_vpin_level}), "
+                f"PCR(premium) {self.options_pcr_premium:.2f}, "
+                f"SMS70+ {self.options_high_sms_count}, Sweeps {self.options_sweep_count}"
+            )
+            if self.options_buy_premium > 0 or self.options_sell_premium > 0:
+                total = self.options_buy_premium + self.options_sell_premium
+                buy_pct = (self.options_buy_premium / total * 100) if total > 0 else 50
+                lines.append(
+                    f"  Premium: ${self.options_buy_premium/1000:.0f}K buy / ${self.options_sell_premium/1000:.0f}K sell ({buy_pct:.0f}% buy)"
+                )
 
         # Positions & P&L
         if self.open_positions:
@@ -259,6 +280,20 @@ async def collect_snapshot(engine: Any, signal_history: Any = None) -> MarketSna
             snap.max_pain = getattr(analytics, 'max_pain', 0) or 0
     except Exception as e:
         logger.debug(f"[DataCollector] Options analytics error: {e}")
+
+    try:
+        # ThetaData real-time options flow
+        opts_flow = getattr(engine, '_cached_options_flow', None)
+        if opts_flow:
+            snap.options_vpin = opts_flow.get("vpin", 0) or 0
+            snap.options_vpin_level = opts_flow.get("vpin_level", "")
+            snap.options_pcr_premium = opts_flow.get("pcr_premium", 0) or 0
+            snap.options_high_sms_count = opts_flow.get("high_sms_count", 0)
+            snap.options_sweep_count = opts_flow.get("sweep_count", 0)
+            snap.options_buy_premium = opts_flow.get("buy_premium", 0)
+            snap.options_sell_premium = opts_flow.get("sell_premium", 0)
+    except Exception as e:
+        logger.debug(f"[DataCollector] Options flow error: {e}")
 
     try:
         # Open positions

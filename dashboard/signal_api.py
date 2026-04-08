@@ -750,6 +750,32 @@ async def _run_analysis_cycle():
         except Exception:
             pass
 
+        # Inject ThetaData options flow context into engine
+        try:
+            from .theta_stream import theta_stream
+            opts_ctx = theta_stream.get_options_flow_context()
+            if opts_ctx.get("connected") and opts_ctx.get("trades_received", 0) > 0:
+                engine._cached_options_flow = opts_ctx
+                # Override equity VPIN with options VPIN (more accurate for 0DTE)
+                if opts_ctx.get("vpin") is not None:
+                    from .flow_toxicity import VPINState
+                    engine._cached_vpin = VPINState(
+                        vpin=opts_ctx["vpin"],
+                        toxicity_level=opts_ctx["vpin_level"],
+                        buy_volume=opts_ctx["buy_volume"],
+                        sell_volume=opts_ctx["sell_volume"],
+                        total_volume=opts_ctx["buy_volume"] + opts_ctx["sell_volume"],
+                        bucket_count=40,
+                    )
+                logger.debug(
+                    f"[SignalLoop] Options flow: VPIN={opts_ctx.get('vpin', '?'):.2f} "
+                    f"PCR={opts_ctx.get('pcr_premium', 0):.2f} "
+                    f"SMS70+={opts_ctx.get('high_sms_count', 0)} "
+                    f"sweeps={opts_ctx.get('sweep_count', 0)}"
+                )
+        except Exception as e:
+            logger.debug(f"[SignalLoop] Options flow context unavailable: {e}")
+
         # Sweeps + sectors + breadth in parallel
         try:
             sweep_result, sector_result, breadth_result = await asyncio.gather(
@@ -841,6 +867,7 @@ async def _run_analysis_cycle():
         # Broadcast every cycle to frontend (BrainFeed heartbeat)
         try:
             from .brain_chat import broadcast
+            opts = getattr(engine, '_cached_options_flow', None) or {}
             await broadcast({
                 "type": "cycle_update",
                 "cycle": {
@@ -849,6 +876,10 @@ async def _run_analysis_cycle():
                     "reasoning": signal.get("reasoning", "Scanning..."),
                     "trade_count": len(trades),
                     "trades_source": _trades_source,
+                    "options_vpin": opts.get("vpin"),
+                    "options_vpin_level": opts.get("vpin_level", ""),
+                    "options_pcr": opts.get("pcr_premium", 0),
+                    "high_sms": opts.get("high_sms_count", 0),
                     "timestamp": datetime.now().isoformat(),
                 },
             })
