@@ -2,6 +2,7 @@ import { type Component, For, Show, createSignal, onMount, onCleanup, createEffe
 import { marked } from 'marked';
 import { agent, addMessage, addDecision, setPatternRecall, updateBrain, setChatConnected } from '../../signals/agent';
 import { WSClient } from '../../lib/ws';
+import { api } from '../../lib/api';
 import type { ChatMessage, BrainState, BrainDecision, PatternRecall } from '../../types/agent';
 
 // Configure marked for clean output
@@ -71,7 +72,21 @@ export const ChatPanel: Component = () => {
           }
         }
       },
-      onConnect: () => setChatConnected(true),
+      onConnect: () => {
+        setChatConnected(true);
+        // Fetch chat history via REST (not WS replay) to avoid UI freeze
+        if (agent.messages.length === 0) {
+          api.get<{ messages: any[] }>('/api/brain/chat/history').then(data => {
+            if (data?.messages) {
+              for (const msg of data.messages) {
+                if (msg.type === 'chat_message' && msg.message) {
+                  addMessage(msg.message as ChatMessage);
+                }
+              }
+            }
+          }).catch(() => {});
+        }
+      },
       onDisconnect: () => setChatConnected(false),
     });
     chatWS.connect();

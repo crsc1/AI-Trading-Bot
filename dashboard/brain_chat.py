@@ -221,18 +221,19 @@ async def chat_websocket(ws: WebSocket):
     _clients.add(ws)
     logger.info(f"[BrainChat] Client connected ({len(_clients)} total)")
 
-    # Send current state + message history on connect
+    # Send current state on connect (lightweight, no bulk replay)
     try:
         await ws.send_text(json.dumps({
             "type": "brain_state",
             "state": brain.get_state(),
         }))
-        # Replay message history so reconnecting clients don't lose messages
-        for msg in _message_history:
-            await ws.send_text(json.dumps(msg))
-        # If currently thinking, tell the client
         if _thinking:
             await ws.send_text(json.dumps({"type": "thinking", "active": True}))
+        # Send message count so client knows if it needs to fetch history
+        await ws.send_text(json.dumps({
+            "type": "history_available",
+            "count": len(_message_history),
+        }))
     except Exception:
         pass
 
@@ -408,6 +409,12 @@ async def get_brain_sources():
 
     model = "Claude Code (Opus 4.6)" if _CLAUDE_BIN else "claude-opus-4-6 (API)"
     return {"sources": sources, "model": model}
+
+
+@rest_router.get("/chat/history")
+async def get_chat_history():
+    """Return chat message history for clients that need to catch up."""
+    return {"messages": list(_message_history)}
 
 
 @rest_router.get("/moments/recent")
