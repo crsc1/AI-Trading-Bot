@@ -19,14 +19,14 @@ MAX_TOKENS_ANALYSIS = 800
 MAX_TOKENS_TRADE = 1200
 
 
-def _get_client():
-    """Lazy-init Anthropic client."""
+def _get_async_client():
+    """Lazy-init async Anthropic client."""
     try:
         import anthropic
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY not set")
-        return anthropic.Anthropic(api_key=api_key)
+        return anthropic.AsyncAnthropic(api_key=api_key)
     except ImportError:
         raise RuntimeError("anthropic package not installed — run: pip install anthropic")
 
@@ -78,11 +78,11 @@ async def call_brain(
     max_tokens = MAX_TOKENS_TRADE if escalate else MAX_TOKENS_ANALYSIS
 
     try:
-        client = _get_client()
+        client = _get_async_client()
         t0 = time.monotonic()
 
         # Use prompt caching for system prompt (saves ~90% on repeated input)
-        response = client.messages.create(
+        response = await client.messages.create(
             model=model,
             max_tokens=max_tokens,
             system=[{

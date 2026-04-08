@@ -36,7 +36,8 @@ async def broadcast(data: Dict[str, Any]) -> None:
             await ws.send_text(msg)
         except Exception:
             disconnected.add(ws)
-    _clients -= disconnected
+    for ws in disconnected:
+        _clients.discard(ws)
 
 
 async def broadcast_brain_state() -> None:
