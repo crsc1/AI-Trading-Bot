@@ -209,6 +209,9 @@ export function initDataLayer() {
     onConnect: () => {
       // SIP connected — we can consider this as connected too
       if (!engineWS?.connected) setConnected(true);
+      // Re-fetch candles and quote on reconnect (data may have gone stale)
+      loadCandles();
+      loadQuote();
     },
     onDisconnect: () => {
       if (!engineWS?.connected) setConnected(false);
@@ -222,6 +225,14 @@ export function initDataLayer() {
   // Load initial data
   loadCandles();
   loadQuote();
+
+  // Refresh data when user returns to the tab (WS may have been throttled)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      loadCandles();
+      loadQuote();
+    }
+  });
 
   // Poll for fresh bars every 15s as fallback when Python stream is idle
   // (Rust engine handles ticks but doesn't push bar aggregations via WS)
