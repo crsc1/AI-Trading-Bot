@@ -393,7 +393,7 @@ class MarketBrain:
         result = await call_brain(
             system_prompt=CHAT_SYSTEM_PROMPT,
             messages=self.chat_history,
-            escalate=False,
+            chat=True,
         )
 
         if result["error"]:

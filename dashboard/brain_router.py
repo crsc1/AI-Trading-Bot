@@ -17,6 +17,7 @@ MODEL_SONNET = "claude-sonnet-4-6"
 MODEL_OPUS = "claude-opus-4-6"
 MAX_TOKENS_ANALYSIS = 800
 MAX_TOKENS_TRADE = 1200
+MAX_TOKENS_CHAT = 2000
 
 
 def _get_async_client():
@@ -55,6 +56,7 @@ async def call_brain(
     system_prompt: str,
     messages: List[Dict[str, str]],
     escalate: bool = False,
+    chat: bool = False,
 ) -> Dict[str, Any]:
     """
     Call Claude with the Brain conversation.
@@ -63,6 +65,7 @@ async def call_brain(
         system_prompt: The persistent system prompt (will be cached).
         messages: Conversation messages [{role, content}, ...].
         escalate: If True, use Opus 4.6 (for trade decisions).
+        chat: If True, use Opus 4.6 with higher token limit (for user chat).
 
     Returns:
         {
@@ -74,8 +77,12 @@ async def call_brain(
             "error": str | None,
         }
     """
-    model = MODEL_OPUS if escalate else MODEL_SONNET
-    max_tokens = MAX_TOKENS_TRADE if escalate else MAX_TOKENS_ANALYSIS
+    if chat or escalate:
+        model = MODEL_OPUS
+        max_tokens = MAX_TOKENS_CHAT if chat else MAX_TOKENS_TRADE
+    else:
+        model = MODEL_SONNET
+        max_tokens = MAX_TOKENS_ANALYSIS
 
     try:
         client = _get_async_client()
