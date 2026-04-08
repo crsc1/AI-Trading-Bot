@@ -41,6 +41,10 @@ _thinking: bool = False
 _CLAUDE_BIN = shutil.which("claude") or ""
 _PROJECT_DIR = str(Path(__file__).parent.parent)
 
+# Persistent session ID — reuses the same Claude Code session for cache hits
+_session_id: str = str(uuid.uuid4())
+_session_first_msg: bool = True  # First message uses --session-id, subsequent use -r
+
 # Rolling conversation context for the claude CLI
 _chat_turns: List[str] = []
 _MAX_CHAT_CONTEXT = 10  # Keep last N exchanges for context
@@ -56,35 +60,30 @@ async def _call_claude_code(user_message: str) -> Dict[str, Any]:
         resp = await brain.chat_immediate(user_message)
         return {"content": resp, "duration_ms": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0}
 
-    # Build context preamble
-    preamble_parts = []
-
-    # Conversation history
-    if _chat_turns:
-        preamble_parts.append("Recent conversation:")
-        for turn in _chat_turns[-_MAX_CHAT_CONTEXT:]:
-            preamble_parts.append(turn)
-        preamble_parts.append("")
-
-    # Fetch live market data inline
+    # Fetch live market data to prepend
+    context = ""
     try:
         context = await brain._fetch_chat_context()
-        if context:
-            preamble_parts.append(context)
-            preamble_parts.append("")
     except Exception:
         pass
 
-    preamble = "\n".join(preamble_parts)
-    full_prompt = f"{preamble}\nUser: {user_message}" if preamble else user_message
+    full_prompt = f"{context}\n\n{user_message}" if context else user_message
 
     try:
         # Strip ANTHROPIC_API_KEY so claude uses Max subscription, not the API key
         clean_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
         clean_env["CLAUDE_CODE_ENTRYPOINT"] = "brain-chat"
 
+        global _session_first_msg
+        # First message creates the session, subsequent messages resume it
+        if _session_first_msg:
+            session_args = ["--session-id", _session_id]
+            _session_first_msg = False
+        else:
+            session_args = ["-r", _session_id]
+
         proc = await asyncio.create_subprocess_exec(
-            _CLAUDE_BIN, "-p", "--output-format", "json",
+            _CLAUDE_BIN, "-p", "--output-format", "json", *session_args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -117,12 +116,6 @@ async def _call_claude_code(user_message: str) -> Dict[str, Any]:
             input_tokens = 0
             output_tokens = 0
             cost_usd = 0
-
-        # Store turn for context
-        _chat_turns.append(f"User: {user_message}")
-        _chat_turns.append(f"Assistant: {response[:500]}")
-        while len(_chat_turns) > _MAX_CHAT_CONTEXT * 2:
-            _chat_turns.pop(0)
 
         return {
             "content": response,
