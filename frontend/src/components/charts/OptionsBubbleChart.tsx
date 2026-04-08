@@ -62,7 +62,7 @@ export const OptionsBubbleChart: Component = () => {
 
   // Config — same as equity flow defaults
   let aggSeconds = 0.5;
-  let visibleWindowMs = 3 * 60 * 1000;
+  let visibleWindowMs = 60 * 60 * 1000;  // 1 hour visible window (full session scrolls)
   let renderInterval = 100;
 
   function ensureCanvas(): boolean {
@@ -92,29 +92,31 @@ export const OptionsBubbleChart: Component = () => {
 
     const newCount = storeCount - lastTradeCount;
     const newTrades = optionsFlow.trades.slice(0, newCount);
-    const now = Date.now();
 
     for (const t of newTrades) {
       // Use stored SPY price (set at ingestion time) for correct Y-axis on replay
       const spyPrice = t.spyPrice || market.lastPrice;
       if (spyPrice <= 0) continue;
 
+      // Use the trade's actual timestamp so bubbles replay at correct X position
+      const tradeTs = t.timestamp || Date.now();
+
       // Weight size by Smart Money Score: SMS 70+ trades appear 2x larger,
       // SMS <30 trades appear 0.5x. This makes institutional flow visually dominant.
       const smsWeight = 0.5 + (t.sms / 100) * 1.5;  // 0.5 at SMS=0, 2.0 at SMS=100
       const side = t.side === 'sell' ? 'sell' as const : 'buy' as const;
       ticks.push({
-        price: spyPrice,             // SPY price at time of trade (Y-axis)
-        size: t.size * smsWeight,    // SMS-weighted contracts
+        price: spyPrice,
+        size: t.size * smsWeight,
         side,
-        ts: now,                     // arrival time, NOT exchange time
+        ts: tradeTs,
       });
 
       // Track notable trades for ring/glow overlays
       if (t.tag !== 'normal') {
         notables.push({
           price: spyPrice,
-          ts: now,
+          ts: tradeTs,
           tag: t.tag,
           side,
           size: t.size,
