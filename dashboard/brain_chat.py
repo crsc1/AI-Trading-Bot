@@ -411,6 +411,27 @@ async def get_brain_sources():
     return {"sources": sources, "model": model}
 
 
+@rest_router.get("/signals/recent")
+async def get_recent_signals(limit: int = 20):
+    """Return recent signals from the non-LLM engine for the BrainFeed."""
+    from .signal_api import signal_history
+    signals = []
+    for s in reversed(list(signal_history)):
+        if len(signals) >= limit:
+            break
+        if s.get("signal") != "NO_TRADE":
+            signals.append({
+                "id": s.get("id"),
+                "action": s.get("signal"),
+                "confidence": s.get("confidence", 0),
+                "tier": s.get("tier", "?"),
+                "reasoning": s.get("reasoning", ""),
+                "setup_name": s.get("setup_name", ""),
+                "timestamp": s.get("timestamp", ""),
+            })
+    return {"signals": signals}
+
+
 @rest_router.get("/chat/history")
 async def get_chat_history():
     """Return chat message history for clients that need to catch up."""

@@ -66,6 +66,22 @@ export const ChatPanel: Component = () => {
             addDecision(decision);
             break;
           }
+          case 'signal_detected': {
+            // Non-LLM signal engine found a setup — show in BrainFeed
+            const sig = data.signal;
+            addDecision({
+              id: sig.id,
+              timestamp: sig.timestamp,
+              action: sig.action === 'NO_TRADE' ? 'HOLD' : 'TRADE',
+              direction: sig.action,
+              confidence: sig.confidence,
+              tier: sig.tier,
+              reasoning: `[Signal Engine] ${sig.reasoning}`,
+              key_factors: sig.setup_name ? [sig.setup_name] : [],
+              model: 'non-LLM',
+            });
+            break;
+          }
           case 'pattern_recall': {
             setPatternRecall(data as PatternRecall);
             break;

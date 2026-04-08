@@ -851,6 +851,24 @@ async def _run_analysis_cycle():
                         f"confidence={signal.get('confidence', 0):.0%} "
                         f"tier={signal.get('tier', '?')}")
 
+            # Broadcast signal to frontend (BrainFeed + Dashboard)
+            try:
+                from .brain_chat import broadcast
+                await broadcast({
+                    "type": "signal_detected",
+                    "signal": {
+                        "id": signal.get("id"),
+                        "action": signal.get("signal"),
+                        "confidence": signal.get("confidence", 0),
+                        "tier": signal.get("tier", "?"),
+                        "reasoning": signal.get("reasoning", ""),
+                        "setup_name": signal.get("setup_name", ""),
+                        "timestamp": datetime.now().isoformat(),
+                    },
+                })
+            except Exception:
+                pass
+
             # On-demand Brain: only call Opus when the non-LLM engine finds a setup
             asyncio.create_task(_trigger_brain_on_setup(signal))
             # Record training data for every actionable signal

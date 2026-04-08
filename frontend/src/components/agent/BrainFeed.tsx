@@ -1,5 +1,6 @@
-import { type Component, For, Show } from 'solid-js';
-import { agent } from '../../signals/agent';
+import { type Component, For, Show, onMount } from 'solid-js';
+import { agent, addDecision } from '../../signals/agent';
+import { api } from '../../lib/api';
 import type { BrainDecision, MarketMoment } from '../../types/agent';
 
 const tierColor = (tier: string) => {
@@ -119,6 +120,29 @@ const MomentCard: Component<{ moment: MarketMoment }> = (props) => {
 };
 
 export const BrainFeed: Component = () => {
+  // Load recent signals on mount if feed is empty
+  onMount(async () => {
+    if (agent.decisions.length > 0) return;
+    try {
+      const data = await api.get<{ signals: any[] }>('/api/brain/signals/recent');
+      if (data?.signals) {
+        for (const s of data.signals) {
+          addDecision({
+            id: s.id,
+            timestamp: s.timestamp,
+            action: s.action === 'NO_TRADE' ? 'HOLD' : 'TRADE',
+            direction: s.action,
+            confidence: s.confidence,
+            tier: s.tier,
+            reasoning: `[Signal Engine] ${s.reasoning}`,
+            key_factors: s.setup_name ? [s.setup_name] : [],
+            model: 'non-LLM',
+          });
+        }
+      }
+    } catch {}
+  });
+
   return (
     <div class="h-full flex flex-col">
       {/* Decision feed */}
