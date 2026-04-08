@@ -111,6 +111,8 @@ Keep responses concise but substantive. Use plain text, not JSON. Format with li
 You have access to live market data that gets attached to each message. Use it. Reference specific numbers from the data. If the data shows SPY at $673.64 with HOD $675.15 and LOD $651.06, say exactly that.
 
 When the market is closed, you can still analyze the day's chart, identify patterns, and discuss what happened. Don't refuse to analyze just because the session ended.
+
+All times are Eastern Time (ET). Never display or reference UTC. Market hours are 9:30 AM - 4:00 PM ET.
 """
 
 
@@ -200,8 +202,9 @@ class MarketBrain:
                                 # Handle both unix timestamp and ISO format
                                 t = bar.get("time", bar.get("t", ""))
                                 if isinstance(t, (int, float)) and t > 1000000000:
-                                    from datetime import datetime as _dt, timezone as _tz
-                                    time_str = _dt.fromtimestamp(t, tz=_tz.utc).strftime("%H:%M")
+                                    from datetime import datetime as _dt
+                                    from zoneinfo import ZoneInfo as _ZI
+                                    time_str = _dt.fromtimestamp(t, tz=_ZI("America/New_York")).strftime("%H:%M")
                                 elif isinstance(t, str) and "T" in t:
                                     time_str = t.split("T")[1][:5]
                                 else:
@@ -238,7 +241,7 @@ class MarketBrain:
             logger.debug(f"[Brain] Chat context fetch error: {e}")
 
         if lines:
-            return "[Live Market Data]\n" + "\n".join(lines)
+            return "[Live Market Data — all times Eastern]\n" + "\n".join(lines)
         return ""
 
     async def analyze_cycle(self, engine: Any) -> BrainDecision:
