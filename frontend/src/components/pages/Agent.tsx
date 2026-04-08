@@ -6,7 +6,7 @@ import { ResearchFeed } from '../agent/ResearchFeed';
 export const Agent: Component = () => {
   return (
     <div class="h-full flex">
-      {/* Chat — primary area */}
+      {/* Chat — primary area with AI purple border */}
       <div class="flex-1 flex flex-col min-w-0 border-l-2 border-l-purple/40">
         <AgentStatus />
         <div class="flex-1 min-h-0">
@@ -15,7 +15,7 @@ export const Agent: Component = () => {
       </div>
 
       {/* Research — right panel */}
-      <div class="w-[320px] border-l border-border-default shrink-0">
+      <div class="w-[340px] border-l border-border-default shrink-0 bg-surface-1">
         <ResearchFeed />
       </div>
     </div>

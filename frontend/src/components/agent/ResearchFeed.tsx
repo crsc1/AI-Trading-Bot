@@ -31,7 +31,7 @@ export const ResearchFeed: Component = () => {
 
   onMount(() => {
     loadFindings();
-    pollInterval = setInterval(loadFindings, 60000); // Every minute
+    pollInterval = setInterval(loadFindings, 60000);
   });
 
   onCleanup(() => clearInterval(pollInterval));
@@ -50,43 +50,58 @@ export const ResearchFeed: Component = () => {
 
   return (
     <div class="flex flex-col h-full">
-      <div class="px-2 py-1.5 font-display text-text-secondary text-[9px] font-medium tracking-wider border-b border-border-default flex items-center justify-between">
-        <span>RESEARCH</span>
+      {/* Header */}
+      <div class="px-3 py-3 border-b border-border-default flex items-center justify-between">
+        <span class="font-display text-text-secondary text-[11px] font-medium tracking-[0.8px]">
+          RESEARCH
+        </span>
         <Show when={agent.findings.length > 0}>
-          <span class="text-[7px] text-text-muted">{agent.findings.length} findings</span>
+          <span class="font-data text-[11px] text-text-muted">
+            {agent.findings.length} findings
+          </span>
         </Show>
       </div>
 
+      {/* Feed */}
       <div class="flex-1 overflow-y-auto min-h-0">
         <Show when={loading()}>
-          <div class="p-2 text-text-muted text-[9px]">Loading research data...</div>
+          <div class="px-3 py-4 font-ai text-[11px] text-text-muted">
+            Loading research data...
+          </div>
         </Show>
 
         <Show when={!loading() && agent.findings.length === 0}>
-          <div class="p-2 text-text-muted text-[9px]">
+          <div class="px-3 py-4 font-ai text-[11px] text-text-muted">
             No research findings yet. Agent runs every 30 minutes.
           </div>
         </Show>
 
         <For each={agent.findings}>
           {(finding) => (
-            <div class="p-2 border-b border-border-subtle hover:bg-surface-2/30">
-              <div class="flex items-start gap-1.5">
-                <span class={`text-[7px] w-4 h-4 flex items-center justify-center rounded shrink-0 mt-0.5 ${typeColors[finding.type] || 'bg-surface-3 text-text-muted'}`}>
+            <div class="px-3 py-3 border-b border-border-subtle hover:bg-surface-2/30 transition-colors">
+              <div class="flex items-start gap-2.5">
+                {/* Type badge */}
+                <span class={`font-display text-[11px] font-medium w-5 h-5 flex items-center justify-center rounded shrink-0 mt-0.5 ${typeColors[finding.type] || 'bg-surface-3 text-text-muted'}`}>
                   {typeIcons[finding.type] || '?'}
                 </span>
+
                 <div class="flex-1 min-w-0">
-                  <div class="text-[8px] font-semibold text-text-primary leading-tight">
+                  {/* Title */}
+                  <div class="font-display text-[12px] font-medium text-text-primary leading-tight">
                     {finding.title}
                   </div>
-                  <div class="text-[7px] text-text-muted mt-0.5 leading-relaxed line-clamp-3">
+
+                  {/* Content */}
+                  <div class="font-ai text-[11px] text-text-secondary mt-1 leading-[1.5] line-clamp-3">
                     {finding.content}
                   </div>
-                  <div class="flex items-center gap-2 mt-1 text-[7px] text-text-muted">
+
+                  {/* Meta */}
+                  <div class="flex items-center gap-3 mt-2 font-data text-[11px] text-text-muted">
                     <span>{finding.source}</span>
                     <span>{formatTime(finding.timestamp)}</span>
                     <Show when={finding.confidence > 0}>
-                      <span class="opacity-50">{(finding.confidence * 100).toFixed(0)}%</span>
+                      <span>{(finding.confidence * 100).toFixed(0)}%</span>
                     </Show>
                   </div>
                 </div>
