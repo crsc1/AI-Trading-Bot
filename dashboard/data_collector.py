@@ -182,6 +182,22 @@ async def collect_snapshot(engine: Any, signal_history: Any = None) -> MarketSna
         snap.bid = float(quote.get("bid", 0) or 0)
         snap.ask = float(quote.get("ask", 0) or 0)
         snap.prev_close = float(quote.get("prev_close", 0) or 0)
+
+        # Fallback: fetch from REST if engine cache is empty
+        if snap.price <= 0:
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get("http://localhost:8000/api/market", timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            spy = data.get("spy", {})
+                            snap.price = float(spy.get("price", 0))
+                            snap.bid = float(spy.get("bid", 0) or 0)
+                            snap.ask = float(spy.get("ask", 0) or 0)
+            except Exception:
+                pass
+
         if snap.prev_close > 0 and snap.price > 0:
             snap.change_pct = ((snap.price - snap.prev_close) / snap.prev_close) * 100
     except Exception as e:
@@ -208,6 +224,26 @@ async def collect_snapshot(engine: Any, signal_history: Any = None) -> MarketSna
             snap.poc = levels.get("poc", 0) or 0
             snap.orb_high = levels.get("orb_high", 0) or 0
             snap.orb_low = levels.get("orb_low", 0) or 0
+
+        # Fallback: compute from bars if levels module returned zeros
+        if snap.vwap <= 0 and snap.price > 0:
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get("http://localhost:8000/api/bars?symbol=SPY&timeframe=5Min&limit=80", timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            bars = data.get("bars", [])
+                            if bars:
+                                highs = [b.get("high", b.get("h", 0)) for b in bars]
+                                lows = [b.get("low", b.get("l", 0)) for b in bars]
+                                vwaps = [b.get("vwap", 0) for b in bars if b.get("vwap")]
+                                snap.hod = max(h for h in highs if h > 0) if any(h > 0 for h in highs) else 0
+                                snap.lod = min(l for l in lows if l > 0) if any(l > 0 for l in lows) else 0
+                                if vwaps:
+                                    snap.vwap = vwaps[-1]  # Most recent bar's VWAP
+            except Exception:
+                pass
     except Exception as e:
         logger.debug(f"[DataCollector] Levels error: {e}")
 

@@ -509,7 +509,17 @@ async def _trigger_brain_on_setup(signal: dict):
 
         logger.info(f"[Brain] On-demand trigger: {setup_name} {direction} conf={confidence:.2f}")
 
+        # Build snapshot from the signal itself + live REST data (engine cache is unreliable)
         snapshot = await collect_snapshot(engine, signal_history)
+        # Patch in live price from the signal (engine._cached_quote may not exist)
+        if snapshot.price <= 0:
+            snapshot.price = signal.get("spy_price", 0) or signal.get("entry_price", 0)
+        # Patch in levels from signal context
+        if snapshot.vwap <= 0 and signal.get("factors"):
+            for f in signal.get("factors", []):
+                if "vwap" in str(f.get("name", "")).lower():
+                    break
+
         decision = await brain.analyze_cycle(engine, snapshot=snapshot, moments_db=moments_db)
 
         await broadcast_brain_state()
