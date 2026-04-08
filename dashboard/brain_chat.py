@@ -186,6 +186,88 @@ async def get_brain_decisions(limit: int = 20):
     return {"decisions": brain.get_recent_decisions(limit)}
 
 
+@rest_router.get("/sources")
+async def get_brain_sources():
+    """Return live data source status for the Agent UI."""
+    import aiohttp
+    sources = []
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Market price
+            try:
+                async with session.get("http://localhost:8000/api/market", timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        spy = data.get("spy", {})
+                        price = spy.get("price", 0)
+                        if price > 0:
+                            sources.append({
+                                "name": "SPY Price",
+                                "status": "live",
+                                "detail": f"${price:.2f}",
+                                "source": spy.get("source", "unknown"),
+                            })
+                        else:
+                            sources.append({"name": "SPY Price", "status": "offline", "detail": "No data"})
+            except Exception:
+                sources.append({"name": "SPY Price", "status": "error", "detail": "API unreachable"})
+
+            # Bars / chart data
+            try:
+                async with session.get("http://localhost:8000/api/bars?symbol=SPY&timeframe=5Min&limit=1", timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        bars = data.get("bars", [])
+                        if bars:
+                            sources.append({
+                                "name": "Chart Bars",
+                                "status": "live",
+                                "detail": f"5-min candles from {data.get('source', 'Alpaca')}",
+                            })
+                        else:
+                            sources.append({"name": "Chart Bars", "status": "offline", "detail": "No bars"})
+            except Exception:
+                sources.append({"name": "Chart Bars", "status": "error"})
+
+            # Alpaca stream
+            try:
+                async with session.get("http://localhost:8000/api/stream/stats", timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("connected"):
+                            sources.append({
+                                "name": "Live Stream",
+                                "status": "live",
+                                "detail": f"{data.get('trades_received', 0):,} trades",
+                            })
+                        else:
+                            sources.append({"name": "Live Stream", "status": "offline", "detail": "Market closed"})
+            except Exception:
+                sources.append({"name": "Live Stream", "status": "offline"})
+
+            # ThetaData options
+            try:
+                async with session.get("http://localhost:8000/api/theta-stream/stats", timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("connected"):
+                            sources.append({
+                                "name": "Options Flow",
+                                "status": "live",
+                                "detail": f"{data.get('trades_received', 0):,} trades",
+                            })
+                        else:
+                            sources.append({"name": "Options Flow", "status": "offline", "detail": "ThetaData disconnected"})
+            except Exception:
+                pass
+
+    except Exception:
+        pass
+
+    return {"sources": sources, "model": "claude-opus-4-6"}
+
+
 @rest_router.post("/chat")
 async def post_chat(body: Dict[str, Any]):
     """Send a chat message (REST alternative to WebSocket)."""
