@@ -247,10 +247,39 @@ export const CandleChart: Component = () => {
     lastBarCount = candles.length;
     dataLoaded = true;
 
+    // Fit visible range to today's session (from 9:30 AM ET open)
+    fitToTodaySession(candles);
+
     // Set signal markers (includes session boundaries)
     updateMarkers();
     // Build overlay indicators
     rebuildIndicators();
+  }
+
+  /** Fit visible range to today's RTH session (9:30 AM ET) with some pre-market context */
+  function fitToTodaySession(candles: Candle[]) {
+    if (!chart || candles.length === 0) return;
+
+    // Find today's 9:00 AM ET bar (30 min before open for context)
+    const now = new Date();
+    const todayStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+
+    let sessionStart = -1;
+    for (let i = candles.length - 1; i >= 0; i--) {
+      const d = new Date(candles[i].time * 1000);
+      const dayStr = d.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+      if (dayStr !== todayStr) break;
+      const { h } = getETHourMin(candles[i].time);
+      if (h >= 9) sessionStart = i;
+    }
+
+    if (sessionStart >= 0) {
+      // Show from 30 min before session start (or session start if no pre-market)
+      const fromIdx = Math.max(0, sessionStart - 6); // 6 bars * 5min = 30 min
+      const fromTime = toETTime(candles[fromIdx].time) as Time;
+      const toTime = toETTime(candles[candles.length - 1].time) as Time;
+      chart.timeScale().setVisibleRange({ from: fromTime, to: toTime });
+    }
   }
 
   // ── React to candles arriving (for initial load timing) ──────────────
