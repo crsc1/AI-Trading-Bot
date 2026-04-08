@@ -145,9 +145,31 @@ export const BrainFeed: Component = () => {
 
   return (
     <div class="h-full flex flex-col">
+      {/* Cycle status bar */}
+      <Show when={agent.lastCycle}>
+        <div class="px-4 py-2 border-b border-border-default bg-surface-1 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class={`w-2 h-2 rounded-full ${
+              agent.lastCycle!.action !== 'NO_TRADE' ? 'bg-positive animate-pulse' : 'bg-text-muted'
+            }`} />
+            <span class="text-[12px] text-text-secondary" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+              {agent.lastCycle!.action !== 'NO_TRADE'
+                ? `Setup: ${agent.lastCycle!.reasoning.substring(0, 80)}`
+                : agent.lastCycle!.reasoning.substring(0, 80) || 'Scanning...'
+              }
+            </span>
+          </div>
+          <div class="flex items-center gap-3 font-data text-[11px] text-text-muted">
+            <span>{agent.lastCycle!.trade_count} ticks</span>
+            <span>{agent.lastCycle!.trades_source}</span>
+            <span>{new Date(agent.lastCycle!.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
+          </div>
+        </div>
+      </Show>
+
       {/* Decision feed */}
       <div class="flex-1 overflow-y-auto min-h-0">
-        <Show when={agent.decisions.length === 0}>
+        <Show when={agent.decisions.length === 0 && !agent.lastCycle}>
           <div class="flex items-center justify-center h-full">
             <div class="text-center px-6">
               <div class="text-[18px] text-text-secondary mb-2"
@@ -156,15 +178,9 @@ export const BrainFeed: Component = () => {
               </div>
               <div class="text-[13px] text-text-muted leading-relaxed"
                    style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                Analyzing every 30 seconds during market hours.
-                <br />Decisions, setups, and pattern memory will appear here.
+                Analyzing every 15 seconds during market hours.
+                <br />Setups and signals will appear here.
               </div>
-              <Show when={agent.patternRecall?.moments_stats}>
-                <div class="mt-3 text-[11px] font-data text-text-muted">
-                  {agent.patternRecall!.moments_stats.total_moments} moments in memory
-                  ({agent.patternRecall!.moments_stats.with_outcomes} with outcomes)
-                </div>
-              </Show>
             </div>
           </div>
         </Show>

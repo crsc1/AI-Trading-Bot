@@ -1,5 +1,5 @@
 import { createStore } from 'solid-js/store';
-import type { AgentState, ChatMessage, BrainState, BrainDecision, PatternRecall, ResearchFinding } from '../types/agent';
+import type { AgentState, ChatMessage, BrainState, BrainDecision, CycleUpdate, PatternRecall, ResearchFinding } from '../types/agent';
 
 const initialBrain: BrainState = {
   status: 'idle',
@@ -15,6 +15,7 @@ const initialState: AgentState = {
   brain: initialBrain,
   messages: [],
   decisions: [],
+  lastCycle: null,
   patternRecall: null,
   findings: [],
   chatConnected: false,
@@ -39,6 +40,10 @@ export function addDecision(decision: BrainDecision) {
     const next = [decision, ...prev];
     return next.slice(0, 50);
   });
+}
+
+export function setLastCycle(cycle: CycleUpdate) {
+  setAgent('lastCycle', cycle);
 }
 
 export function setPatternRecall(recall: PatternRecall) {

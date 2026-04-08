@@ -1,6 +1,6 @@
 import { type Component, For, Show, createSignal, onMount, onCleanup, createEffect } from 'solid-js';
 import { marked } from 'marked';
-import { agent, addMessage, addDecision, setPatternRecall, updateBrain, setChatConnected } from '../../signals/agent';
+import { agent, addMessage, addDecision, setLastCycle, setPatternRecall, updateBrain, setChatConnected } from '../../signals/agent';
 import { WSClient } from '../../lib/ws';
 import { api } from '../../lib/api';
 import type { ChatMessage, BrainState, BrainDecision, PatternRecall } from '../../types/agent';
@@ -64,6 +64,10 @@ export const ChatPanel: Component = () => {
               cycle_number: decision.cycle || 0,
             });
             addDecision(decision);
+            break;
+          }
+          case 'cycle_update': {
+            setLastCycle(data.cycle);
             break;
           }
           case 'signal_detected': {

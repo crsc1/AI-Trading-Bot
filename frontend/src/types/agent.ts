@@ -81,10 +81,20 @@ export interface ResearchFinding {
   timestamp: string;
 }
 
+export interface CycleUpdate {
+  action: string;
+  confidence: number;
+  reasoning: string;
+  trade_count: number;
+  trades_source: string;
+  timestamp: string;
+}
+
 export interface AgentState {
   brain: BrainState;
   messages: ChatMessage[];
   decisions: BrainDecision[];
+  lastCycle: CycleUpdate | null;
   patternRecall: PatternRecall | null;
   findings: ResearchFinding[];
   chatConnected: boolean;

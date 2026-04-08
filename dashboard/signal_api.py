@@ -838,6 +838,23 @@ async def _run_analysis_cycle():
             f"factors={active_count} reason={signal.get('reasoning', '?')[:120]}"
         )
 
+        # Broadcast every cycle to frontend (BrainFeed heartbeat)
+        try:
+            from .brain_chat import broadcast
+            await broadcast({
+                "type": "cycle_update",
+                "cycle": {
+                    "action": sig_action,
+                    "confidence": sig_conf,
+                    "reasoning": signal.get("reasoning", "Scanning..."),
+                    "trade_count": len(trades),
+                    "trades_source": _trades_source,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            })
+        except Exception:
+            pass
+
         # Tag the underlying SPY price so the outcome tracker can measure
         # direction accuracy without needing to call ThetaData historically.
         signal["spy_price"] = underlying_price
