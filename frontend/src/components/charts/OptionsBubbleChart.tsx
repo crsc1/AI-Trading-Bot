@@ -101,13 +101,13 @@ export const OptionsBubbleChart: Component = () => {
       // Use the trade's actual timestamp so bubbles replay at correct X position
       const tradeTs = t.timestamp || Date.now();
 
-      // Weight size by Smart Money Score: SMS 70+ trades appear 2x larger,
-      // SMS <30 trades appear 0.5x. This makes institutional flow visually dominant.
-      const smsWeight = 0.5 + (t.sms / 100) * 1.5;  // 0.5 at SMS=0, 2.0 at SMS=100
+      // Weight size by Smart Money Score, cap to prevent giant bubbles
+      const smsWeight = 0.5 + (t.sms / 100) * 1.0;  // 0.5 at SMS=0, 1.5 at SMS=100
+      const weightedSize = Math.min(200, t.size * smsWeight);  // Cap at 200 contracts visual
       const side = t.side === 'sell' ? 'sell' as const : 'buy' as const;
       ticks.push({
         price: spyPrice,
-        size: t.size * smsWeight,
+        size: weightedSize,
         side,
         ts: tradeTs,
       });
@@ -245,47 +245,48 @@ export const OptionsBubbleChart: Component = () => {
       const age = now - n.ts;
       const freshness = Math.max(0.15, 1 - (age / visibleWindowMs) * 0.85);
 
-      // Base radius from contract size (sqrt-scaled)
-      const baseR = Math.max(8, Math.sqrt(n.size) * 3.5) * dpr;
+      // Base radius from contract size — capped to prevent chart-eating whales
+      // sqrt scaling with hard cap at 30px (before dpr)
+      const baseR = Math.min(30, Math.max(6, Math.sqrt(n.size) * 2)) * dpr;
       const color = n.side === 'buy' ? '#00C805' : '#FF5000';
 
       if (n.tag === 'sweep') {
         // SWEEP: dashed ring — institutions sweeping the book across exchanges
         ctx.save();
-        ctx.globalAlpha = freshness * 0.7;
-        ctx.strokeStyle = '#a855f7';  // Purple for sweeps
-        ctx.lineWidth = 2 * dpr;
-        ctx.setLineDash([4 * dpr, 3 * dpr]);
+        ctx.globalAlpha = freshness * 0.6;
+        ctx.strokeStyle = '#a855f7';
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.setLineDash([3 * dpr, 2 * dpr]);
         ctx.beginPath();
-        ctx.arc(x, y, baseR * 1.4, 0, Math.PI * 2);
+        ctx.arc(x, y, baseR * 1.2, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.restore();
       } else if (n.tag === 'block') {
         // BLOCK: solid ring — 100+ contract single print
         ctx.save();
-        ctx.globalAlpha = freshness * 0.6;
+        ctx.globalAlpha = freshness * 0.5;
         ctx.strokeStyle = color;
-        ctx.lineWidth = 2.5 * dpr;
+        ctx.lineWidth = 2 * dpr;
         ctx.beginPath();
-        ctx.arc(x, y, baseR * 1.3, 0, Math.PI * 2);
+        ctx.arc(x, y, baseR * 1.15, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       } else if (n.tag === 'whale') {
-        // WHALE: radial glow + thick ring — $100K+ premium
+        // WHALE: subtle glow + ring — $100K+ premium. Visible but not chart-eating.
         ctx.save();
-        ctx.globalAlpha = freshness * 0.3;
-        const glow = ctx.createRadialGradient(x, y, baseR * 0.5, x, y, baseR * 2.5);
+        ctx.globalAlpha = freshness * 0.15;
+        const glow = ctx.createRadialGradient(x, y, baseR * 0.3, x, y, baseR * 1.6);
         glow.addColorStop(0, '#ffb300');
         glow.addColorStop(1, 'transparent');
         ctx.fillStyle = glow;
-        ctx.fillRect(x - baseR * 2.5, y - baseR * 2.5, baseR * 5, baseR * 5);
+        ctx.fillRect(x - baseR * 1.6, y - baseR * 1.6, baseR * 3.2, baseR * 3.2);
 
-        ctx.globalAlpha = freshness * 0.8;
-        ctx.strokeStyle = '#ffb300';  // Warning/gold for whales
-        ctx.lineWidth = 3 * dpr;
+        ctx.globalAlpha = freshness * 0.7;
+        ctx.strokeStyle = '#ffb300';
+        ctx.lineWidth = 2 * dpr;
         ctx.beginPath();
-        ctx.arc(x, y, baseR * 1.5, 0, Math.PI * 2);
+        ctx.arc(x, y, baseR * 1.3, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       }
