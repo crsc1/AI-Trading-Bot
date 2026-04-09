@@ -140,7 +140,7 @@ export const OptionsFlow: Component = () => {
           </div>
         </Show>
 
-        <For each={optionsFlow.trades}>
+        <For each={optionsFlow.trades.slice(0, 50)}>
           {(trade) => {
             const isCall = trade.right === 'C';
             // Lee-Ready colors: buy=green (bought at ask), sell=red (sold at bid), mid=gray

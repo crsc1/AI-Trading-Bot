@@ -176,37 +176,54 @@ function classifyTrade(trade: OptionTrade): OptionTrade['tag'] {
   return 'normal';
 }
 
-export function addOptionTrade(trade: OptionTrade) {
-  // Classify the trade
-  trade.tag = classifyTrade(trade);
+// ── Batched trade ingestion ──────────────────────────────────────────────
+// Buffer incoming trades and flush to the store at 4Hz (250ms).
+// Without batching, 100+ trades/sec causes 500+ store updates/sec
+// which freezes the UI.
+let tradeBatch: OptionTrade[] = [];
+let flushTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Assign to parent-order cluster
+function ensureFlushTimer() {
+  if (flushTimer) return;
+  flushTimer = setInterval(flushTradeBatch, 250);
+}
+
+function flushTradeBatch() {
+  if (tradeBatch.length === 0) return;
+  const batch = tradeBatch;
+  tradeBatch = [];
+
+  // Accumulate premium deltas
+  let callP = 0, putP = 0, bullP = 0, bearP = 0;
+  for (const t of batch) {
+    if (t.right === 'C') callP += t.premium; else putP += t.premium;
+    const isBull = (t.right === 'C' && t.side === 'buy') || (t.right === 'P' && t.side === 'sell');
+    const isBear = (t.right === 'P' && t.side === 'buy') || (t.right === 'C' && t.side === 'sell');
+    if (isBull) bullP += t.premium;
+    else if (isBear) bearP += t.premium;
+    else { bullP += t.premium / 2; bearP += t.premium / 2; }
+  }
+
+  // Single batch store update — one reactive flush instead of 5 per trade
+  setOptionsFlow('trades', (prev) => {
+    const next = [...batch, ...prev];
+    return next.length > MAX_TRADES ? next.slice(0, MAX_TRADES) : next;
+  });
+  setOptionsFlow('tradeCount', (c) => c + batch.length);
+  setOptionsFlow('totalCallPremium', (p) => p + callP);
+  setOptionsFlow('totalPutPremium', (p) => p + putP);
+  setOptionsFlow('totalBullishPremium', (p) => p + bullP);
+  setOptionsFlow('totalBearishPremium', (p) => p + bearP);
+}
+
+export function addOptionTrade(trade: OptionTrade) {
+  // Classify and cluster immediately (cheap, no DOM)
+  trade.tag = classifyTrade(trade);
   trade.clusterId = assignCluster(trade);
 
-  setOptionsFlow('trades', (prev) => {
-    const next = [trade, ...prev];
-    if (next.length > MAX_TRADES) return next.slice(0, MAX_TRADES);
-    return next;
-  });
-  setOptionsFlow('tradeCount', (c) => c + 1);
-  if (trade.right === 'C') {
-    setOptionsFlow('totalCallPremium', (p) => p + trade.premium);
-  } else {
-    setOptionsFlow('totalPutPremium', (p) => p + trade.premium);
-  }
-
-  // Directional tracking: buying calls / selling puts = bullish, buying puts / selling calls = bearish
-  const isBullish = (trade.right === 'C' && trade.side === 'buy') || (trade.right === 'P' && trade.side === 'sell');
-  const isBearish = (trade.right === 'P' && trade.side === 'buy') || (trade.right === 'C' && trade.side === 'sell');
-  if (isBullish) {
-    setOptionsFlow('totalBullishPremium', (p) => p + trade.premium);
-  } else if (isBearish) {
-    setOptionsFlow('totalBearishPremium', (p) => p + trade.premium);
-  } else {
-    // mid trades split 50/50
-    setOptionsFlow('totalBullishPremium', (p) => p + trade.premium / 2);
-    setOptionsFlow('totalBearishPremium', (p) => p + trade.premium / 2);
-  }
+  // Buffer — flushed to store at 4Hz
+  tradeBatch.push(trade);
+  ensureFlushTimer();
 }
 
 export function clearOptionsFlow() {
