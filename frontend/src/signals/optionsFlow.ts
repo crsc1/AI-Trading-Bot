@@ -1,4 +1,5 @@
 import { createStore } from 'solid-js/store';
+import { batch as solidBatch } from 'solid-js';
 
 export interface OptionTrade {
   strike: number;
@@ -204,16 +205,18 @@ function flushTradeBatch() {
     else { bullP += t.premium / 2; bearP += t.premium / 2; }
   }
 
-  // Single batch store update — one reactive flush instead of 5 per trade
-  setOptionsFlow('trades', (prev) => {
-    const next = [...batch, ...prev];
-    return next.length > MAX_TRADES ? next.slice(0, MAX_TRADES) : next;
+  // Single atomic flush — SolidJS batch() groups all 6 updates into ONE reactive notification
+  solidBatch(() => {
+    setOptionsFlow('trades', (prev) => {
+      const next = [...batch, ...prev];
+      return next.length > MAX_TRADES ? next.slice(0, MAX_TRADES) : next;
+    });
+    setOptionsFlow('tradeCount', (c) => c + batch.length);
+    setOptionsFlow('totalCallPremium', (p) => p + callP);
+    setOptionsFlow('totalPutPremium', (p) => p + putP);
+    setOptionsFlow('totalBullishPremium', (p) => p + bullP);
+    setOptionsFlow('totalBearishPremium', (p) => p + bearP);
   });
-  setOptionsFlow('tradeCount', (c) => c + batch.length);
-  setOptionsFlow('totalCallPremium', (p) => p + callP);
-  setOptionsFlow('totalPutPremium', (p) => p + putP);
-  setOptionsFlow('totalBullishPremium', (p) => p + bullP);
-  setOptionsFlow('totalBearishPremium', (p) => p + bearP);
 }
 
 export function addOptionTrade(trade: OptionTrade) {

@@ -1,4 +1,5 @@
 import { createStore } from 'solid-js/store';
+import { batch } from 'solid-js';
 import type { MarketState, Candle, Tick, Quote, Timeframe } from '../types/market';
 
 function loadPref<T>(key: string, fallback: T): T {
@@ -24,20 +25,21 @@ const [market, setMarket] = createStore(initialState);
 export { market, setMarket };
 
 export function updateFromTick(tick: Tick) {
-  setMarket('lastPrice', tick.price);
-  setMarket('lastTick', tick);
+  batch(() => {
+    setMarket('lastPrice', tick.price);
+    setMarket('lastTick', tick);
 
-  // Update current candle with new tick
-  const current = market.currentCandle;
-  if (current) {
-    setMarket('currentCandle', {
-      ...current,
-      high: Math.max(current.high, tick.price),
-      low: Math.min(current.low, tick.price),
-      close: tick.price,
-      volume: current.volume + tick.size,
-    });
-  }
+    const current = market.currentCandle;
+    if (current) {
+      setMarket('currentCandle', {
+        ...current,
+        high: Math.max(current.high, tick.price),
+        low: Math.min(current.low, tick.price),
+        close: tick.price,
+        volume: current.volume + tick.size,
+      });
+    }
+  });
 }
 
 export function setCandles(candles: Candle[]) {
@@ -54,7 +56,9 @@ export function appendCandle(candle: Candle) {
 }
 
 export function updateQuote(quote: Quote) {
-  setMarket('quote', quote);
+  batch(() => {
+    setMarket('quote', quote);
+  });
 }
 
 export function setTimeframe(tf: Timeframe) {
