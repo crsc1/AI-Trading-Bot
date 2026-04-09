@@ -215,34 +215,44 @@ export function initDataLayer() {
   ws = new WSClient({
     name: 'Engine',
     url: `ws://${wsHost}:8081/ws`,
-    encoding: 'protobuf',
-    onMessage: (buffer: ArrayBuffer) => {
-      // Accumulate binary frames — don't decode on main thread
-      msgBuffer.push(buffer);
+    encoding: 'auto',  // Auto-detect: binary → protobuf worker, text → JSON parse
+    onMessage: (raw: any) => {
+      // Auto-detect: binary frames use protobuf worker, text frames use JSON
+      if (raw instanceof ArrayBuffer) {
+        // Binary frame → accumulate for protobuf batch decode
+        msgBuffer.push(raw);
 
-      if (!rafPending) {
-        rafPending = true;
-        requestAnimationFrame(async () => {
-          rafPending = false;
-          const batch = msgBuffer;
-          msgBuffer = [];
+        if (!rafPending) {
+          rafPending = true;
+          requestAnimationFrame(async () => {
+            rafPending = false;
+            const batch = msgBuffer;
+            msgBuffer = [];
+            if (batch.length === 0) return;
 
-          if (batch.length === 0) return;
-
-          try {
-            // Transfer ArrayBuffers to worker (zero-copy, ownership moves to worker)
-            const decoded = await protoWorker.decodeBatch(
-              Comlink.transfer(batch, batch)
-            );
-
-            // Apply decoded messages to stores
-            for (const msg of decoded) {
-              handleDecodedMessage(msg);
+            try {
+              const decoded = await protoWorker.decodeBatch(
+                Comlink.transfer(batch, batch)
+              );
+              for (const msg of decoded) {
+                handleDecodedMessage(msg);
+              }
+            } catch (e) {
+              console.warn('[Data] Proto decode error:', e);
             }
-          } catch (e) {
-            console.warn('[Data] Proto decode error:', e);
-          }
-        });
+          });
+        }
+      } else if (typeof raw === 'string') {
+        // Text frame → JSON parse directly (legacy/fallback path)
+        try {
+          // Skip theta_quote spam
+          if (raw.indexOf('"theta_quote"') >= 0 && raw.indexOf('"theta_quote"') < 20) return;
+          const data = JSON.parse(raw);
+          handleDecodedMessage(data);
+        } catch {}
+      } else if (typeof raw === 'object') {
+        // Already parsed object
+        handleDecodedMessage(raw);
       }
     },
     onConnect: () => {

@@ -9,7 +9,7 @@ export interface WSConfig {
   onConnect?: () => void;
   onDisconnect?: () => void;
   maxRetries?: number;
-  encoding?: 'json' | 'protobuf';
+  encoding?: 'json' | 'protobuf' | 'auto';
   skipTypes?: string[];  // Skip messages containing these strings (pre-JSON.parse filter)
 }
 
@@ -38,7 +38,7 @@ export class WSClient {
 
     try {
       this.ws = new WebSocket(this.config.url);
-      if (this.config.encoding === 'protobuf') {
+      if (this.config.encoding === 'protobuf' || this.config.encoding === 'auto') {
         this.ws.binaryType = 'arraybuffer';
       }
 
@@ -60,6 +60,10 @@ export class WSClient {
             }
             const data = JSON.parse(raw);
             this.config.onMessage(data);
+          } else if (this.config.encoding === 'auto') {
+            // Auto-detect: pass through raw data (ArrayBuffer or string)
+            // The consumer decides how to handle each type
+            this.config.onMessage(event.data);
           } else {
             this.config.onMessage(event.data);
           }

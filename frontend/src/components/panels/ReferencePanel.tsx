@@ -168,7 +168,17 @@ export const IVDashboardPanel: Component = () => {
 
 export const OptionsSnapshotPanel: Component = () => {
   const { data, loading, error } = usePoll(
-    () => api.getOptionsSnapshot(market.symbol),
+    async () => {
+      // Fetch nearest expiration first, then snapshot with it
+      try {
+        const expData = await api.getExpirations(market.symbol);
+        const expirations = expData?.response || expData?.expirations || [];
+        if (expirations.length > 0) {
+          return await api.getOptionsSnapshot(market.symbol, String(expirations[0]));
+        }
+      } catch {}
+      return null;
+    },
     30_000,
   );
 

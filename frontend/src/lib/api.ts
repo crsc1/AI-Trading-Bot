@@ -57,8 +57,11 @@ export const api = {
   // Options chain + snapshot
   getOptionsChain: (symbol: string, expiration?: string) =>
     request<any>(`/api/options/chain?symbol=${symbol}${expiration ? `&expiration=${expiration}` : ''}`),
-  getOptionsSnapshot: (symbol: string) =>
-    request<any>(`/api/options/snapshot?symbol=${symbol}`),
+  getOptionsSnapshot: (symbol: string, expiration?: string) =>
+    request<any>(`/api/options/snapshot?symbol=${symbol}${expiration ? `&exp=${expiration}` : ''}`),
+
+  getExpirations: (symbol: string) =>
+    request<any>(`/api/options/expirations?symbol=${symbol}`),
 
   // Volatility
   getVolatilityAdvisor: (symbol: string) =>
