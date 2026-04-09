@@ -141,7 +141,7 @@ export const IVDashboardPanel: Component = () => {
             : 'text-text-primary';
 
           return (
-            <div class="p-3 space-y-1">
+            <div class="p-4 space-y-0.5">
               <DataRow label="ATM IV" value={fmtPct(atmIv != null ? atmIv * 100 : null)} large />
               <DataRow label="IV Rank" value={fmtPct(ivRank)} color={rankColor} large />
               <DataRow label="IV Percentile" value={fmtPct(ivPct)} />
@@ -191,7 +191,7 @@ export const OptionsSnapshotPanel: Component = () => {
           const pcrOI = s.pcr_oi;
 
           return (
-            <div class="p-3 space-y-1">
+            <div class="p-4 space-y-0.5">
               <DataRow label="Max Pain" value={fmtPrice(s.max_pain)} large color="text-warning" />
               <DataRow label="PCR (Volume)" value={pcrVol != null ? pcrVol.toFixed(2) : '—'} color={
                 pcrVol != null ? (pcrVol > 1 ? 'text-negative' : pcrVol < 0.7 ? 'text-positive' : 'text-text-primary') : 'text-text-primary'
@@ -224,7 +224,7 @@ export const GexPanel: Component = () => {
         {(d) => {
           const g = d();
           return (
-            <div class="p-3 space-y-1">
+            <div class="p-4 space-y-0.5">
               <DataRow label="Regime" value={g.regime || '—'} large color={
                 g.regime === 'bullish' ? 'text-positive' : g.regime === 'bearish' ? 'text-negative' : 'text-text-primary'
               } />
@@ -274,7 +274,7 @@ export const ExpectedMovePanel: Component = () => {
 
   return (
     <Panel title="Expected Move" badge="LIVE" badgeColor="positive" loading={price() <= 0}>
-      <div class="p-3 space-y-1">
+      <div class="p-4 space-y-0.5">
         <DataRow label="Current Price" value={fmtPrice(price())} large />
         <DataRow label="ATM IV" value={fmtPct(atmIv() * 100)} />
         <div class="mt-2 pt-2 border-t border-border-subtle">
@@ -375,7 +375,7 @@ export const PortfolioGreeksPanel: Component = () => {
           }
 
           return (
-            <div class="p-3 space-y-1">
+            <div class="p-4 space-y-0.5">
               <DataRow label="Positions" value={positions.length} />
               <div class="mt-2 pt-2 border-t border-border-subtle">
                 <DataRow label="Net Delta" value={fmtDelta(netDelta)} large color={netDelta >= 0 ? 'text-positive' : 'text-negative'} />
@@ -498,7 +498,7 @@ export const KeyLevelsPanel: Component = () => {
           const levels = lvl.levels || [];
 
           return (
-            <div class="p-3 space-y-1">
+            <div class="p-4 space-y-0.5">
               <Show when={lvl.vwap}>
                 <DataRow label="VWAP" value={fmtPrice(lvl.vwap)} color="text-cyan" />
               </Show>

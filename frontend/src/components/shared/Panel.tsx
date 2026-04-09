@@ -95,7 +95,7 @@ interface DataRowProps {
 }
 
 export const DataRow: Component<DataRowProps> = (props) => (
-  <div class="flex items-center justify-between py-1">
+  <div class="flex items-center justify-between py-1.5">
     <span class="font-display text-[9px] text-text-secondary uppercase tracking-wider">{props.label}</span>
     <span class={`font-data ${props.large ? 'text-[14px] font-medium' : 'text-[12px]'} ${props.color || 'text-text-primary'}`}>
       {props.value}

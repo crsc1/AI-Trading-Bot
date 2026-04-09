@@ -15,7 +15,7 @@ const tile = 'rounded-lg border border-border-default bg-surface-1 overflow-hidd
 
 export const Reference: Component = () => {
   return (
-    <div class="h-full grid grid-cols-3 grid-rows-3 p-1.5 gap-1.5 bg-surface-0">
+    <div class="h-full grid grid-cols-3 grid-rows-3 p-2 gap-2 bg-surface-0">
       <div class={tile}><OptionsChainPanel /></div>
       <div class={tile}><IVDashboardPanel /></div>
       <div class={tile}><OptionsSnapshotPanel /></div>
