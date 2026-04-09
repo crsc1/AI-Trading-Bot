@@ -280,39 +280,24 @@ function handleRawMessage(raw: any, protoWorker: any) {
 }
 
 export function initDataLayer() {
-  if (ws || transport) return;
+  if (ws) return;
 
   const protoWorker = getProtoWorker();
   const wsHost = window.location.hostname || 'localhost';
 
-  // Try WebTransport first, fall back to WebSocket
-  createTransport(wsHost, 4433, 8081).then((t) => {
-    transport = t;
-    console.log(`[Data] Connected via ${t.transport}`);
-    t.onMessage((buffer: ArrayBuffer) => handleRawMessage(buffer, protoWorker));
-    setConnected(true);
-    loadQuote();
-  }).catch(() => {
-    console.warn('[Data] Transport failed, using WSClient fallback');
-  });
-
-  // WebSocket as immediate connection (WebTransport is async, may take 3s to fail)
+  // WebSocket connection to Rust engine (WebTransport upgrade planned)
   ws = new WSClient({
     name: 'Engine',
     url: `ws://${wsHost}:8081/ws`,
     encoding: 'auto',
     onMessage: (raw: any) => {
-      // If WebTransport connected, stop processing WS messages (avoid duplicates)
-      if (transport?.connected) return;
       handleRawMessage(raw, protoWorker);
     },
     onConnect: () => {
-      if (!transport?.connected) setConnected(true);
+      setConnected(true);
       loadQuote();
     },
-    onDisconnect: () => {
-      if (!transport?.connected) setConnected(false);
-    },
+    onDisconnect: () => setConnected(false),
   });
 
   ws.connect();
@@ -353,10 +338,8 @@ export function initDataLayer() {
 }
 
 export function destroyDataLayer() {
-  transport?.close();
   ws?.destroy();
   if (_barPollInterval) clearInterval(_barPollInterval);
-  transport = null;
   ws = null;
   _barPollInterval = null;
   msgBuffer = [];
