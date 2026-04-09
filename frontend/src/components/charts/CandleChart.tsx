@@ -182,7 +182,7 @@ export const CandleChart: Component = () => {
         rightOffset: 5,
         barSpacing: 8,
         minBarSpacing: 4,
-        shiftVisibleRangeOnNewBar: false,
+        shiftVisibleRangeOnNewBar: true,
         lockVisibleTimeRangeOnResize: true,
       },
       rightPriceScale: {
@@ -301,24 +301,28 @@ export const CandleChart: Component = () => {
     }
   ));
 
-  // ── Live tick update: 1 per animation frame ──────────────────────────
+  // ── Live tick update: throttled to avoid jank ──────────────────────────
+  // Only update the chart every 250ms max. High-frequency ticks (500+/sec)
+  // would cause LWC to re-render the entire candlestick on every call,
+  // which freezes the chart. 250ms = 4 updates/sec = smooth enough for
+  // visual price tracking without overwhelming the renderer.
 
-  let rafPending = false;
-  createEffect(on(
-    () => market.lastPrice,
-    () => {
-      if (!dataLoaded) { loadInitialData(); return; }
-      if (rafPending) return;
-      rafPending = true;
-      requestAnimationFrame(() => {
-        rafPending = false;
-        const c = market.currentCandle;
-        if (!c || !candleSeries) return;
-        candleSeries.update(toCandlestick(c));
-        volumeSeries?.update(toVolume(c));
-      });
-    }
-  ));
+  let tickUpdateTimer: ReturnType<typeof setInterval> | null = null;
+  let lastUpdatePrice = 0;
+
+  onMount(() => {
+    tickUpdateTimer = setInterval(() => {
+      if (!dataLoaded || !candleSeries) return;
+      const c = market.currentCandle;
+      if (!c) return;
+      // Only update if price actually changed
+      if (c.close === lastUpdatePrice) return;
+      lastUpdatePrice = c.close;
+      candleSeries.update(toCandlestick(c));
+      volumeSeries?.update(toVolume(c));
+    }, 250);
+  });
+  onCleanup(() => { if (tickUpdateTimer) clearInterval(tickUpdateTimer); });
 
   // ── Signal markers ───────────────────────────────────────────────────
 
@@ -391,7 +395,8 @@ export const CandleChart: Component = () => {
   let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   function scheduleIndicatorRebuild() {
     if (rebuildTimer) return;
-    rebuildTimer = setTimeout(() => { rebuildTimer = null; rebuildIndicators(); }, 1000);
+    // 3s debounce — indicators are expensive to recalculate with 292 available
+    rebuildTimer = setTimeout(() => { rebuildTimer = null; rebuildIndicators(); }, 3000);
   }
   onCleanup(() => { if (rebuildTimer) clearTimeout(rebuildTimer); });
 
