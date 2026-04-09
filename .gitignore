@@ -83,3 +83,4 @@ SIGNAL_PLACEMENT_COMPARE.html
 *.orig
 .gstack/
 bin/
+frontend/certs/
