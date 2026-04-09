@@ -14,14 +14,14 @@
 
   /* Borders */
   --border: #22223a;
-  --border-subtle: rgba(255,255,255,0.03);
-  --border-medium: rgba(255,255,255,0.06);
+  --border-subtle: rgba(255,255,255,0.08);
+  --border-medium: rgba(255,255,255,0.12);
   --border-strong: rgba(255,255,255,0.12);
 
-  /* Text */
-  --text-primary: #e0e0ea;
-  --text-secondary: #6e6e88;
-  --text-muted: #44445a;
+  /* Text — high contrast for readability */
+  --text-primary: #f0f0f8;
+  --text-secondary: #b0b0c8;
+  --text-muted: #8080a0;
 
   /* Accent */
   --accent: #5588ee;
@@ -82,9 +82,9 @@
 
   --color-border-default: #22223a;
 
-  --color-text-primary: #e0e0ea;
-  --color-text-secondary: #6e6e88;
-  --color-text-muted: #44445a;
+  --color-text-primary: #f0f0f8;
+  --color-text-secondary: #b0b0c8;
+  --color-text-muted: #8080a0;
 
   --color-accent: #5588ee;
   --color-accent-hover: #6699ff;

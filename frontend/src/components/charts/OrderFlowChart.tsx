@@ -153,7 +153,7 @@ export const OrderFlowChart: Component = () => {
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = '#0a0a12';
       ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#6e6e88';
+      ctx.fillStyle = '#b0b0c8';
       ctx.font = `${12 * dpr}px "Geist Mono", "SF Mono", Menlo, monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';

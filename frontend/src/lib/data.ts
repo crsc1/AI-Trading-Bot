@@ -1,27 +1,37 @@
 /**
- * Data layer — connects WebSocket streams and REST endpoints to SolidJS stores.
+ * Data layer — single WebSocket (protobuf binary) to Rust engine + REST to Python.
+ *
+ * Architecture:
+ *   Rust engine (port 8081) = unified WS broadcaster, protobuf binary frames
+ *     - Flow events (tick, cvd, footprint, sweep, etc.) encoded natively by Rust
+ *     - Python events (theta_trade, quote, bar) forwarded via /ingest, wrapped in ExternalJson
+ *   Web Worker decodes protobuf off main thread via Comlink
+ *   RAF gating: messages buffered, decoded in batch, applied at screen refresh rate
+ *   Python backend (port 8000) = REST-only for AI, signals, positions, candles
+ *
  * Call `initDataLayer()` once on app mount.
  */
 import { WSClient } from './ws';
-import { createThrottledUpdater } from './throttle';
 import { api } from './api';
+import * as Comlink from 'comlink';
+import { getProtoWorker } from '../workers/protobuf.api';
 import {
   market,
   setMarket,
   setCandles,
+  setSymbol,
   updateFromTick,
   updateQuote,
   appendCandle,
   setConnected,
 } from '../signals/market';
-import { addOptionTrade, type OptionTrade } from '../signals/optionsFlow';
+import { addOptionTrade, resetOptionsFlow, type OptionTrade } from '../signals/optionsFlow';
+import { updateChainFromTrade, resetChain } from '../signals/chain';
 import { updateCvd } from '../signals/flow';
 import type { Tick, Candle } from '../types/market';
 
 /**
  * Get today's midnight in Eastern Time as epoch ms.
- * ThetaData ms_of_day is relative to ET midnight, not UTC.
- * EDT = UTC-4, EST = UTC-5. We use a simple offset approach.
  */
 let _etMidnightCache: { date: string; ms: number } | null = null;
 function getTodayETMidnightMs(): number {
@@ -29,25 +39,24 @@ function getTodayETMidnightMs(): number {
   const todayStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
   if (_etMidnightCache && _etMidnightCache.date === todayStr) return _etMidnightCache.ms;
 
-  // Create a date at midnight ET by formatting and parsing
   const etNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const etMidnight = new Date(etNow);
   etMidnight.setHours(0, 0, 0, 0);
-  // Convert back: the difference between local midnight and ET midnight
   const etOffsetMs = now.getTime() - etNow.getTime();
   const result = etMidnight.getTime() + etOffsetMs;
   _etMidnightCache = { date: todayStr, ms: result };
   return result;
 }
 
-let engineWS: WSClient | null = null;
-let sipWS: WSClient | null = null;
-let tickThrottler: ReturnType<typeof createThrottledUpdater<Tick>> | null = null;
+let ws: WSClient | null = null;
 let _barPollInterval: ReturnType<typeof setInterval> | null = null;
 
+// RAF-gated message buffer: accumulate binary frames, decode in batch at refresh rate
+let msgBuffer: ArrayBuffer[] = [];
+let rafPending = false;
+
 /**
- * Load historical candle data from REST API.
- * Retries up to 5 times with backoff if the backend isn't ready yet.
+ * Load historical candle data from REST API (Python backend).
  */
 export async function loadCandles(retries = 5) {
   for (let attempt = 0; attempt < retries; attempt++) {
@@ -68,182 +77,197 @@ export async function loadCandles(retries = 5) {
     } catch (e) {
       console.warn(`[Data] Failed to load candles (attempt ${attempt + 1}/${retries}):`, e);
     }
-    // Wait before retrying: 1s, 2s, 4s, 8s, 16s
     if (attempt < retries - 1) {
       await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
     }
   }
 }
 
-/**
- * Load initial quote
- */
 async function loadQuote() {
   try {
     const data = await api.getQuote(market.symbol);
-    if (data.last) {
-      setMarket('lastPrice', data.last);
-    }
+    if (data.last) setMarket('lastPrice', data.last);
   } catch (e) {
     console.warn('[Data] Failed to load quote:', e);
   }
 }
 
-/**
- * Initialize the data layer — WebSocket connections + initial data load.
- */
-export function initDataLayer() {
-  // Guard against double-init (Layout calls once, pages may navigate)
-  if (engineWS || sipWS) return;
+export async function switchSymbol(symbol: string) {
+  const sym = symbol.toUpperCase().trim();
+  if (!sym || sym === market.symbol) return;
 
-  // 60fps throttled tick processor
-  tickThrottler = createThrottledUpdater<Tick>((batch) => {
-    // Apply last tick from each batch (most recent price)
-    if (batch.length > 0) {
-      updateFromTick(batch[batch.length - 1]);
+  setSymbol(sym);
+  setCandles([]);
+  setMarket('currentCandle', null);
+  setMarket('lastPrice', 0);
+  setMarket('quote', null);
+  resetOptionsFlow();
+  resetChain();
+
+  api.post('/api/stream/subscribe', [sym]).catch(() => {});
+  api.post('/api/theta/subscribe', { symbol: sym }).catch(() => {});
+
+  await Promise.all([loadCandles(), loadQuote()]);
+}
+
+// ── Message handler (processes decoded protobuf objects) ────────────────────
+
+/** Handle a single decoded message — same logic as before, just extracted */
+function handleDecodedMessage(data: any) {
+  if (!data || !data.type) return;
+  const type = data.type;
+
+  switch (type) {
+    case 'tick':
+    case 'Tick':
+    case 'trade': {
+      if (data.symbol && data.symbol !== market.symbol) break;
+      updateFromTick({
+        price: data.price ?? data.p,
+        size: data.size ?? data.s ?? 0,
+        side: data.side ?? 'unknown',
+        timestamp_ms: data.timestamp ?? data.t ?? Date.now(),
+      });
+      break;
     }
-  });
+    case 'quote': {
+      if (data.symbol && data.symbol !== market.symbol) break;
+      updateQuote({
+        bid: data.bid ?? data.bp ?? 0,
+        ask: data.ask ?? data.ap ?? 0,
+        bid_size: data.bid_size ?? data.bs ?? 0,
+        ask_size: data.ask_size ?? data.as ?? 0,
+        timestamp_ms: data.timestamp ?? Date.now(),
+      });
+      break;
+    }
+    case 'theta_trade': {
+      if (data.root && data.root !== market.symbol) break;
+      const trade: OptionTrade = {
+        strike: data.strike ?? 0,
+        right: data.right === 'P' ? 'P' : 'C',
+        price: data.price ?? 0,
+        size: data.size ?? 0,
+        premium: data.premium ?? (data.price ?? 0) * (data.size ?? 0) * 100,
+        exchange: String(data.exchange ?? ''),
+        timestamp: data.ms_of_day
+          ? getTodayETMidnightMs() + data.ms_of_day
+          : (data.timestamp ? data.timestamp * 1000 : Date.now()),
+        expiration: data.expiration ?? 0,
+        root: data.root ?? market.symbol,
+        condition: data.condition ?? 0,
+        side: data.side === 'buy' ? 'buy' : data.side === 'sell' ? 'sell' : 'mid',
+        iv: data.iv ?? null,
+        delta: data.delta ?? null,
+        gamma: data.gamma ?? null,
+        vpin: data.vpin ?? null,
+        sms: data.sms ?? 0,
+        tag: 'normal',
+        clusterId: null,
+        spyPrice: market.lastPrice,
+      };
+      if (trade.price > 0 && trade.size > 0) {
+        addOptionTrade(trade);
+        updateChainFromTrade(trade);
+      }
+      break;
+    }
+    case 'bar':
+    case 'bar_update': {
+      if (data.symbol && data.symbol !== market.symbol) break;
+      const candle: Candle = {
+        time: data.t ?? data.timestamp,
+        open: data.o ?? data.open,
+        high: data.h ?? data.high,
+        low: data.l ?? data.low,
+        close: data.c ?? data.close,
+        volume: data.v ?? data.volume ?? 0,
+      };
+      if (type === 'bar') appendCandle(candle);
+      else setMarket('currentCandle', candle);
+      break;
+    }
+    case 'cvd': {
+      updateCvd(data.value ?? 0, data.delta_1m ?? 0, data.delta_5m ?? 0);
+      break;
+    }
+    // Flow events: footprint, sweep, imbalance, absorption, delta_flip, large_trade
+    // Currently consumed by flow_subscriber on the Python side.
+    case 'footprint':
+    case 'sweep':
+    case 'imbalance':
+    case 'absorption':
+    case 'delta_flip':
+    case 'large_trade':
+    case 'heartbeat':
+      break;
+  }
+}
 
-  // Rust flow engine WebSocket (port 8081) — ticks, signals
+// ── Data layer init/destroy ─────────────────────────────────────────────────
+
+export function initDataLayer() {
+  if (ws) return;
+
+  const protoWorker = getProtoWorker();
   const wsHost = window.location.hostname || 'localhost';
-  engineWS = new WSClient({
+
+  ws = new WSClient({
     name: 'Engine',
     url: `ws://${wsHost}:8081/ws`,
-    onMessage: (data) => {
-      if (data.type === 'Tick' || data.type === 'tick') {
-        const tick: Tick = {
-          price: data.price ?? data.p,
-          size: data.size ?? data.s ?? 0,
-          side: data.side ?? 'unknown',
-          timestamp_ms: data.timestamp ?? data.t ?? Date.now(),
-        };
-        tickThrottler?.push(tick);
-      } else if (data.type === 'cvd') {
-        updateCvd(
-          data.value ?? 0,
-          data.delta_1m ?? 0,
-          data.delta_5m ?? 0,
-        );
-      }
-    },
-    onConnect: () => setConnected(true),
-    onDisconnect: () => setConnected(false),
-  });
+    encoding: 'protobuf',
+    onMessage: (buffer: ArrayBuffer) => {
+      // Accumulate binary frames — don't decode on main thread
+      msgBuffer.push(buffer);
 
-  // SIP WebSocket (dashboard backend) — trades, quotes, bars, theta events
-  sipWS = new WSClient({
-    name: 'SIP',
-    url: `ws://${wsHost}:8000/ws`,
-    skipTypes: ['"theta_quote"'],  // Skip ~2,400/sec quote spam before JSON.parse
-    onMessage: (data) => {
-      const type = data.type ?? data.event;
+      if (!rafPending) {
+        rafPending = true;
+        requestAnimationFrame(async () => {
+          rafPending = false;
+          const batch = msgBuffer;
+          msgBuffer = [];
 
-      switch (type) {
-        case 'trade': {
-          const tick: Tick = {
-            price: data.price ?? data.p,
-            size: data.size ?? data.s ?? 0,
-            side: data.side ?? 'unknown',
-            timestamp_ms: data.timestamp ?? data.t ?? Date.now(),
-          };
-          tickThrottler?.push(tick);
-          break;
-        }
-        case 'quote': {
-          updateQuote({
-            bid: data.bid ?? data.bp ?? 0,
-            ask: data.ask ?? data.ap ?? 0,
-            bid_size: data.bid_size ?? data.bs ?? 0,
-            ask_size: data.ask_size ?? data.as ?? 0,
-            timestamp_ms: data.timestamp ?? Date.now(),
-          });
-          break;
-        }
-        case 'theta_trade': {
-          // Option trade from ThetaData stream
-          const trade: OptionTrade = {
-            strike: data.strike ?? 0,
-            right: data.right === 'P' ? 'P' : 'C',
-            price: data.price ?? 0,
-            size: data.size ?? 0,
-            premium: data.premium ?? (data.price ?? 0) * (data.size ?? 0) * 100,
-            exchange: String(data.exchange ?? ''),
-            timestamp: data.ms_of_day
-              ? getTodayETMidnightMs() + data.ms_of_day
-              : (data.timestamp ? data.timestamp * 1000 : Date.now()),
-            expiration: data.expiration ?? 0,
-            root: data.root ?? 'SPY',
-            condition: data.condition ?? 0,
-            side: data.side === 'buy' ? 'buy' : data.side === 'sell' ? 'sell' : 'mid',
-            iv: data.iv ?? null,
-            delta: data.delta ?? null,
-            gamma: data.gamma ?? null,
-            vpin: data.vpin ?? null,
-            sms: data.sms ?? 0,
-            tag: 'normal',
-            clusterId: null,  // Assigned by addOptionTrade()
-            spyPrice: market.lastPrice,  // SPY price at time of trade for bubble chart replay
-          };
-          if (trade.price > 0 && trade.size > 0) {
-            addOptionTrade(trade);
+          if (batch.length === 0) return;
+
+          try {
+            // Transfer ArrayBuffers to worker (zero-copy, ownership moves to worker)
+            const decoded = await protoWorker.decodeBatch(
+              Comlink.transfer(batch, batch)
+            );
+
+            // Apply decoded messages to stores
+            for (const msg of decoded) {
+              handleDecodedMessage(msg);
+            }
+          } catch (e) {
+            console.warn('[Data] Proto decode error:', e);
           }
-          break;
-        }
-        case 'bar':
-        case 'bar_update': {
-          const candle: Candle = {
-            time: data.t ?? data.timestamp,
-            open: data.o ?? data.open,
-            high: data.h ?? data.high,
-            low: data.l ?? data.low,
-            close: data.c ?? data.close,
-            volume: data.v ?? data.volume ?? 0,
-          };
-          if (type === 'bar') {
-            appendCandle(candle);
-          } else {
-            // Update current candle
-            setMarket('currentCandle', candle);
-          }
-          break;
-        }
+        });
       }
     },
     onConnect: () => {
-      if (!engineWS?.connected) setConnected(true);
-      // Only refresh quote on reconnect, not full candle reload (prevents chart drift)
+      setConnected(true);
       loadQuote();
     },
-    onDisconnect: () => {
-      if (!engineWS?.connected) setConnected(false);
-    },
+    onDisconnect: () => setConnected(false),
   });
 
-  // Connect WebSockets
-  engineWS.connect();
-  sipWS.connect();
+  ws.connect();
 
-  // Load initial data
+  // Load initial data via REST (Python backend)
   loadCandles();
   loadQuote();
 
-  // Refresh quote when user returns to the tab (WS may have been throttled)
-  // Don't reload candles — pages are permanent, chart stays alive, WS reconnects
+  // Refresh quote when tab becomes visible
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      console.log('[Data] Tab visible — refreshing quote');
-      loadQuote();
-    } else {
-      console.log('[Data] Tab hidden — WS may be throttled by browser');
-    }
+    if (document.visibilityState === 'visible') loadQuote();
   });
 
-  // Poll for fresh bars every 15s as fallback when Python stream is idle
-  // (Rust engine handles ticks but doesn't push bar aggregations via WS)
+  // Poll for fresh bars every 15s as fallback
   _barPollInterval = setInterval(async () => {
     try {
       const tf = market.timeframe || '5Min';
-      const data = await api.get<{ bars: any[] }>(`/api/bars?symbol=SPY&timeframe=${tf}&limit=3`);
+      const data = await api.get<{ bars: any[] }>(`/api/bars?symbol=${market.symbol}&timeframe=${tf}&limit=3`);
       if (data?.bars?.length) {
         const latest = data.bars[data.bars.length - 1];
         const candle: Candle = {
@@ -254,31 +278,22 @@ export function initDataLayer() {
           close: latest.close ?? latest.c,
           volume: latest.volume ?? latest.v ?? 0,
         };
-        // Check if this is a new bar or update to current
         const existing = market.candles;
         if (existing.length > 0) {
           const lastTime = existing[existing.length - 1].time;
-          if (candle.time > lastTime) {
-            appendCandle(candle);
-          } else if (candle.time === lastTime) {
-            setMarket('currentCandle', candle);
-          }
+          if (candle.time > lastTime) appendCandle(candle);
+          else if (candle.time === lastTime) setMarket('currentCandle', candle);
         }
       }
     } catch {}
   }, 15000);
 }
 
-/**
- * Destroy the data layer — clean up WebSockets and throttlers.
- */
 export function destroyDataLayer() {
-  engineWS?.destroy();
-  sipWS?.destroy();
-  tickThrottler?.destroy();
+  ws?.destroy();
   if (_barPollInterval) clearInterval(_barPollInterval);
-  engineWS = null;
-  sipWS = null;
-  tickThrottler = null;
+  ws = null;
   _barPollInterval = null;
+  msgBuffer = [];
+  rafPending = false;
 }

@@ -854,35 +854,50 @@ class ThetaStreamClient:
         try:
             import aiohttp
             async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    "http://localhost:8000/api/market"
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        price = data.get("spy", {}).get("price", 0)
-                        if price > 0:
-                            atm = round(price)
-                            strikes = list(range(atm - 15, atm + 16))
+                # Try local market endpoint first, then Alpaca snapshot
+                price = 0
+                try:
+                    async with session.get("http://localhost:8000/api/market") as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            price = data.get("spy", {}).get("price", 0)
+                except Exception:
+                    pass
 
-                            # Subscribe to TRADES for ±15 strikes (per-contract, Standard plan)
-                            await self.subscribe_trades_per_contract(
-                                root, today, strikes, ["C", "P"]
-                            )
+                if price <= 0:
+                    try:
+                        from .config import cfg
+                        async with session.get(
+                            f"https://data.alpaca.markets/v2/stocks/{root}/snapshot",
+                            headers=cfg.ALPACA_HEADERS,
+                            timeout=aiohttp.ClientTimeout(total=3),
+                        ) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                price = data.get("latestTrade", {}).get("p", 0)
+                    except Exception:
+                        pass
 
-                            # Subscribe to QUOTES for same strikes
-                            await self.subscribe_quotes(
-                                root, today, strikes, ["C", "P"]
-                            )
+                if price > 0:
+                    atm = round(price)
+                    strikes = list(range(atm - 15, atm + 16))
 
-                            logger.info(
-                                f"0DTE auto-subscribe complete: {root} exp={today} "
-                                f"strikes={atm-15}..{atm+15} "
-                                f"({len(strikes)*2} trade + {len(strikes)*2} quote contracts)"
-                            )
-                        else:
-                            logger.warning(
-                                "Cannot determine ATM price for 0DTE subscriptions"
-                            )
+                    await self.subscribe_trades_per_contract(
+                        root, today, strikes, ["C", "P"]
+                    )
+                    await self.subscribe_quotes(
+                        root, today, strikes, ["C", "P"]
+                    )
+
+                    logger.info(
+                        f"0DTE auto-subscribe complete: {root} exp={today} "
+                        f"strikes={atm-15}..{atm+15} "
+                        f"({len(strikes)*2} trade + {len(strikes)*2} quote contracts)"
+                    )
+                else:
+                    logger.warning(
+                        f"Cannot determine ATM price for {root} 0DTE subscriptions"
+                    )
         except Exception as e:
             logger.warning(f"Failed to auto-subscribe 0DTE: {e}")
 

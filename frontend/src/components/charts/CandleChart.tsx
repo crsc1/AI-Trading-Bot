@@ -14,7 +14,8 @@ import {
 import { market } from '../../signals/market';
 import { signals } from '../../signals/signals';
 import { chartTheme } from '../../lib/theme';
-import { calcVWAP, calcVWAPBands, calcPrevDayVWAP, calcBB } from '../../lib/indicators';
+import { calcVWAP, calcVWAPBands, calcPrevDayVWAP, calcBB, calcAAVWAP, calcBB_RH, calcAlligator_RH, calcFOSC_RH, calcHV_RH, calcIV, calcVolumeProfile, calcSessionVolumeProfile } from '../../lib/indicators';
+import { optionsFlow } from '../../signals/optionsFlow';
 import type { Candle } from '../../types/market';
 import { ChartControls, getIndicatorColor } from './ChartControls';
 import { ChartLegend } from './ChartLegend';
@@ -428,12 +429,54 @@ export const CandleChart: Component = () => {
             .map(c => ({ time: c.time, value: pv.value }));
           plots = [{ data: toLineData(lineData), color: '#ffb300', style: 2, width: 2, label: true }];
         }
+      } else if (id === 'aavwap') {
+        plots = [{ data: toLineData(calcAAVWAP(candles, 10)), color: '#e040fb', style: 0, width: 2, label: true }];
       } else if (id === 'bollinger-bands') {
         const bb = calcBB(candles, 20, 2);
         plots = [
           { data: toLineData(bb.upper), color: 'rgba(66,165,245,0.4)', style: 2, width: 1 },
           { data: toLineData(bb.lower), color: 'rgba(66,165,245,0.4)', style: 2, width: 1 },
         ];
+      } else if (id === 'bb-rh') {
+        const bb = calcBB_RH(candles, 20, 2);
+        plots = [
+          { data: toLineData(bb.basis), color: 'rgba(255,183,77,0.6)', style: 0, width: 1 },
+          { data: toLineData(bb.upper), color: 'rgba(255,183,77,0.4)', style: 2, width: 1 },
+          { data: toLineData(bb.lower), color: 'rgba(255,183,77,0.4)', style: 2, width: 1 },
+        ];
+      } else if (id === 'alligator-rh') {
+        const al = calcAlligator_RH(candles);
+        plots = [
+          { data: toLineData(al.jaw), color: '#42a5f5', style: 0, width: 2 },   // Jaw = blue
+          { data: toLineData(al.teeth), color: '#ef5350', style: 0, width: 1 },  // Teeth = red
+          { data: toLineData(al.lips), color: '#66bb6a', style: 0, width: 1 },   // Lips = green
+        ];
+      } else if (id === 'fosc-rh') {
+        const data = calcFOSC_RH(candles, 14);
+        plots = [{ data: toLineData(data), color: '#ab47bc', style: 0, width: 1 }];
+      } else if (id === 'hv-rh') {
+        const data = calcHV_RH(candles, 20);
+        plots = [{ data: toLineData(data), color: '#ff7043', style: 0, width: 1 }];
+      } else if (id === 'implied-vol') {
+        const ivResult = calcIV(candles, optionsFlow.trades);
+        const ivData = ivResult.plots['IV'] ?? [];
+        if (ivData.length > 0) {
+          plots = [{ data: toLineData(ivData), color: '#e040fb', style: 0, width: 2 }];
+        }
+      } else if (id === 'vol-profile' || id === 'session-vp') {
+        const vp = id === 'session-vp' ? calcSessionVolumeProfile(candles) : calcVolumeProfile(candles);
+        if (vp) {
+          // Draw POC + VAH + VAL as horizontal lines across all candles
+          const lineCandles = candles.filter(c => c.time >= vp.startTime);
+          const pocLine = lineCandles.map(c => ({ time: c.time, value: vp.poc }));
+          const vahLine = lineCandles.map(c => ({ time: c.time, value: vp.vah }));
+          const valLine = lineCandles.map(c => ({ time: c.time, value: vp.val }));
+          plots = [
+            { data: toLineData(pocLine), color: '#ffd600', style: 0, width: 2, label: true },  // POC = gold
+            { data: toLineData(vahLine), color: 'rgba(255,214,0,0.4)', style: 2, width: 1, label: true }, // VAH = dim gold
+            { data: toLineData(valLine), color: 'rgba(255,214,0,0.4)', style: 2, width: 1, label: true }, // VAL = dim gold
+          ];
+        }
       } else {
         const info = findIndicator(id);
         if (!info || !info.overlay) continue;

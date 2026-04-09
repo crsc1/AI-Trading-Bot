@@ -53,4 +53,23 @@ export const api = {
 
   // GEX
   getGex: () => request<any>('/api/signals/gex'),
+
+  // Options chain + snapshot
+  getOptionsChain: (symbol: string, expiration?: string) =>
+    request<any>(`/api/options/chain?symbol=${symbol}${expiration ? `&expiration=${expiration}` : ''}`),
+  getOptionsSnapshot: (symbol: string) =>
+    request<any>(`/api/options/snapshot?symbol=${symbol}`),
+
+  // Volatility
+  getVolatilityAdvisor: (symbol: string) =>
+    request<any>(`/api/signals/volatility-advisor?symbol=${symbol}`),
+
+  // Flow intelligence
+  getSweeps: () => request<any>('/api/signals/sweeps'),
+
+  // Sector rotation
+  getSectors: () => request<any>('/api/signals/sectors'),
+
+  // Events calendar
+  getEvents: () => request<any>('/api/signals/events'),
 };

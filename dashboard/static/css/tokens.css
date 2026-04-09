@@ -25,14 +25,14 @@
 
   /* Borders & Dividers */
   --border: #22223a;        /* Primary border          (was --brd) */
-  --border-subtle: rgba(255,255,255,0.03);  /* Row dividers */
-  --border-medium: rgba(255,255,255,0.06);  /* Section dividers */
+  --border-subtle: rgba(255,255,255,0.08);  /* Row dividers */
+  --border-medium: rgba(255,255,255,0.12);  /* Section dividers */
   --border-strong: rgba(255,255,255,0.12);  /* Emphasis dividers */
 
   /* Text */
-  --text-primary: #d0d0da;  /* Body text               (was --txt) */
-  --text-secondary: #6e6e88; /* Labels / dimmed text    (was --dim) */
-  --text-muted: #44445a;    /* Disabled / placeholder   (was --mut) */
+  --text-primary: #f0f0f8;  /* Body text               (was --txt) */
+  --text-secondary: #b0b0c8; /* Labels / dimmed text    (was --dim) */
+  --text-muted: #8080a0;    /* Disabled / placeholder   (was --mut) */
   --text-inverse: #0a0a12;  /* Text on bright badges */
 
   /* Accent & Semantic */

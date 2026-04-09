@@ -41,8 +41,10 @@ def _get_conn() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")  # Faster writes, still crash-safe with WAL
-    conn.execute("PRAGMA cache_size=-8000")     # 8MB cache
+    conn.execute("PRAGMA cache_size=-16000")    # 16MB cache (376M DB needs more)
     conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute("PRAGMA mmap_size=268435456")  # 256MB memory-mapped I/O
+    conn.execute("PRAGMA page_size=4096")       # Match OS page size
     return conn
 
 
@@ -62,9 +64,9 @@ def init_tick_db():
             nbbo_mid REAL DEFAULT NULL
         );
 
-        -- Covering index for time-range + symbol queries (most common access pattern)
-        CREATE INDEX IF NOT EXISTS idx_ticks_sym_ts
-            ON ticks(symbol, ts_ms);
+        -- Covering index: includes queried columns so reads skip the main table entirely
+        CREATE INDEX IF NOT EXISTS idx_ticks_sym_ts_cover
+            ON ticks(symbol, ts_ms, price, size, side, exchange);
 
         -- Index for pruning old data
         CREATE INDEX IF NOT EXISTS idx_ticks_ts

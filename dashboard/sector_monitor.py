@@ -34,11 +34,19 @@ ALPACA_HEADERS = {
     "Accept": "application/json",
 }
 
-# Sector ETFs and their approximate SPY weight
+# All 11 GICS sector ETFs and their approximate SPY weight
 SECTORS = {
     "XLK": {"name": "Technology", "spy_weight": 0.32},
     "XLF": {"name": "Financials", "spy_weight": 0.13},
+    "XLV": {"name": "Health Care", "spy_weight": 0.12},
+    "XLY": {"name": "Consumer Disc.", "spy_weight": 0.10},
+    "XLC": {"name": "Comm Services", "spy_weight": 0.09},
+    "XLI": {"name": "Industrials", "spy_weight": 0.09},
+    "XLP": {"name": "Consumer Staples", "spy_weight": 0.06},
     "XLE": {"name": "Energy", "spy_weight": 0.035},
+    "XLU": {"name": "Utilities", "spy_weight": 0.025},
+    "XLRE": {"name": "Real Estate", "spy_weight": 0.025},
+    "XLB": {"name": "Materials", "spy_weight": 0.025},
 }
 
 # Bond ETF for yield proxy

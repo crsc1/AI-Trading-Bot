@@ -52,16 +52,16 @@
 | Token | Value | Usage |
 |-------|-------|-------|
 | `--border` | `#22223a` | Primary panel borders |
-| `--border-subtle` | `rgba(255,255,255,0.03)` | Table row separators |
-| `--border-medium` | `rgba(255,255,255,0.06)` | Section dividers |
+| `--border-subtle` | `rgba(255,255,255,0.08)` | Table row separators |
+| `--border-medium` | `rgba(255,255,255,0.12)` | Section dividers |
 | `--border-strong` | `rgba(255,255,255,0.12)` | Active/focus borders |
 
 ### Text
 | Token | Hex | Usage |
 |-------|-----|-------|
-| `--text-primary` | `#e0e0ea` | Primary content, prices, values |
-| `--text-secondary` | `#6e6e88` | Labels, axis ticks, secondary info |
-| `--text-muted` | `#44445a` | Placeholders, ghost text, disabled |
+| `--text-primary` | `#f0f0f8` | Primary content, prices, values |
+| `--text-secondary` | `#b0b0c8` | Labels, axis ticks, secondary info |
+| `--text-muted` | `#8080a0` | Placeholders, column headers, disabled |
 
 ### Accent & Semantic
 | Token | Hex | Usage |

@@ -190,14 +190,43 @@ async def startup_event():
     prune_old_ticks()  # Clean up old data on startup
     logger.info("Tick store initialized and pruned")
 
+    # ── Rust engine ingest bridge ──────────────────────────────────────────
+    # Forward events to Rust engine for unified WS broadcast.
+    # Rust is the single broadcaster to browser clients.
+    # Falls back to direct Python broadcast if Rust is down.
+    import aiohttp as _aiohttp
+    _rust_session: _aiohttp.ClientSession | None = None
+    _rust_ingest_url = f"http://localhost:{cfg.FLOW_ENGINE_PORT}/ingest"
+
+    async def _get_rust_session() -> _aiohttp.ClientSession:
+        nonlocal _rust_session
+        if _rust_session is None or _rust_session.closed:
+            _rust_session = _aiohttp.ClientSession()
+        return _rust_session
+
+    async def forward_to_rust(event: dict):
+        """Forward event to Rust engine for unified broadcast. Falls back to direct broadcast."""
+        try:
+            session = await _get_rust_session()
+            async with session.post(
+                _rust_ingest_url, json=event,
+                timeout=_aiohttp.ClientTimeout(total=0.5),
+            ) as resp:
+                if resp.status == 200:
+                    return
+        except Exception:
+            pass
+        # Fallback: broadcast directly if Rust engine is down
+        await manager.broadcast(event)
+
     # Register callback to broadcast stream events to dashboard WebSocket clients
     # AND persist trade ticks to SQLite for replay/backtesting
     async def broadcast_stream_event(event: dict):
-        """Forward Alpaca stream events to connected dashboard clients + persist trades."""
-        await manager.broadcast(event)
+        """Forward Alpaca stream events via Rust engine + persist trades."""
+        await forward_to_rust(event)
 
-        # Feed SPY price to theta_stream for Greeks computation
-        if event.get("type") == "trade" and event.get("price") and event.get("symbol") == "SPY":
+        # Feed equity price to theta_stream for Greeks computation
+        if event.get("type") == "trade" and event.get("price"):
             theta_stream.update_underlying_price(event["price"])
 
         # Persist trade ticks to SQLite (non-blocking — buffered writes)
@@ -291,13 +320,13 @@ async def startup_event():
         logger.info("ThetaData WebSocket streaming enabled — starting...")
         theta_stream.ws_url = cfg.THETA_WS_URL
 
-        # Broadcast theta quote events to dashboard WebSocket clients
+        # Broadcast theta quote events via Rust (frontend skips these anyway)
         async def broadcast_theta_quote(event: dict):
-            await manager.broadcast(event)
+            await forward_to_rust(event)
 
         # Broadcast theta trade events enriched with premium and notional
         from .flow_scanner import flow_scanner
-        flow_scanner.set_broadcast(manager.broadcast)
+        flow_scanner.set_broadcast(forward_to_rust)
 
         async def broadcast_theta_trade(event: dict):
             # Enrich with premium (price * size * 100 for options)
@@ -305,13 +334,13 @@ async def startup_event():
             size = event.get("size", 0)
             event["premium"] = round(price * size * 100, 2)
             event["timestamp"] = event.get("timestamp") or __import__("time").time()
-            await manager.broadcast(event)
+            await forward_to_rust(event)
             # Feed to flow scanner for multi-symbol alert detection
             flow_scanner.on_trade(event)
 
         # Broadcast connection status changes
         async def broadcast_theta_status(event: dict):
-            await manager.broadcast(event)
+            await forward_to_rust(event)
 
         async def _init_flow_scanner():
             """Fetch prices for scanner symbols and subscribe to their options."""
@@ -585,6 +614,32 @@ async def stream_subscribe(symbols: list[str]):
     """Subscribe to additional symbols on the Alpaca stream."""
     await alpaca_stream.subscribe(symbols)
     return {"subscribed": list(alpaca_stream.subscribed_symbols)}
+
+
+@app.post("/api/theta/subscribe")
+async def theta_subscribe(body: dict):
+    """Subscribe to 0DTE options for a symbol via ThetaData."""
+    symbol = body.get("symbol", "SPY").upper()
+    if cfg.THETA_STREAM_ENABLED and theta_stream.connected:
+        await theta_stream.auto_subscribe_0dte(symbol)
+        # Update underlying price for Greeks computation
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"https://data.alpaca.markets/v2/stocks/{symbol}/snapshot",
+                    headers=cfg.ALPACA_HEADERS,
+                    timeout=aiohttp.ClientTimeout(total=3),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        price = data.get("latestTrade", {}).get("p", 0)
+                        if price > 0:
+                            theta_stream.update_underlying_price(price)
+        except Exception:
+            pass
+        return {"subscribed": symbol}
+    return {"subscribed": None, "reason": "theta stream not connected"}
 
 
 @app.post("/api/stream/unsubscribe")

@@ -38,17 +38,17 @@ export const Flow: Component = () => {
       {/* Content */}
       <div class="flex-1 min-h-0">
         <Show when={view() === 'options'}>
-          <div class="h-full flex flex-col">
-            {/* Bubble chart — top (45%) */}
-            <div class="flex-[45] min-h-0 border-b border-border-default">
+          <div class="h-full flex flex-col p-1.5 gap-1.5 bg-surface-0">
+            {/* Bubble chart — top panel */}
+            <div class="flex-[45] min-h-0 rounded-lg border border-border-default bg-surface-1 overflow-hidden">
               <OptionsBubbleChart />
             </div>
-            {/* Tape + Heatmap — bottom (55%) */}
-            <div class="flex-[55] min-h-0 flex">
-              <div class="flex-[55] min-w-0 border-r border-border-default">
+            {/* Tape + Heatmap — bottom panels side by side */}
+            <div class="flex-[55] min-h-0 flex gap-1.5">
+              <div class="flex-[55] min-w-0 rounded-lg border border-border-default bg-surface-1 overflow-hidden">
                 <OptionsFlow />
               </div>
-              <div class="flex-[45] min-w-0">
+              <div class="flex-[45] min-w-0 rounded-lg border border-border-default bg-surface-1 overflow-hidden">
                 <OptionsHeatmap />
               </div>
             </div>

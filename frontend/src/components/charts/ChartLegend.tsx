@@ -2,7 +2,8 @@ import { type Component, For, Show, createSignal, onCleanup } from 'solid-js';
 import { market } from '../../signals/market';
 import { flow } from '../../signals/flow';
 import { findIndicator } from '../../lib/indicatorRegistry';
-import { calcVWAP, calcVWAPBands, calcPrevDayVWAP, calcBB } from '../../lib/indicators';
+import { calcVWAP, calcVWAPBands, calcPrevDayVWAP, calcBB, calcAAVWAP, calcBB_RH, calcAlligator_RH, calcFOSC_RH, calcHV_RH, calcIV, calcVolumeProfile, calcSessionVolumeProfile } from '../../lib/indicators';
+import { optionsFlow } from '../../signals/optionsFlow';
 import { getIndicatorColor } from './ChartControls';
 
 interface LegendEntry {
@@ -50,11 +51,62 @@ export const ChartLegend: Component<Props> = (props) => {
         result.push({ id, label: 'Prev VWAP', color: '#ffb300', value: pv ? `$${pv.value.toFixed(2)}` : '---' });
         continue;
       }
+      if (id === 'aavwap') {
+        const data = calcAAVWAP(candles, 10);
+        const val = data.length > 0 ? data[data.length - 1].value.toFixed(2) : '---';
+        result.push({ id, label: 'AAVWAP', color: '#e040fb', value: val });
+        continue;
+      }
       if (id === 'bollinger-bands') {
         const bb = calcBB(candles, 20, 2);
         const u = bb.upper.length > 0 ? bb.upper[bb.upper.length - 1].value.toFixed(2) : '---';
         const l = bb.lower.length > 0 ? bb.lower[bb.lower.length - 1].value.toFixed(2) : '---';
         result.push({ id, label: 'BB Area', color: '#42a5f5', value: `${u} / ${l}` });
+        continue;
+      }
+      if (id === 'bb-rh') {
+        const bb = calcBB_RH(candles, 20, 2);
+        const b = bb.basis.length > 0 ? bb.basis[bb.basis.length - 1].value.toFixed(2) : '---';
+        const u = bb.upper.length > 0 ? bb.upper[bb.upper.length - 1].value.toFixed(2) : '---';
+        const l = bb.lower.length > 0 ? bb.lower[bb.lower.length - 1].value.toFixed(2) : '---';
+        result.push({ id, label: 'BB (RH)', color: '#ffb74d', value: `${b} (${l}..${u})` });
+        continue;
+      }
+      if (id === 'alligator-rh') {
+        const al = calcAlligator_RH(candles);
+        const j = al.jaw.length > 0 ? al.jaw[al.jaw.length - 1].value.toFixed(2) : '---';
+        const t = al.teeth.length > 0 ? al.teeth[al.teeth.length - 1].value.toFixed(2) : '---';
+        const l = al.lips.length > 0 ? al.lips[al.lips.length - 1].value.toFixed(2) : '---';
+        result.push({ id, label: 'Alligator (RH)', color: '#42a5f5', value: `J:${j} T:${t} L:${l}` });
+        continue;
+      }
+      if (id === 'fosc-rh') {
+        const data = calcFOSC_RH(candles, 14);
+        const val = data.length > 0 ? data[data.length - 1].value.toFixed(2) : '---';
+        result.push({ id, label: 'FOSC (RH)', color: '#ab47bc', value: `$${val}` });
+        continue;
+      }
+      if (id === 'hv-rh') {
+        const data = calcHV_RH(candles, 20);
+        const val = data.length > 0 ? data[data.length - 1].value.toFixed(1) : '---';
+        result.push({ id, label: 'HV (RH)', color: '#ff7043', value: `${val}%` });
+        continue;
+      }
+      if (id === 'implied-vol') {
+        const ivResult = calcIV(candles, optionsFlow.trades);
+        const ivData = ivResult.plots['IV'] ?? [];
+        const val = ivData.length > 0 ? ivData[ivData.length - 1].value.toFixed(1) : '---';
+        result.push({ id, label: 'IV', color: '#e040fb', value: `${val}%` });
+        continue;
+      }
+      if (id === 'vol-profile' || id === 'session-vp') {
+        const vp = id === 'session-vp' ? calcSessionVolumeProfile(candles) : calcVolumeProfile(candles);
+        const label = id === 'session-vp' ? 'Sess VP' : 'VP';
+        if (vp) {
+          result.push({ id, label, color: '#ffd600', value: `POC:${vp.poc.toFixed(2)} VA:${vp.val.toFixed(2)}-${vp.vah.toFixed(2)}` });
+        } else {
+          result.push({ id, label, color: '#ffd600', value: '---' });
+        }
         continue;
       }
       if (id === 'net-delta') {

@@ -1,6 +1,7 @@
 import { type Component, type JSX, onMount, onCleanup } from 'solid-js';
 import { useLocation } from '@solidjs/router';
 import { Sidebar } from './Sidebar';
+import { TickerSelector } from './TickerSelector';
 import { market } from '../../signals/market';
 import { agent } from '../../signals/agent';
 import { initDataLayer, destroyDataLayer } from '../../lib/data';
@@ -41,7 +42,7 @@ export const Layout: Component<Props> = (props) => {
         {/* Status Bar */}
         <header class="h-10 flex items-center justify-between px-4 bg-surface-1 border-b border-border-default shrink-0">
           <div class="flex items-center gap-4">
-            <span class="font-display text-[14px] font-medium">{market.symbol}</span>
+            <TickerSelector />
             <span class={`text-[16px] font-medium ${priceColor()}`}>
               {market.lastPrice > 0 ? `$${market.lastPrice.toFixed(2)}` : '---'}
             </span>

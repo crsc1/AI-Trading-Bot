@@ -82,3 +82,4 @@ SIGNAL_PLACEMENT_COMPARE.html
 *.bak
 *.orig
 .gstack/
+bin/

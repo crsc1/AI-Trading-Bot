@@ -42,10 +42,10 @@ export interface FlowLayout {
 const COLORS = {
   bg: '#0a0a12',
   titleColor: '#5588ee',
-  subtitleColor: '#6e6e88',
-  labelColor: '#6e6e88',
-  gridColor: 'rgba(255,255,255,0.03)',
-  separatorColor: 'rgba(255,255,255,0.06)',
+  subtitleColor: '#b0b0c8',
+  labelColor: '#b0b0c8',
+  gridColor: 'rgba(255,255,255,0.08)',
+  separatorColor: 'rgba(255,255,255,0.12)',
   positive: '#00C805',
   negative: '#FF5000',
   warning: '#ffb300',
@@ -246,7 +246,7 @@ export function drawFlowCanvas(
 
   ctx.fillStyle = 'rgba(15,15,25,0.6)';
   ctx.fillRect(ladderX, marginT, ladderW, plotH);
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
   ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(ladderX, marginT); ctx.lineTo(ladderX, marginT + plotH); ctx.stroke();
 
@@ -270,7 +270,7 @@ export function drawFlowCanvas(
     const pKey = p.toFixed(2);
     const vol = ladderProfile[pKey];
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.beginPath(); ctx.moveTo(ladderX, gy); ctx.lineTo(W, gy); ctx.stroke();
 
     if (vol) {
@@ -371,7 +371,7 @@ export function drawFlowCanvas(
     const volVal = Math.round((barMaxVol / 4) * i);
     const vy = volTop + volH - (i / 4) * volH;
     ctx.fillText(fmtVol(volVal), marginL - 6 * dpr, vy);
-    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.beginPath(); ctx.moveTo(marginL, vy); ctx.lineTo(W - ladderW, vy); ctx.stroke();
   }
 

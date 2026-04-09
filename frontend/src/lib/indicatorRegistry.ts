@@ -1,6 +1,16 @@
 /**
- * Auto-generated indicator registry — 292 indicators from lightweight-charts-indicators.
+ * Auto-generated indicator registry — 292 indicators from lightweight-charts-indicators
+ * + custom Robinhood-matching indicators.
  */
+import {
+  calcAccelerationBands, calcAC, calcAD, calcADXR, calcChaikinVolatility,
+  calcDailyOpenClose, calcDYMI, calcHLO, calcHLVolatility, calcInertia,
+  calcIMI, calcKRI, calcLinRegCurve, calcLinRegSlope, calcMarketFacIdx,
+  calcNVI, calcPercentChange, calcPriceChannel, calcSMMAEnvelope, calcSROC,
+  calcStdDevChannel, calcStdDevVolatility, calcStdErrorBands, calcSTARC,
+  calcTSF, calcWilliamsAD, calcWMAEnvelope,
+  type ModuleResult,
+} from './indicators';
 import {
   SMA,
   ADR,
@@ -639,29 +649,102 @@ function buildRegistry(): IndicatorInfo[] {
 
 const _registry = buildRegistry();
 
+// Helper to create a custom module entry with a working calculate function
+function _mod(title: string, short: string, overlay: boolean, calc?: (bars: any[]) => ModuleResult): IndicatorModule {
+  return {
+    metadata: { title, shortTitle: short, overlay },
+    calculate: calc ?? (() => null),
+    plotConfig: [], defaultInputs: {},
+  } as any;
+}
+
 // Custom indicators not in lightweight-charts-indicators (our own calculations)
 const customIndicators: IndicatorInfo[] = [
-  {
-    id: 'vwap',
-    title: 'Volume Weighted Average Price',
-    shortTitle: 'VWAP',
-    overlay: true,
-    module: { metadata: { title: 'VWAP', shortTitle: 'VWAP', overlay: true }, calculate: () => null } as any,
-  },
-  {
-    id: 'vwap-bands',
-    title: 'VWAP Standard Deviation Bands (±1σ, ±2σ)',
-    shortTitle: 'VWAP Bands',
-    overlay: true,
-    module: { metadata: { title: 'VWAP Bands', shortTitle: 'VWAP Bands', overlay: true }, calculate: () => null } as any,
-  },
-  {
-    id: 'prev-day-vwap',
-    title: 'Previous Day VWAP (yesterday\'s final value)',
-    shortTitle: 'Prev VWAP',
-    overlay: true,
-    module: { metadata: { title: 'Prev VWAP', shortTitle: 'Prev VWAP', overlay: true }, calculate: () => null } as any,
-  },
+  // ── VWAP family (use explicit branches in CandleChart for special rendering) ──
+  { id: 'vwap', title: 'Volume Weighted Average Price', shortTitle: 'VWAP', overlay: true,
+    module: _mod('VWAP', 'VWAP', true) },
+  { id: 'vwap-bands', title: 'VWAP Standard Deviation Bands (±1σ, ±2σ)', shortTitle: 'VWAP Bands', overlay: true,
+    module: _mod('VWAP Bands', 'VWAP Bands', true) },
+  { id: 'prev-day-vwap', title: 'Previous Day VWAP (yesterday\'s final value)', shortTitle: 'Prev VWAP', overlay: true,
+    module: _mod('Prev VWAP', 'Prev VWAP', true) },
+  { id: 'aavwap', title: 'Auto-Anchored VWAP (anchors to last pivot)', shortTitle: 'AAVWAP', overlay: true,
+    module: _mod('AAVWAP', 'AAVWAP', true) },
+
+  // ── Robinhood formula variants (use explicit branches for special rendering) ──
+  { id: 'bb-rh', title: 'Bollinger Bands — Robinhood (Typical Price source)', shortTitle: 'BB (RH)', overlay: true,
+    module: _mod('BB (RH)', 'BB (RH)', true) },
+  { id: 'alligator-rh', title: 'Williams Alligator — Robinhood (SMA smoothing)', shortTitle: 'Alligator (RH)', overlay: true,
+    module: _mod('Alligator (RH)', 'Alligator (RH)', true) },
+  { id: 'fosc-rh', title: 'Forecast Oscillator — Robinhood (absolute difference)', shortTitle: 'FOSC (RH)', overlay: false,
+    module: _mod('FOSC (RH)', 'FOSC (RH)', false) },
+  { id: 'hv-rh', title: 'Historical Volatility — Robinhood (20-period, 252-day annualized)', shortTitle: 'HV (RH)', overlay: false,
+    module: _mod('HV (RH)', 'HV (RH)', false) },
+
+  // ── IV (needs options flow data, uses explicit branch in CandleChart) ──
+  { id: 'implied-vol', title: 'Implied Volatility (from options flow)', shortTitle: 'IV', overlay: false,
+    module: _mod('Implied Volatility', 'IV', false) },
+
+  // ── Volume Profile (POC + Value Area as horizontal lines) ──
+  { id: 'vol-profile', title: 'Volume Profile (POC + Value Area)', shortTitle: 'VP', overlay: true,
+    module: _mod('Volume Profile', 'VP', true) },
+  { id: 'session-vp', title: 'Session Volume Profile (today only)', shortTitle: 'Sess VP', overlay: true,
+    module: _mod('Session Volume Profile', 'Sess VP', true) },
+
+  // ── 27 Robinhood indicators with working calculate() for generic rendering ──
+  { id: 'acc-bands', title: 'Acceleration Bands', shortTitle: 'AB', overlay: true,
+    module: _mod('Acceleration Bands', 'AB', true, calcAccelerationBands) },
+  { id: 'acc-decel', title: 'Acceleration/Deceleration', shortTitle: 'AC', overlay: false,
+    module: _mod('Acceleration/Deceleration', 'AC', false, calcAC) },
+  { id: 'accum-dist', title: 'Accumulation/Distribution', shortTitle: 'A/D', overlay: false,
+    module: _mod('Accumulation/Distribution', 'A/D', false, calcAD) },
+  { id: 'adxr', title: 'Average Directional Movement Index Rating', shortTitle: 'ADXR', overlay: false,
+    module: _mod('ADXR', 'ADXR', false, calcADXR) },
+  { id: 'chaikin-vol', title: 'Chaikin Volatility', shortTitle: 'CHV', overlay: false,
+    module: _mod('Chaikin Volatility', 'CHV', false, calcChaikinVolatility) },
+  { id: 'daily-oc', title: 'Daily Open-Close', shortTitle: 'Day O/C', overlay: true,
+    module: _mod('Daily Open-Close', 'Day O/C', true, calcDailyOpenClose) },
+  { id: 'dymi', title: 'Dynamic Momentum Index', shortTitle: 'DYMI', overlay: false,
+    module: _mod('Dynamic Momentum Index', 'DYMI', false, calcDYMI) },
+  { id: 'hl-osc', title: 'High-Low Oscillator', shortTitle: 'HLO', overlay: false,
+    module: _mod('High-Low Oscillator', 'HLO', false, calcHLO) },
+  { id: 'hl-vol', title: 'High-Low Volatility', shortTitle: 'HLV', overlay: false,
+    module: _mod('High-Low Volatility', 'HLV', false, calcHLVolatility) },
+  { id: 'inertia', title: 'Inertia', shortTitle: 'Inertia', overlay: false,
+    module: _mod('Inertia', 'Inertia', false, calcInertia) },
+  { id: 'imi', title: 'Intraday Momentum Index', shortTitle: 'IMI', overlay: false,
+    module: _mod('Intraday Momentum Index', 'IMI', false, calcIMI) },
+  { id: 'kri', title: 'Kairi Relative Index', shortTitle: 'KRI', overlay: false,
+    module: _mod('Kairi Relative Index', 'KRI', false, calcKRI) },
+  { id: 'linreg-curve', title: 'Linear Regression Curve', shortTitle: 'LinReg', overlay: true,
+    module: _mod('Linear Regression Curve', 'LinReg', true, calcLinRegCurve) },
+  { id: 'linreg-slope', title: 'Linear Regression Slope', shortTitle: 'LR Slope', overlay: false,
+    module: _mod('Linear Regression Slope', 'LR Slope', false, calcLinRegSlope) },
+  { id: 'mkt-fac-idx', title: 'Market Facilitation Index', shortTitle: 'MFIdx', overlay: false,
+    module: _mod('Market Facilitation Index', 'MFIdx', false, calcMarketFacIdx) },
+  { id: 'nvi', title: 'Negative Volume Index', shortTitle: 'NVI', overlay: false,
+    module: _mod('Negative Volume Index', 'NVI', false, calcNVI) },
+  { id: 'pct-change', title: 'Percent Change', shortTitle: '%Chg', overlay: false,
+    module: _mod('Percent Change', '%Chg', false, calcPercentChange) },
+  { id: 'price-channel', title: 'Price Channel', shortTitle: 'PCh', overlay: true,
+    module: _mod('Price Channel', 'PCh', true, calcPriceChannel) },
+  { id: 'smma-envelope', title: 'SMMA Envelope', shortTitle: 'SMMA Env', overlay: true,
+    module: _mod('SMMA Envelope', 'SMMA Env', true, calcSMMAEnvelope) },
+  { id: 'sroc', title: 'Smoothed Rate of Change', shortTitle: 'SROC', overlay: false,
+    module: _mod('Smoothed Rate of Change', 'SROC', false, calcSROC) },
+  { id: 'stddev-channel', title: 'Standard Deviation Channel', shortTitle: 'SD Ch', overlay: true,
+    module: _mod('Standard Deviation Channel', 'SD Ch', true, calcStdDevChannel) },
+  { id: 'stddev-vol', title: 'Standard Deviation Volatility', shortTitle: 'SD Vol', overlay: false,
+    module: _mod('Standard Deviation Volatility', 'SD Vol', false, calcStdDevVolatility) },
+  { id: 'stderr-bands', title: 'Standard Error Bands', shortTitle: 'SE Bands', overlay: true,
+    module: _mod('Standard Error Bands', 'SE Bands', true, calcStdErrorBands) },
+  { id: 'starc', title: 'STARC Bands', shortTitle: 'STARC', overlay: true,
+    module: _mod('STARC Bands', 'STARC', true, calcSTARC) },
+  { id: 'tsf', title: 'Time Series Forecast', shortTitle: 'TSF', overlay: true,
+    module: _mod('Time Series Forecast', 'TSF', true, calcTSF) },
+  { id: 'williams-ad', title: 'Williams Accumulation/Distribution', shortTitle: 'WAD', overlay: false,
+    module: _mod('Williams A/D', 'WAD', false, calcWilliamsAD) },
+  { id: 'wma-envelope', title: 'WMA Envelope', shortTitle: 'WMA Env', overlay: true,
+    module: _mod('WMA Envelope', 'WMA Env', true, calcWMAEnvelope) },
 ];
 
 // Put custom indicators at the top of the overlay list

@@ -38,6 +38,9 @@ export class WSClient {
 
     try {
       this.ws = new WebSocket(this.config.url);
+      if (this.config.encoding === 'protobuf') {
+        this.ws.binaryType = 'arraybuffer';
+      }
 
       this.ws.onopen = () => {
         console.log(`[WS:${this.label}] Connected (retry count was ${this.retryCount})`);

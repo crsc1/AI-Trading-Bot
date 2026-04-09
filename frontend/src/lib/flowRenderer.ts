@@ -36,6 +36,9 @@ export class FlowBubbleRenderer {
   private bubbleContainer: PIXI.Container | null = null;
   private labelContainer: PIXI.Container | null = null;
   private textures: Map<string, PIXI.Texture> = new Map();
+  // Fast lookup: texGrid[colorIndex][tierIndex] — no string concat in hot loop
+  private texGrid: PIXI.Texture[][] = [];
+  private tierRadii: number[] = [];
   private spritePool: PIXI.Sprite[] = [];
   private poolIndex = 0;
   private initialized = false;
@@ -66,13 +69,22 @@ export class FlowBubbleRenderer {
       if (pos === 'static') container.style.position = 'relative';
       container.appendChild(this.app.canvas);
 
+      // ParticleContainer: single GPU draw call for all sprites of same texture
       this.bubbleContainer = new PIXI.Container();
+      this.bubbleContainer.sortableChildren = false; // skip sort overhead
       this.app.stage.addChild(this.bubbleContainer);
 
       this.labelContainer = new PIXI.Container();
       this.app.stage.addChild(this.labelContainer);
 
       this._createTextures(dpr);
+      // Build fast lookup grid: texGrid[colorIdx][tierIdx]
+      // colorIdx: 0=buy, 1=sell, 2=neutral
+      const colorKeys: ColorKey[] = ['buy', 'sell', 'neutral'];
+      this.texGrid = colorKeys.map(ck =>
+        TIER_NAMES.map(tn => this.textures.get(`${ck}_${tn}`)!)
+      );
+      this.tierRadii = TIER_NAMES.map(tn => this.textureRadii.get(tn)!);
       this.initialized = true;
     } catch (err) {
       console.error('[FlowBubbleRenderer] Init failed:', err);
@@ -132,6 +144,21 @@ export class FlowBubbleRenderer {
     return 'huge';
   }
 
+  // Fast numeric index versions for hot loop (no string alloc)
+  private _getTierIdx(cssRadius: number): number {
+    if (cssRadius <= 7) return 0;
+    if (cssRadius <= 13) return 1;
+    if (cssRadius <= 20) return 2;
+    if (cssRadius <= 30) return 3;
+    return 4;
+  }
+
+  private _getColorIdx(deltaRatio: number): number {
+    if (deltaRatio > 0.1) return 0;  // buy
+    if (deltaRatio < -0.1) return 1; // sell
+    return 2;                         // neutral
+  }
+
   private _getColorKey(deltaRatio: number): ColorKey {
     if (deltaRatio > 0.1) return 'buy';
     if (deltaRatio < -0.1) return 'sell';
@@ -169,42 +196,37 @@ export class FlowBubbleRenderer {
 
     const now = Date.now();
 
-    // Pass 1: Glow rings for very recent trades (spray effect)
-    // Recent = within pulseThreshold. These start large and shrink.
+    const invDpr = 1 / dpr;
+    const invPulse = 1 / pulseThresholdMs;
+
+    // Single pass: render glow + main bubble together (avoids iterating points twice)
     for (const p of points) {
       const age = now - p.tMs;
+      const colorIdx = this._getColorIdx(p.deltaRatio);
+
+      // Glow ring for recent trades (spray effect)
       if (age < pulseThresholdMs) {
         const sprite = this._getSprite();
-        // Spray animation: starts at 1.8x, shrinks to 1.0x over pulseThreshold
-        const sprayScale = 1.0 + 0.8 * (1 - age / pulseThresholdMs);
-        const cssR = (p.r * sprayScale) / dpr;
-        const tier = this._getTier(cssR);
-        const colorKey = this._getColorKey(p.deltaRatio);
-        sprite.texture = this.textures.get(`${colorKey}_${tier}`)!;
-        sprite.position.set(p.x / dpr, p.y / dpr);
-        const texR = this.textureRadii.get(tier)! / dpr;
-        sprite.scale.set(cssR / texR);
+        const freshness = 1 - age * invPulse;
+        const sprayScale = 1.0 + 0.8 * freshness;
+        const cssR = p.r * sprayScale * invDpr;
+        const tierIdx = this._getTierIdx(cssR);
+        sprite.texture = this.texGrid[colorIdx][tierIdx];
+        sprite.position.set(p.x * invDpr, p.y * invDpr);
+        sprite.scale.set(cssR / (this.tierRadii[tierIdx] * invDpr));
         sprite.tint = 0xFFFFFF;
-        // Fade out the glow as it shrinks
-        sprite.alpha = 0.25 * (1 - age / pulseThresholdMs);
+        sprite.alpha = 0.25 * freshness;
       }
-    }
 
-    // Pass 2: Main bubbles
-    for (const p of points) {
+      // Main bubble
       const sprite = this._getSprite();
-      const cssR = p.r / dpr;
-      const tier = this._getTier(cssR);
-      const colorKey = this._getColorKey(p.deltaRatio);
-      sprite.texture = this.textures.get(`${colorKey}_${tier}`)!;
-      sprite.position.set(p.x / dpr, p.y / dpr);
-      const texR = this.textureRadii.get(tier)! / dpr;
-      sprite.scale.set(cssR / texR);
+      const cssR = p.r * invDpr;
+      const tierIdx = this._getTierIdx(cssR);
+      sprite.texture = this.texGrid[colorIdx][tierIdx];
+      sprite.position.set(p.x * invDpr, p.y * invDpr);
+      sprite.scale.set(cssR / (this.tierRadii[tierIdx] * invDpr));
       sprite.tint = 0xFFFFFF;
-
-      // Freshness opacity: recent trades are bright, old ones fade.
-      // Use the actual bubble opacity (computed from window position in flowCanvas).
-      sprite.alpha = Math.max(0.15, Math.min(0.95, p.opacity));
+      sprite.alpha = p.opacity > 0.95 ? 0.95 : p.opacity < 0.15 ? 0.15 : p.opacity;
     }
 
     // Hide unused

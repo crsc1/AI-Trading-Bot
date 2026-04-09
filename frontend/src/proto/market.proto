@@ -2,11 +2,30 @@ syntax = "proto3";
 
 package market;
 
+// ── Enums ───────────────────────────────────────────────────────────────────
+
+enum TradeSide {
+  SIDE_UNKNOWN = 0;
+  SIDE_BUY = 1;
+  SIDE_SELL = 2;
+}
+
+// ── Core Market Data ────────────────────────────────────────────────────────
+
 message Tick {
   double price = 1;
-  int64 size = 2;
-  string side = 3;
+  uint64 size = 2;
+  TradeSide side = 3;
   int64 timestamp_ms = 4;
+}
+
+message Quote {
+  double bid = 1;
+  double ask = 2;
+  uint64 bid_size = 3;
+  uint64 ask_size = 4;
+  int64 timestamp_ms = 5;
+  string symbol = 6;
 }
 
 message Candle {
@@ -14,43 +33,125 @@ message Candle {
   double high = 2;
   double low = 3;
   double close = 4;
-  int64 volume = 5;
+  uint64 volume = 5;
   int64 timestamp = 6;
+  string symbol = 7;
+  bool is_update = 8;      // true = bar_update, false = new bar
 }
 
-message Quote {
-  double bid = 1;
-  double ask = 2;
-  int64 bid_size = 3;
-  int64 ask_size = 4;
+// ── Order Flow Events ───────────────────────────────────────────────────────
+
+message FootprintLevel {
+  double price = 1;
+  uint64 bid_vol = 2;
+  uint64 ask_vol = 3;
+}
+
+message Footprint {
+  int64 bar_time = 1;
+  repeated FootprintLevel levels = 2;
+  uint64 total_buy_vol = 3;
+  uint64 total_sell_vol = 4;
+}
+
+message Cvd {
+  int64 value = 1;
+  int64 delta_1m = 2;
+  int64 delta_5m = 3;
+  int64 timestamp_ms = 4;
+}
+
+message Sweep {
+  double price = 1;
+  uint64 size = 2;
+  TradeSide side = 3;
+  uint32 levels_hit = 4;
   int64 timestamp_ms = 5;
 }
 
-message FlowEvent {
-  string type = 1;
-  Tick tick = 2;
-  SweepEvent sweep = 3;
-  AbsorptionEvent absorption = 4;
-}
-
-message SweepEvent {
-  string direction = 1;
-  double notional = 2;
-  repeated double strikes = 3;
-}
-
-message AbsorptionEvent {
+message Imbalance {
   double price = 1;
-  string direction = 2;
-  int64 volume = 3;
+  TradeSide side = 2;
+  double ratio = 3;
+  uint32 stacked = 4;
+  int64 timestamp_ms = 5;
 }
+
+message Absorption {
+  double price = 1;
+  uint64 volume = 2;
+  TradeSide side = 3;
+  bool held = 4;
+  int64 timestamp_ms = 5;
+}
+
+message DeltaFlip {
+  TradeSide from = 1;
+  TradeSide to = 2;
+  int64 cvd_at_flip = 3;
+  int64 timestamp_ms = 4;
+}
+
+message LargeTrade {
+  double price = 1;
+  uint64 size = 2;
+  TradeSide side = 3;
+  int64 timestamp_ms = 4;
+}
+
+// ── Options Data ────────────────────────────────────────────────────────────
+
+message OptionTrade {
+  string root = 1;
+  double strike = 2;
+  string right = 3;           // "C" or "P"
+  double price = 4;
+  uint64 size = 5;
+  double premium = 6;
+  string side = 7;            // "buy", "sell", "mid"
+  double iv = 8;
+  double delta = 9;
+  double gamma = 10;
+  double vpin = 11;
+  uint32 sms = 12;
+  int32 expiration = 13;      // YYYYMMDD
+  string exchange = 14;
+  int64 timestamp_ms = 15;
+  int64 ms_of_day = 16;
+  int32 condition = 17;
+}
+
+// ── System ──────────────────────────────────────────────────────────────────
+
+message Heartbeat {
+  int64 timestamp_ms = 1;
+  uint64 ticks_processed = 2;
+  double last_price = 3;
+  string data_source = 4;
+}
+
+// Passthrough for Python-forwarded events not yet in the proto schema
+message ExternalJson {
+  string json = 1;
+}
+
+// ── Envelope ────────────────────────────────────────────────────────────────
+// Every WebSocket binary frame is one MarketMessage.
 
 message MarketMessage {
-  string event = 1;
   oneof payload {
-    Tick tick = 2;
+    Tick tick = 1;
+    Quote quote = 2;
     Candle candle = 3;
-    Quote quote = 4;
-    FlowEvent flow = 5;
+    Cvd cvd = 4;
+    Footprint footprint = 5;
+    Sweep sweep = 6;
+    Imbalance imbalance = 7;
+    Absorption absorption = 8;
+    DeltaFlip delta_flip = 9;
+    LargeTrade large_trade = 10;
+    OptionTrade option_trade = 11;
+    Heartbeat heartbeat = 12;
+    ExternalJson external = 13;
   }
 }

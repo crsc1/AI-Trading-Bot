@@ -1,22 +1,23 @@
 #!/bin/bash
 # ════════════════════════════════════════════════════════════════════════════
-# SPY Order Flow Trading Platform — Startup Script
+# Options Trading Platform — Startup Script
 # ════════════════════════════════════════════════════════════════════════════
 #
 # Starts all 3 processes:
-#   1. Theta Terminal (Java — must already be running, or start manually)
-#   2. Flow Engine   (Rust — builds if needed, then runs)
-#   3. Dashboard     (Python/FastAPI — installs deps if needed, then runs)
+#   1. ThetaData Server (Rust — drop-in Terminal replacement, no Java)
+#   2. Flow Engine      (Rust — order flow analysis + unified broadcaster)
+#   3. Dashboard        (Python/FastAPI — AI, signals, REST API)
 #
 # Usage:
-#   ./start.sh              # Start engine + dashboard (assumes Theta Terminal running)
+#   ./start.sh              # Start all 3 processes
 #   ./start.sh --build      # Force rebuild engine before starting
 #   ./start.sh --dash-only  # Only start the dashboard (engine already running)
+#   ./start.sh --no-theta   # Skip ThetaData server (use without options data)
 #
 # Requires:
 #   - Rust toolchain (cargo) for flow engine
 #   - Python 3.10+ with pip for dashboard
-#   - .env file with Alpaca API keys
+#   - .env file with Alpaca API keys + ThetaData credentials
 # ════════════════════════════════════════════════════════════════════════════
 
 set -e
@@ -53,26 +54,53 @@ fi
 
 ok "Alpaca keys found (${ALPACA_DATA_FEED:-sip} feed)"
 
-# ── Check Theta Terminal ─────────────────────────────────────────────────
-
-THETA_URL="${THETA_BASE_URL:-http://localhost:25503}"
-if curl -s --connect-timeout 2 "$THETA_URL/v2/list/dates?root=SPY&format=json" > /dev/null 2>&1; then
-    ok "Theta Terminal is running at $THETA_URL"
-else
-    warn "Theta Terminal not detected at $THETA_URL — options data will be unavailable"
-    warn "Start it with: java -jar ThetaTerminal.jar"
-fi
-
 # ── Parse arguments ──────────────────────────────────────────────────────
 
 FORCE_BUILD=false
 DASH_ONLY=false
+NO_THETA=false
 for arg in "$@"; do
     case $arg in
         --build)     FORCE_BUILD=true ;;
         --dash-only) DASH_ONLY=true ;;
+        --no-theta)  NO_THETA=true ;;
     esac
 done
+
+# ── Start ThetaData Server (Rust, replaces Java Terminal) ────────────────
+
+THETA_SERVER_BIN="$SCRIPT_DIR/bin/thetadatadx-server"
+THETA_URL="${THETA_BASE_URL:-http://localhost:25503}"
+
+if [ "$NO_THETA" = false ] && [ "$DASH_ONLY" = false ]; then
+    if [ ! -f "$THETA_SERVER_BIN" ]; then
+        warn "ThetaData server binary not found at $THETA_SERVER_BIN"
+        warn "Options data will be unavailable. Build it from ThetaDataDx repo."
+    elif [ -z "$THETADATA_EMAIL" ] || [ -z "$THETADATA_PASSWORD" ]; then
+        warn "THETADATA_EMAIL and THETADATA_PASSWORD not set in .env — skipping ThetaData server"
+    else
+        # Kill any existing theta server or Java Terminal
+        pkill -f "thetadatadx-server" 2>/dev/null || true
+        pkill -f "ThetaTerminal" 2>/dev/null || true
+        sleep 1
+
+        log "Starting ThetaData server (native Rust, no JVM)..."
+        "$THETA_SERVER_BIN" --email "$THETADATA_EMAIL" --password "$THETADATA_PASSWORD" > /tmp/theta-server.log 2>&1 &
+        THETA_PID=$!
+        sleep 2
+
+        if kill -0 $THETA_PID 2>/dev/null; then
+            ok "ThetaData server running (PID $THETA_PID) — REST :25503, WS :25520"
+        else
+            warn "ThetaData server failed to start. Check /tmp/theta-server.log"
+            cat /tmp/theta-server.log | tail -10
+        fi
+    fi
+else
+    if [ "$NO_THETA" = true ]; then
+        log "Skipping ThetaData server (--no-theta)"
+    fi
+fi
 
 # ── Build + Start Flow Engine ────────────────────────────────────────────
 
@@ -156,11 +184,12 @@ echo -e "${GRN}═════════════════════�
 echo -e "${GRN}  Platform is running!${RST}"
 echo -e "${GRN}════════════════════════════════════════════════════════════${RST}"
 echo ""
-echo -e "  Dashboard:     ${BLU}http://localhost:$DASH_PORT${RST}"
-echo -e "  Flow Engine:   ${BLU}http://localhost:${FLOW_ENGINE_PORT:-8081}/stats${RST}"
-echo -e "  Theta Terminal: ${BLU}$THETA_URL${RST}"
+echo -e "  Dashboard:      ${BLU}http://localhost:$DASH_PORT${RST}"
+echo -e "  Flow Engine:    ${BLU}http://localhost:${FLOW_ENGINE_PORT:-8081}/stats${RST}"
+echo -e "  ThetaData:      ${BLU}$THETA_URL${RST} (native Rust)"
+echo -e "  WebTransport:   ${BLU}https://localhost:${WEBTRANSPORT_PORT:-4433}${RST} (QUIC)"
 echo ""
-echo -e "  Logs:  ${YLW}/tmp/flow-engine.log${RST}  |  ${YLW}/tmp/dashboard.log${RST}"
+echo -e "  Logs:  ${YLW}/tmp/theta-server.log${RST}  |  ${YLW}/tmp/flow-engine.log${RST}  |  ${YLW}/tmp/dashboard.log${RST}"
 echo ""
 echo -e "  Stop:  ${RED}./stop.sh${RST}  or  ${RED}pkill -f flow-engine; pkill -f uvicorn${RST}"
 echo ""

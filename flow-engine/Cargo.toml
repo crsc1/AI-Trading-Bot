@@ -18,6 +18,15 @@ tower-http = { version = "0.5", features = ["cors"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Protobuf binary encoding (Rust → Browser via WS binary frames)
+prost = "0.14"
+
+# ThetaData direct access (no Java Terminal) — FPSS real-time + MDDS historical
+thetadatadx = { git = "https://github.com/userFRM/ThetaDataDx", tag = "v6.0.1" }
+
+# WebTransport (QUIC) server for low-latency browser delivery
+wtransport = "0.6"
+
 # HTTP client (for ThetaData REST polling)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
@@ -45,6 +54,12 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 
 # URL parsing
 url = "2"
+
+# Hex encoding (for cert hash display)
+hex = "0.4"
+
+[build-dependencies]
+prost-build = "0.14"
 
 [profile.release]
 opt-level = 3

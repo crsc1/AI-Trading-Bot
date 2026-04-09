@@ -1,27 +1,30 @@
 import { type Component } from 'solid-js';
 import {
+  OptionsChainPanel,
+  IVDashboardPanel,
+  OptionsSnapshotPanel,
   GexPanel,
-  VolumeProfilePanel,
-  GreeksSurfacePanel,
-  SectorPanel,
-  MarketInternalsPanel,
-  CalendarPanel,
+  ExpectedMovePanel,
+  UnusualActivityPanel,
+  PortfolioGreeksPanel,
+  SectorRotationPanel,
+  KeyLevelsPanel,
 } from '../panels/ReferencePanel';
+
+const tile = 'rounded-lg border border-border-default bg-surface-1 overflow-hidden';
 
 export const Reference: Component = () => {
   return (
-    <div class="h-full flex flex-col">
-      <div class="px-6 py-4">
-        <h1 class="font-display text-[18px] font-medium">Reference Data</h1>
-      </div>
-      <div class="flex-1 grid grid-cols-2 grid-rows-3 gap-px bg-border-default p-px overflow-auto">
-        <div class="bg-surface-1"><GexPanel /></div>
-        <div class="bg-surface-1"><VolumeProfilePanel /></div>
-        <div class="bg-surface-1"><GreeksSurfacePanel /></div>
-        <div class="bg-surface-1"><SectorPanel /></div>
-        <div class="bg-surface-1"><MarketInternalsPanel /></div>
-        <div class="bg-surface-1"><CalendarPanel /></div>
-      </div>
+    <div class="h-full grid grid-cols-3 grid-rows-3 p-1.5 gap-1.5 bg-surface-0">
+      <div class={tile}><OptionsChainPanel /></div>
+      <div class={tile}><IVDashboardPanel /></div>
+      <div class={tile}><OptionsSnapshotPanel /></div>
+      <div class={tile}><GexPanel /></div>
+      <div class={tile}><ExpectedMovePanel /></div>
+      <div class={tile}><UnusualActivityPanel /></div>
+      <div class={tile}><PortfolioGreeksPanel /></div>
+      <div class={tile}><SectorRotationPanel /></div>
+      <div class={tile}><KeyLevelsPanel /></div>
     </div>
   );
 };

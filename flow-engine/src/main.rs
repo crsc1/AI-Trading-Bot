@@ -18,21 +18,26 @@ mod detectors;
 mod events;
 mod footprint;
 mod ingestion;
+mod proto;
+mod theta_dx;
+mod webtransport;
 
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
+    http::StatusCode,
     response::{Html, IntoResponse},
-    routing::get,
-    Router,
+    routing::{get, post},
+    Json, Router,
 };
 use alpaca_ws::AlpacaWsConfig;
 use classifier::TradeClassifier;
 use cvd::{CvdCalculator, CvdConfig};
 use detectors::{AbsorptionDetector, ImbalanceDetector, SweepDetector};
 use events::FlowEvent;
+use serde::Serialize;
 use footprint::{FootprintBuilder, FootprintConfig};
 use futures::{SinkExt, StreamExt};
 use ingestion::{IngestionConfig, IngestionMode, TickIngestor};
@@ -48,8 +53,12 @@ use tracing::{error, info, warn};
 struct AppState {
     /// Broadcast channel for flow events → WebSocket clients
     event_tx: broadcast::Sender<FlowEvent>,
+    /// Broadcast channel for external JSON events (from Python) → WebSocket clients
+    external_tx: broadcast::Sender<String>,
     /// Engine stats
     stats: RwLock<EngineStats>,
+    /// Live flow state snapshot for Python signal bridge
+    flow_state: RwLock<FlowStateSnapshot>,
 }
 
 #[derive(Debug, Default)]
@@ -60,6 +69,21 @@ struct EngineStats {
     engine_running: bool,
     data_source: String,
     last_price: f64,
+}
+
+#[derive(Debug, Default, Clone, Serialize)]
+struct FlowStateSnapshot {
+    last_price: f64,
+    cvd: i64,
+    delta_1m: i64,
+    delta_5m: i64,
+    total_buy_vol: u64,
+    total_sell_vol: u64,
+    ticks_processed: u64,
+    recent_sweeps: Vec<serde_json::Value>,
+    recent_absorptions: Vec<serde_json::Value>,
+    recent_imbalances: Vec<serde_json::Value>,
+    data_source: String,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,10 +105,13 @@ async fn main() {
     dotenvy::dotenv().ok();
 
     let (event_tx, _) = broadcast::channel::<FlowEvent>(1000);
+    let (external_tx, _) = broadcast::channel::<String>(2000);
 
     let state = Arc::new(AppState {
         event_tx: event_tx.clone(),
+        external_tx: external_tx.clone(),
         stats: RwLock::new(EngineStats::default()),
+        flow_state: RwLock::new(FlowStateSnapshot::default()),
     });
 
     // Build ingestion config from environment
@@ -117,13 +144,90 @@ async fn main() {
         heartbeat_loop(hb_tx, hb_state).await;
     });
 
+    // Spawn WebTransport (QUIC) server on port 4433
+    let wt_port: u16 = std::env::var("WEBTRANSPORT_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4433);
+    let wt_flow_tx = event_tx.clone();
+    let wt_ext_tx = external_tx.clone();
+    tokio::spawn(async move {
+        webtransport::serve(wt_flow_tx, wt_ext_tx, wt_port).await;
+    });
+
+    // Spawn ThetaDataDx direct ingestion (if credentials available)
+    let tdx_ext_tx = external_tx.clone();
+    tokio::spawn(async move {
+        let config = theta_dx::ThetaDxConfig {
+            equity_symbols: vec!["SPY".to_string()],
+            option_contracts: vec![], // Options subscribed dynamically via API
+        };
+
+        match theta_dx::start_theta_dx(&config, 8192) {
+            Ok(Some((mut rx, _client))) => {
+                info!("ThetaDataDx active — streaming directly from FPSS");
+                while let Some(event) = rx.recv().await {
+                    // Convert ThetaDxEvent to JSON and broadcast via external channel
+                    // This keeps the same format the frontend expects
+                    let json = match &event {
+                        theta_dx::ThetaDxEvent::OptionQuote { symbol, bid, ask, bid_size, ask_size, ms_of_day, .. } => {
+                            serde_json::json!({
+                                "type": "theta_quote",
+                                "root": symbol.as_ref(),
+                                "bid": bid, "ask": ask,
+                                "bid_size": bid_size, "ask_size": ask_size,
+                                "ms_of_day": ms_of_day,
+                            }).to_string()
+                        }
+                        theta_dx::ThetaDxEvent::OptionTrade { symbol, price, size, condition, exchange, ms_of_day, .. } => {
+                            serde_json::json!({
+                                "type": "theta_trade",
+                                "root": symbol.as_ref(),
+                                "price": price, "size": size,
+                                "condition": condition, "exchange": exchange,
+                                "ms_of_day": ms_of_day,
+                            }).to_string()
+                        }
+                        theta_dx::ThetaDxEvent::EquityQuote { symbol, bid, ask, bid_size, ask_size, ms_of_day } => {
+                            serde_json::json!({
+                                "type": "quote",
+                                "symbol": symbol.as_ref(),
+                                "bid": bid, "ask": ask,
+                                "bid_size": bid_size, "ask_size": ask_size,
+                                "timestamp": ms_of_day,
+                            }).to_string()
+                        }
+                        theta_dx::ThetaDxEvent::EquityTrade { symbol, price, size, exchange, ms_of_day } => {
+                            serde_json::json!({
+                                "type": "trade",
+                                "symbol": symbol.as_ref(),
+                                "price": price, "size": size,
+                                "exchange": exchange,
+                                "timestamp": ms_of_day,
+                            }).to_string()
+                        }
+                    };
+                    let _ = tdx_ext_tx.send(json);
+                }
+            }
+            Ok(None) => {
+                info!("ThetaDataDx not available — using Python path for options data");
+            }
+            Err(e) => {
+                warn!("ThetaDataDx initialization error: {e}");
+            }
+        }
+    });
+
     // Build HTTP/WebSocket server
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler))
         .route("/health", get(health_handler))
         .route("/stats", get(stats_handler))
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any))
+        .route("/ingest", post(ingest_handler))
+        .route("/flow-state", get(flow_state_handler))
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
         .with_state(state);
 
     let port: u16 = std::env::var("FLOW_ENGINE_PORT")
@@ -327,10 +431,19 @@ async fn process_tick(
 
     // 1. Update footprint
     let fp_event = footprint.process_tick(&classified);
+    let fp_totals = if let FlowEvent::Footprint { total_buy_vol, total_sell_vol, .. } = &fp_event {
+        Some((*total_buy_vol, *total_sell_vol))
+    } else { None };
     publish_event(state, fp_event).await;
 
     // 2. Update CVD + detect delta flips / large trades
     let cvd_events = cvd_calc.process_tick(&classified);
+    let mut latest_cvd: Option<(i64, i64, i64)> = None;
+    for event in &cvd_events {
+        if let FlowEvent::Cvd { value, delta_1m, delta_5m, .. } = event {
+            latest_cvd = Some((*value, *delta_1m, *delta_5m));
+        }
+    }
     for event in cvd_events {
         publish_event(state, event).await;
     }
@@ -357,6 +470,22 @@ async fn process_tick(
         let mut stats = state.stats.write().await;
         stats.ticks_processed += 1;
         stats.last_price = classified.price;
+    }
+
+    // Update flow state snapshot for Python signal bridge
+    {
+        let mut fs = state.flow_state.write().await;
+        fs.last_price = classified.price;
+        fs.ticks_processed += 1;
+        if let Some((cvd, d1m, d5m)) = latest_cvd {
+            fs.cvd = cvd;
+            fs.delta_1m = d1m;
+            fs.delta_5m = d5m;
+        }
+        if let Some((buy_vol, sell_vol)) = fp_totals {
+            fs.total_buy_vol = buy_vol;
+            fs.total_sell_vol = sell_vol;
+        }
     }
 }
 
@@ -426,6 +555,30 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Ingest handler — accepts external JSON events from Python for unified broadcast
+// ─────────────────────────────────────────────────────────────────────────────
+
+async fn ingest_handler(
+    State(state): State<Arc<AppState>>,
+    Json(event): Json<serde_json::Value>,
+) -> StatusCode {
+    match serde_json::to_string(&event) {
+        Ok(json) => {
+            let _ = state.external_tx.send(json);
+            StatusCode::OK
+        }
+        Err(_) => StatusCode::BAD_REQUEST,
+    }
+}
+
+async fn flow_state_handler(
+    State(state): State<Arc<AppState>>,
+) -> Json<FlowStateSnapshot> {
+    let snapshot = state.flow_state.read().await.clone();
+    Json(snapshot)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // WebSocket handler — streams FlowEvents to connected agents
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -441,7 +594,8 @@ async fn handle_ws_client(socket: WebSocket, state: Arc<AppState>) {
         futures::stream::SplitSink<WebSocket, Message>,
         futures::stream::SplitStream<WebSocket>,
     ) = socket.split();
-    let mut rx = state.event_tx.subscribe();
+    let mut flow_rx = state.event_tx.subscribe();
+    let mut ext_rx = state.external_tx.subscribe();
 
     {
         let mut stats = state.stats.write().await;
@@ -452,17 +606,21 @@ async fn handle_ws_client(socket: WebSocket, state: Arc<AppState>) {
         state.stats.read().await.ws_clients_connected
     );
 
+    // Listen to both channels: flow events (Rust-computed) + external events (from Python)
+    // Encode all messages as protobuf binary for minimal wire size and off-thread decoding
     let send_task = tokio::spawn(async move {
-        while let Ok(event) = rx.recv().await {
-            match serde_json::to_string(&event) {
-                Ok(json) => {
-                    if sender.send(Message::Text(json)).await.is_err() {
-                        break;
-                    }
+        loop {
+            let bytes: Vec<u8> = tokio::select! {
+                Ok(event) = flow_rx.recv() => {
+                    proto::encode_flow_event(&event)
                 }
-                Err(e) => {
-                    error!("Failed to serialize event: {}", e);
+                Ok(ext_json) = ext_rx.recv() => {
+                    proto::encode_external_json(&ext_json)
                 }
+                else => break,
+            };
+            if sender.send(Message::Binary(bytes.into())).await.is_err() {
+                break;
             }
         }
     });

@@ -39,10 +39,10 @@ const TAG_LABELS = {
 };
 
 export const OptionsFlow: Component = () => {
-  const callPut = () => {
-    const total = optionsFlow.totalCallPremium + optionsFlow.totalPutPremium;
+  const bullPct = () => {
+    const total = optionsFlow.totalBullishPremium + optionsFlow.totalBearishPremium;
     if (total === 0) return 50;
-    return Math.round((optionsFlow.totalCallPremium / total) * 100);
+    return Math.round((optionsFlow.totalBullishPremium / total) * 100);
   };
 
   // Latest VPIN from most recent trade
@@ -69,10 +69,10 @@ export const OptionsFlow: Component = () => {
   };
 
   return (
-    <div class="flex flex-col h-full bg-surface-0">
-      {/* Header with running totals */}
-      <div class="px-4 py-3 bg-surface-1 border-b border-border-default shrink-0">
-        <div class="flex items-center justify-between mb-2">
+    <div class="flex flex-col h-full">
+      {/* Header with running totals — h-[72px] matched with OptionsHeatmap */}
+      <div class="px-4 py-2 h-[72px] border-b border-border-default shrink-0 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
           <span class="font-display text-[13px] font-medium text-text-primary">
             Options Flow
           </span>
@@ -82,39 +82,39 @@ export const OptionsFlow: Component = () => {
                 VPIN {((latestVpin() ?? 0) * 100).toFixed(0)}% {vpinLabel()}
               </span>
             </Show>
-            <span class="font-data text-[10px] text-text-muted">
+            <span class="font-data text-[10px] text-text-secondary">
               {optionsFlow.tradeCount} trades
             </span>
           </div>
         </div>
 
-        {/* Call/Put premium bar */}
-        <div class="flex items-center gap-3 mb-1">
+        {/* Bullish/Bearish premium bar */}
+        <div class="flex items-center gap-3">
           <span class="font-data text-[11px] text-positive w-20">
-            {formatPremium(optionsFlow.totalCallPremium)}
+            {formatPremium(optionsFlow.totalBullishPremium)}
           </span>
           <div class="flex-1 h-2 bg-surface-3 rounded-sm overflow-hidden flex">
             <div
               class="h-full bg-positive/60 transition-all duration-300"
-              style={{ width: `${callPut()}%` }}
+              style={{ width: `${bullPct()}%` }}
             />
             <div
               class="h-full bg-negative/60 transition-all duration-300"
-              style={{ width: `${100 - callPut()}%` }}
+              style={{ width: `${100 - bullPct()}%` }}
             />
           </div>
           <span class="font-data text-[11px] text-negative w-20 text-right">
-            {formatPremium(optionsFlow.totalPutPremium)}
+            {formatPremium(optionsFlow.totalBearishPremium)}
           </span>
         </div>
         <div class="flex items-center justify-between">
-          <span class="font-display text-[9px] text-text-muted">CALLS {callPut()}%</span>
-          <span class="font-display text-[9px] text-text-muted">PUTS {100 - callPut()}%</span>
+          <span class="font-display text-[9px] text-text-secondary">BULL {bullPct()}%</span>
+          <span class="font-display text-[9px] text-text-secondary">BEAR {100 - bullPct()}%</span>
         </div>
       </div>
 
       {/* Column headers */}
-      <div class="flex items-center px-3 py-1.5 text-[8px] font-display text-text-muted tracking-wider border-b border-border-default bg-surface-1/50 shrink-0">
+      <div class="flex items-center px-3 py-1.5 text-[8px] font-display text-text-secondary tracking-wider border-b border-border-default shrink-0">
         <span class="w-14">TIME</span>
         <span class="w-8">SIDE</span>
         <span class="w-7">C/P</span>

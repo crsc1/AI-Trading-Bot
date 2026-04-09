@@ -39,6 +39,8 @@ interface OptionsFlowState {
   trades: OptionTrade[];
   totalCallPremium: number;
   totalPutPremium: number;
+  totalBullishPremium: number;  // call buys + put sells
+  totalBearishPremium: number;  // put buys + call sells
   tradeCount: number;
 }
 
@@ -48,10 +50,26 @@ const [optionsFlow, setOptionsFlow] = createStore<OptionsFlowState>({
   trades: [],
   totalCallPremium: 0,
   totalPutPremium: 0,
+  totalBullishPremium: 0,
+  totalBearishPremium: 0,
   tradeCount: 0,
 });
 
 export { optionsFlow };
+
+export function resetOptionsFlow() {
+  setOptionsFlow({
+    trades: [],
+    totalCallPremium: 0,
+    totalPutPremium: 0,
+    totalBullishPremium: 0,
+    totalBearishPremium: 0,
+    tradeCount: 0,
+  });
+  recentBuffer = [];
+  activeClusters = [];
+  nextClusterId = 1;
+}
 
 // Recent trades buffer for sweep detection (same strike+right within 2 seconds)
 let recentBuffer: { strike: number; right: string; ts: number; size: number; exchanges: Set<string> }[] = [];
@@ -176,10 +194,23 @@ export function addOptionTrade(trade: OptionTrade) {
   } else {
     setOptionsFlow('totalPutPremium', (p) => p + trade.premium);
   }
+
+  // Directional tracking: buying calls / selling puts = bullish, buying puts / selling calls = bearish
+  const isBullish = (trade.right === 'C' && trade.side === 'buy') || (trade.right === 'P' && trade.side === 'sell');
+  const isBearish = (trade.right === 'P' && trade.side === 'buy') || (trade.right === 'C' && trade.side === 'sell');
+  if (isBullish) {
+    setOptionsFlow('totalBullishPremium', (p) => p + trade.premium);
+  } else if (isBearish) {
+    setOptionsFlow('totalBearishPremium', (p) => p + trade.premium);
+  } else {
+    // mid trades split 50/50
+    setOptionsFlow('totalBullishPremium', (p) => p + trade.premium / 2);
+    setOptionsFlow('totalBearishPremium', (p) => p + trade.premium / 2);
+  }
 }
 
 export function clearOptionsFlow() {
-  setOptionsFlow({ trades: [], totalCallPremium: 0, totalPutPremium: 0, tradeCount: 0 });
+  setOptionsFlow({ trades: [], totalCallPremium: 0, totalPutPremium: 0, totalBullishPremium: 0, totalBearishPremium: 0, tradeCount: 0 });
   recentBuffer = [];
   activeClusters = [];
   nextClusterId = 1;
