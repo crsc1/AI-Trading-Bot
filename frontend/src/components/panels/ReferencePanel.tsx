@@ -49,8 +49,13 @@ export const OptionsChainPanel: Component = () => {
   // One-time REST fetch for bid/ask/OI, then WS updates in real-time
   onMount(async () => {
     try {
-      const data = await api.getOptionsChain(market.symbol);
-      loadChainSnapshot(data);
+      // Fetch nearest expiration first
+      const expData = await api.getExpirations(market.symbol);
+      const exps = expData?.response || expData?.expirations || [];
+      if (exps.length > 0) {
+        const data = await api.getOptionsChain(market.symbol, String(exps[0]));
+        loadChainSnapshot(data);
+      }
     } catch {}
     setInitialLoaded(true);
   });
@@ -68,46 +73,60 @@ export const OptionsChainPanel: Component = () => {
 
   return (
     <Panel title="Options Chain" badge="LIVE" badgeColor="positive" loading={!initialLoaded()}>
-      <div class="text-[9px]">
-        <div class="flex items-center px-2 py-1 border-b border-border-default text-text-secondary font-display tracking-wider sticky top-0 bg-surface-1 z-10">
-          <span class="w-10 text-right">IV</span>
-          <span class="w-10 text-right">Delta</span>
-          <span class="w-12 text-right">Last</span>
-          <span class="w-10 text-right">Vol</span>
-          <span class="w-14 text-center font-medium text-text-primary">STRIKE</span>
-          <span class="w-12 text-right">Last</span>
-          <span class="w-10 text-right">Delta</span>
-          <span class="w-10 text-right">IV</span>
-          <span class="w-10 text-right">Vol</span>
-        </div>
+      <table class="w-full table-fixed text-[9px]">
+        <colgroup>
+          <col style="width: 11%" />  {/* IV */}
+          <col style="width: 11%" />  {/* Delta */}
+          <col style="width: 11%" />  {/* Last */}
+          <col style="width: 10%" />  {/* Vol */}
+          <col style="width: 12%" />  {/* STRIKE */}
+          <col style="width: 11%" />  {/* Last */}
+          <col style="width: 11%" />  {/* Delta */}
+          <col style="width: 11%" />  {/* IV */}
+          <col style="width: 10%" />  {/* Vol */}
+        </colgroup>
+        <thead class="sticky top-0 bg-surface-1 z-10">
+          <tr class="text-text-secondary font-display tracking-wider border-b border-border-default">
+            <th class="text-right px-1 py-1.5">IV</th>
+            <th class="text-right px-1 py-1.5">Delta</th>
+            <th class="text-right px-1 py-1.5">Last</th>
+            <th class="text-right px-1 py-1.5">Vol</th>
+            <th class="text-center px-1 py-1.5 text-text-primary font-medium">STRIKE</th>
+            <th class="text-right px-1 py-1.5">Last</th>
+            <th class="text-right px-1 py-1.5">Delta</th>
+            <th class="text-right px-1 py-1.5">IV</th>
+            <th class="text-right px-1 py-1.5">Vol</th>
+          </tr>
+        </thead>
+        <tbody>
+          <For each={visible()}>
+            {([strike, row]) => {
+              const isATM = () => Math.abs(strike - spot()) < 0.5;
+              return (
+                <tr class={`border-b border-border-subtle font-data ${isATM() ? 'bg-accent/8' : ''}`}>
+                  <td class="text-right px-1 py-1 text-text-secondary">{row.call.iv != null ? fmtPct(row.call.iv * 100) : '—'}</td>
+                  <td class="text-right px-1 py-1 text-positive">{row.call.delta != null ? fmtDelta(row.call.delta) : '—'}</td>
+                  <td class="text-right px-1 py-1 text-text-primary">{row.call.last > 0 ? row.call.last.toFixed(2) : '—'}</td>
+                  <td class="text-right px-1 py-1 text-text-secondary">{row.call.volume > 0 ? fmtNum(row.call.volume) : '—'}</td>
 
-        <For each={visible()}>
-          {([strike, row]) => {
-            const isATM = () => Math.abs(strike - spot()) < 0.5;
-            return (
-              <div class={`flex items-center px-2 py-0.5 border-b border-border-subtle font-data ${isATM() ? 'bg-accent/8' : ''}`}>
-                <span class="w-10 text-right text-text-secondary">{row.call.iv != null ? fmtPct(row.call.iv * 100) : '—'}</span>
-                <span class="w-10 text-right text-positive">{row.call.delta != null ? fmtDelta(row.call.delta) : '—'}</span>
-                <span class="w-12 text-right text-text-primary">{row.call.last > 0 ? row.call.last.toFixed(2) : '—'}</span>
-                <span class="w-10 text-right text-text-secondary">{row.call.volume > 0 ? fmtNum(row.call.volume) : '—'}</span>
+                  <td class={`text-center px-1 py-1 font-medium ${isATM() ? 'text-accent' : 'text-text-primary'}`}>
+                    {strike}
+                  </td>
 
-                <span class={`w-14 text-center font-medium ${isATM() ? 'text-accent' : 'text-text-primary'}`}>
-                  {strike}
-                </span>
+                  <td class="text-right px-1 py-1 text-text-primary">{row.put.last > 0 ? row.put.last.toFixed(2) : '—'}</td>
+                  <td class="text-right px-1 py-1 text-negative">{row.put.delta != null ? fmtDelta(row.put.delta) : '—'}</td>
+                  <td class="text-right px-1 py-1 text-text-secondary">{row.put.iv != null ? fmtPct(row.put.iv * 100) : '—'}</td>
+                  <td class="text-right px-1 py-1 text-text-secondary">{row.put.volume > 0 ? fmtNum(row.put.volume) : '—'}</td>
+                </tr>
+              );
+            }}
+          </For>
+        </tbody>
+      </table>
 
-                <span class="w-12 text-right text-text-primary">{row.put.last > 0 ? row.put.last.toFixed(2) : '—'}</span>
-                <span class="w-10 text-right text-negative">{row.put.delta != null ? fmtDelta(row.put.delta) : '—'}</span>
-                <span class="w-10 text-right text-text-secondary">{row.put.iv != null ? fmtPct(row.put.iv * 100) : '—'}</span>
-                <span class="w-10 text-right text-text-secondary">{row.put.volume > 0 ? fmtNum(row.put.volume) : '—'}</span>
-              </div>
-            );
-          }}
-        </For>
-
-        <Show when={visible().length === 0 && initialLoaded()}>
-          <div class="text-center text-text-secondary py-4">No chain data available</div>
-        </Show>
-      </div>
+      <Show when={visible().length === 0 && initialLoaded()}>
+        <div class="text-center text-text-secondary py-4">No chain data available</div>
+      </Show>
     </Panel>
   );
 };
