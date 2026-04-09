@@ -52,9 +52,11 @@ export const ChartLegend: Component<Props> = (props) => {
         continue;
       }
       if (id === 'aavwap') {
-        const data = calcAAVWAP(candles, 10);
-        const val = data.length > 0 ? data[data.length - 1].value.toFixed(2) : '---';
-        result.push({ id, label: 'AAVWAP', color: '#e040fb', value: val });
+        const aa = calcAAVWAP(candles, 1000);
+        const v = aa.vwap.length > 0 ? aa.vwap[aa.vwap.length - 1].value.toFixed(2) : '---';
+        const u3 = aa.upper3.length > 0 ? aa.upper3[aa.upper3.length - 1].value.toFixed(2) : '---';
+        const l3 = aa.lower3.length > 0 ? aa.lower3[aa.lower3.length - 1].value.toFixed(2) : '---';
+        result.push({ id, label: 'AAVWAP', color: '#e040fb', value: `${v} (${l3}..${u3})` });
         continue;
       }
       if (id === 'bollinger-bands') {

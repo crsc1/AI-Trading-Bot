@@ -437,7 +437,16 @@ export const CandleChart: Component = () => {
           plots = [{ data: toLineData(lineData), color: '#ffb300', style: 2, width: 2, label: true }];
         }
       } else if (id === 'aavwap') {
-        plots = [{ data: toLineData(calcAAVWAP(candles, 10)), color: '#e040fb', style: 0, width: 2, label: true }];
+        const aa = calcAAVWAP(candles, 1000);
+        plots = [
+          { data: toLineData(aa.vwap), color: '#e040fb', style: 0, width: 2, label: true },
+          { data: toLineData(aa.upper1), color: '#ce93d8', style: 2, width: 1, label: true },
+          { data: toLineData(aa.lower1), color: '#ce93d8', style: 2, width: 1, label: true },
+          { data: toLineData(aa.upper2), color: '#ab47bc', style: 2, width: 1, label: true },
+          { data: toLineData(aa.lower2), color: '#ab47bc', style: 2, width: 1, label: true },
+          { data: toLineData(aa.upper3), color: '#7b1fa2', style: 3, width: 1, label: true },
+          { data: toLineData(aa.lower3), color: '#7b1fa2', style: 3, width: 1, label: true },
+        ];
       } else if (id === 'bollinger-bands') {
         const bb = calcBB(candles, 20, 2);
         plots = [

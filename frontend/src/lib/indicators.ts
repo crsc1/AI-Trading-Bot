@@ -94,51 +94,89 @@ export function calcStochastic(candles: Candle[], kPeriod = 14, dPeriod = 3): { 
 }
 
 /**
- * Auto-Anchored VWAP (AAVWAP) — VWAP that auto-anchors to the most recent
- * significant pivot point instead of resetting daily.
+ * Auto-Anchored VWAP (AAVWAP) with ±1σ, ±2σ, ±3σ bands.
  *
- * Detects swing highs/lows using a lookback window (default 10 bars each side).
- * When a new pivot is confirmed, VWAP resets and accumulates from that bar forward.
- * This shows where institutional price consensus formed after the last major reversal.
+ * Matches Robinhood Legend config:
+ * - Starting point: Highest High (auto-detected pivot)
+ * - Starting point length: configurable (default 1000 bars lookback for anchor)
+ * - Price: Close (TP = HLC/3)
+ * - Bands: Standard deviation, multipliers 1, 2, 3
+ *
+ * Detects the highest high in the lookback window as the anchor point.
+ * VWAP + bands accumulate from that anchor forward.
+ * Resets at each trading day if anchor is in a previous day.
  */
-export function calcAAVWAP(candles: Candle[], pivotLen = 10): IndicatorData[] {
-  if (candles.length < pivotLen * 2 + 1) return calcVWAP(candles); // fallback to regular VWAP
+export function calcAAVWAP(candles: Candle[], lookback = 1000): {
+  vwap: IndicatorData[];
+  upper1: IndicatorData[];
+  lower1: IndicatorData[];
+  upper2: IndicatorData[];
+  lower2: IndicatorData[];
+  upper3: IndicatorData[];
+  lower3: IndicatorData[];
+} {
+  const empty = { vwap: [] as IndicatorData[], upper1: [] as IndicatorData[], lower1: [] as IndicatorData[], upper2: [] as IndicatorData[], lower2: [] as IndicatorData[], upper3: [] as IndicatorData[], lower3: [] as IndicatorData[] };
+  if (candles.length === 0) return empty;
 
-  // Find all pivot highs and lows
-  const pivots: number[] = []; // indices of pivot bars
-
-  for (let i = pivotLen; i < candles.length - pivotLen; i++) {
-    let isHigh = true;
-    let isLow = true;
-
-    for (let j = 1; j <= pivotLen; j++) {
-      if (candles[i].high <= candles[i - j].high || candles[i].high <= candles[i + j].high) isHigh = false;
-      if (candles[i].low >= candles[i - j].low || candles[i].low >= candles[i + j].low) isLow = false;
-      if (!isHigh && !isLow) break;
+  // Find highest high in lookback window as anchor
+  const start = Math.max(0, candles.length - lookback);
+  let anchorIdx = start;
+  let anchorHigh = candles[start].high;
+  for (let i = start + 1; i < candles.length; i++) {
+    if (candles[i].high > anchorHigh) {
+      anchorHigh = candles[i].high;
+      anchorIdx = i;
     }
-
-    if (isHigh || isLow) pivots.push(i);
   }
 
-  // Use the most recent pivot as anchor point (or bar 0 if none found)
-  const anchor = pivots.length > 0 ? pivots[pivots.length - 1] : 0;
+  const vwap: IndicatorData[] = [];
+  const upper1: IndicatorData[] = [];
+  const lower1: IndicatorData[] = [];
+  const upper2: IndicatorData[] = [];
+  const lower2: IndicatorData[] = [];
+  const upper3: IndicatorData[] = [];
+  const lower3: IndicatorData[] = [];
 
-  // Compute VWAP from anchor forward
   let cumTPV = 0;
   let cumVol = 0;
-  const result: IndicatorData[] = [];
+  let cumTPV2 = 0;
 
-  for (let i = anchor; i < candles.length; i++) {
+  for (let i = anchorIdx; i < candles.length; i++) {
     const bar = candles[i];
+
+    if (bar.volume <= 0) {
+      if (vwap.length > 0) {
+        const last = vwap.length - 1;
+        vwap.push({ time: bar.time, value: vwap[last].value });
+        upper1.push({ time: bar.time, value: upper1[last].value });
+        lower1.push({ time: bar.time, value: lower1[last].value });
+        upper2.push({ time: bar.time, value: upper2[last].value });
+        lower2.push({ time: bar.time, value: lower2[last].value });
+        upper3.push({ time: bar.time, value: upper3[last].value });
+        lower3.push({ time: bar.time, value: lower3[last].value });
+      }
+      continue;
+    }
+
     const tp = (bar.high + bar.low + bar.close) / 3;
     cumTPV += tp * bar.volume;
+    cumTPV2 += tp * tp * bar.volume;
     cumVol += bar.volume;
-    if (cumVol > 0) {
-      result.push({ time: bar.time, value: cumTPV / cumVol });
-    }
+
+    const v = cumTPV / cumVol;
+    const variance = (cumTPV2 / cumVol) - (v * v);
+    const sd = Math.sqrt(Math.max(0, variance));
+
+    vwap.push({ time: bar.time, value: v });
+    upper1.push({ time: bar.time, value: v + sd });
+    lower1.push({ time: bar.time, value: v - sd });
+    upper2.push({ time: bar.time, value: v + 2 * sd });
+    lower2.push({ time: bar.time, value: v - 2 * sd });
+    upper3.push({ time: bar.time, value: v + 3 * sd });
+    lower3.push({ time: bar.time, value: v - 3 * sd });
   }
 
-  return result;
+  return { vwap, upper1, lower1, upper2, lower2, upper3, lower3 };
 }
 
 /**
