@@ -5,6 +5,8 @@ import { findIndicator } from '../../lib/indicatorRegistry';
 import { calcVWAP, calcVWAPBands, calcPrevDayVWAP, calcBB, calcAAVWAP, calcBB_RH, calcAlligator_RH, calcFOSC_RH, calcHV_RH, calcIV, calcVolumeProfile, calcSessionVolumeProfile } from '../../lib/indicators';
 import { optionsFlow } from '../../signals/optionsFlow';
 import { getIndicatorColor } from './ChartControls';
+import { getConfigForIndicator } from '../../signals/indicatorSettings';
+import { IndicatorSettingsPanel } from './IndicatorSettingsPanel';
 
 interface LegendEntry {
   id: string;
@@ -145,24 +147,47 @@ export const ChartLegend: Component<Props> = (props) => {
 
   onCleanup(() => clearInterval(timer));
 
+  const [settingsOpen, setSettingsOpen] = createSignal<string | null>(null);
+
   return (
     <Show when={entries().length > 0}>
       <div class="absolute top-2 left-3 z-10 flex flex-col gap-0.5" style={{ "pointer-events": "auto" }}>
         <For each={entries()}>
           {(entry) => (
-            <div class="group flex items-center gap-2 px-2 py-0.5 rounded bg-surface-0/80 backdrop-blur-sm hover:bg-surface-1/90 transition-colors">
+            <div class="group relative flex items-center gap-2 px-2 py-0.5 rounded bg-surface-0/80 backdrop-blur-sm hover:bg-surface-1/90 transition-colors">
               <span
                 class="w-1.5 h-1.5 rounded-full shrink-0"
                 style={{ background: entry.color }}
               />
               <span class="font-display text-[10px] text-text-secondary">{entry.label}</span>
               <span class="font-data text-[10px] text-text-primary tabular-nums">{entry.value}</span>
+              <Show when={getConfigForIndicator(entry.id)}>
+                <button
+                  class="text-text-muted hover:text-accent text-[10px] opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setSettingsOpen(settingsOpen() === entry.id ? null : entry.id); }}
+                  title="Settings"
+                >
+                  ⚙
+                </button>
+              </Show>
               <button
-                class="text-text-muted hover:text-negative text-[10px] opacity-0 group-hover:opacity-100 transition-opacity ml-1"
+                class="text-text-muted hover:text-negative text-[10px] opacity-0 group-hover:opacity-100 transition-opacity ml-0.5 cursor-pointer"
                 onClick={() => props.onRemove(entry.id)}
               >
                 &#215;
               </button>
+
+              <Show when={settingsOpen() === entry.id}>
+                <IndicatorSettingsPanel
+                  indicatorId={entry.id}
+                  onClose={() => setSettingsOpen(null)}
+                  onApply={() => {
+                    // Trigger indicator rebuild by toggling activeIds
+                    // The parent CandleChart watches activeIds changes
+                    setSettingsOpen(null);
+                  }}
+                />
+              </Show>
             </div>
           )}
         </For>

@@ -20,6 +20,7 @@ import type { Candle } from '../../types/market';
 import { ChartControls, getIndicatorColor } from './ChartControls';
 import { ChartLegend } from './ChartLegend';
 import { findIndicator } from '../../lib/indicatorRegistry';
+import { getIndicatorParams } from '../../signals/indicatorSettings';
 
 // ET session boundaries in seconds from midnight UTC
 // Market open: 9:30 AM ET = 13:30 UTC (EST+5) or 13:30 UTC (EDT+4)
@@ -437,7 +438,12 @@ export const CandleChart: Component = () => {
           plots = [{ data: toLineData(lineData), color: '#ffb300', style: 2, width: 2, label: true }];
         }
       } else if (id === 'aavwap') {
-        const aa = calcAAVWAP(candles, 1000);
+        const params = getIndicatorParams('aavwap');
+        const lookback = params.lookback ?? 1000;
+        const m1 = params.band1Mult ?? 1;
+        const m2 = params.band2Mult ?? 2;
+        const m3 = params.band3Mult ?? 3;
+        const aa = calcAAVWAP(candles, lookback, m1, m2, m3);
         plots = [
           { data: toLineData(aa.vwap), color: '#e040fb', style: 0, width: 2, label: true },
           { data: toLineData(aa.upper1), color: '#ce93d8', style: 2, width: 1, label: true },

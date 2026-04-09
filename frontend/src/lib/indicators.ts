@@ -106,7 +106,7 @@ export function calcStochastic(candles: Candle[], kPeriod = 14, dPeriod = 3): { 
  * VWAP + bands accumulate from that anchor forward.
  * Resets at each trading day if anchor is in a previous day.
  */
-export function calcAAVWAP(candles: Candle[], lookback = 1000): {
+export function calcAAVWAP(candles: Candle[], lookback = 1000, mult1 = 1, mult2 = 2, mult3 = 3): {
   vwap: IndicatorData[];
   upper1: IndicatorData[];
   lower1: IndicatorData[];
@@ -168,12 +168,12 @@ export function calcAAVWAP(candles: Candle[], lookback = 1000): {
     const sd = Math.sqrt(Math.max(0, variance));
 
     vwap.push({ time: bar.time, value: v });
-    upper1.push({ time: bar.time, value: v + sd });
-    lower1.push({ time: bar.time, value: v - sd });
-    upper2.push({ time: bar.time, value: v + 2 * sd });
-    lower2.push({ time: bar.time, value: v - 2 * sd });
-    upper3.push({ time: bar.time, value: v + 3 * sd });
-    lower3.push({ time: bar.time, value: v - 3 * sd });
+    upper1.push({ time: bar.time, value: v + mult1 * sd });
+    lower1.push({ time: bar.time, value: v - mult1 * sd });
+    upper2.push({ time: bar.time, value: v + mult2 * sd });
+    lower2.push({ time: bar.time, value: v - mult2 * sd });
+    upper3.push({ time: bar.time, value: v + mult3 * sd });
+    lower3.push({ time: bar.time, value: v - mult3 * sd });
   }
 
   return { vwap, upper1, lower1, upper2, lower2, upper3, lower3 };
