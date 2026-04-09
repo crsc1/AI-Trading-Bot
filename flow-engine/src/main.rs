@@ -100,6 +100,13 @@ async fn main() {
         .json()
         .init();
 
+    // Install the rustls crypto provider before any TLS connections.
+    // Required because both tokio-tungstenite (Alpaca WS) and wtransport (QUIC)
+    // depend on rustls but neither auto-installs a provider.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     info!("Starting Flow Engine v0.2.0");
 
     dotenvy::dotenv().ok();
