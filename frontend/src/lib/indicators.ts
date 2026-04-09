@@ -1022,29 +1022,57 @@ export function calcIV(candles: Candle[], trades: { timestamp: number; iv: numbe
 /**
  * Calculate VWAP from candle data.
  */
+/**
+ * Get the ET trading date string for a unix timestamp.
+ * Used to detect session boundaries for daily VWAP reset.
+ */
+function _getETDate(unixSec: number): string {
+  return new Date(unixSec * 1000).toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+}
+
+/**
+ * VWAP — resets at each trading day's open.
+ * Skips bars with 0 volume (pre-market/post-market with no trades).
+ */
 export function calcVWAP(candles: Candle[]): IndicatorData[] {
   if (candles.length === 0) return [];
 
   let cumTPV = 0;
   let cumVol = 0;
+  let currentDate = '';
   const result: IndicatorData[] = [];
 
   for (const bar of candles) {
+    // Reset at session boundary (new trading day)
+    const barDate = _getETDate(bar.time);
+    if (barDate !== currentDate) {
+      cumTPV = 0;
+      cumVol = 0;
+      currentDate = barDate;
+    }
+
+    // Skip zero-volume bars (no trades = no VWAP contribution)
+    if (bar.volume <= 0) {
+      if (result.length > 0) {
+        // Carry forward last value for continuity
+        result.push({ time: bar.time, value: result[result.length - 1].value });
+      }
+      continue;
+    }
+
     const tp = (bar.high + bar.low + bar.close) / 3;
     cumTPV += tp * bar.volume;
     cumVol += bar.volume;
-    if (cumVol > 0) {
-      result.push({ time: bar.time, value: cumTPV / cumVol });
-    }
+    result.push({ time: bar.time, value: cumTPV / cumVol });
   }
 
   return result;
 }
 
 /**
- * Calculate VWAP with standard deviation bands (±1σ, ±2σ).
- * Variance = cumulative(volume × (price - VWAP)²) / cumulative(volume)
- * Band = VWAP ± multiplier × √variance
+ * VWAP with 3 standard deviation bands (±1σ, ±2σ, ±3σ).
+ * Resets at each trading day's open. Matches Robinhood Legend config:
+ * Band 1 = ±1σ, Band 2 = ±2σ, Band 3 = ±3σ.
  */
 export function calcVWAPBands(candles: Candle[]): {
   vwap: IndicatorData[];
@@ -1052,39 +1080,68 @@ export function calcVWAPBands(candles: Candle[]): {
   lower1: IndicatorData[];
   upper2: IndicatorData[];
   lower2: IndicatorData[];
+  upper3: IndicatorData[];
+  lower3: IndicatorData[];
 } {
   const vwap: IndicatorData[] = [];
   const upper1: IndicatorData[] = [];
   const lower1: IndicatorData[] = [];
   const upper2: IndicatorData[] = [];
   const lower2: IndicatorData[] = [];
+  const upper3: IndicatorData[] = [];
+  const lower3: IndicatorData[] = [];
 
-  if (candles.length === 0) return { vwap, upper1, lower1, upper2, lower2 };
+  if (candles.length === 0) return { vwap, upper1, lower1, upper2, lower2, upper3, lower3 };
 
   let cumTPV = 0;
   let cumVol = 0;
-  let cumTPV2 = 0; // cumulative(volume × tp²) for variance
+  let cumTPV2 = 0;
+  let currentDate = '';
 
   for (const bar of candles) {
+    // Reset at session boundary
+    const barDate = _getETDate(bar.time);
+    if (barDate !== currentDate) {
+      cumTPV = 0;
+      cumVol = 0;
+      cumTPV2 = 0;
+      currentDate = barDate;
+    }
+
+    if (bar.volume <= 0) {
+      // Carry forward for continuity
+      if (vwap.length > 0) {
+        const last = vwap.length - 1;
+        vwap.push({ time: bar.time, value: vwap[last].value });
+        upper1.push({ time: bar.time, value: upper1[last].value });
+        lower1.push({ time: bar.time, value: lower1[last].value });
+        upper2.push({ time: bar.time, value: upper2[last].value });
+        lower2.push({ time: bar.time, value: lower2[last].value });
+        upper3.push({ time: bar.time, value: upper3[last].value });
+        lower3.push({ time: bar.time, value: lower3[last].value });
+      }
+      continue;
+    }
+
     const tp = (bar.high + bar.low + bar.close) / 3;
     cumTPV += tp * bar.volume;
     cumTPV2 += tp * tp * bar.volume;
     cumVol += bar.volume;
 
-    if (cumVol > 0) {
-      const v = cumTPV / cumVol;
-      const variance = (cumTPV2 / cumVol) - (v * v);
-      const sd = Math.sqrt(Math.max(0, variance));
+    const v = cumTPV / cumVol;
+    const variance = (cumTPV2 / cumVol) - (v * v);
+    const sd = Math.sqrt(Math.max(0, variance));
 
-      vwap.push({ time: bar.time, value: v });
-      upper1.push({ time: bar.time, value: v + sd });
-      lower1.push({ time: bar.time, value: v - sd });
-      upper2.push({ time: bar.time, value: v + 2 * sd });
-      lower2.push({ time: bar.time, value: v - 2 * sd });
-    }
+    vwap.push({ time: bar.time, value: v });
+    upper1.push({ time: bar.time, value: v + sd });
+    lower1.push({ time: bar.time, value: v - sd });
+    upper2.push({ time: bar.time, value: v + 2 * sd });
+    lower2.push({ time: bar.time, value: v - 2 * sd });
+    upper3.push({ time: bar.time, value: v + 3 * sd });
+    lower3.push({ time: bar.time, value: v - 3 * sd });
   }
 
-  return { vwap, upper1, lower1, upper2, lower2 };
+  return { vwap, upper1, lower1, upper2, lower2, upper3, lower3 };
 }
 
 /**

@@ -41,9 +41,9 @@ export const ChartLegend: Component<Props> = (props) => {
         const v = vb.vwap.length > 0 ? vb.vwap[vb.vwap.length - 1].value.toFixed(2) : '---';
         const u1 = vb.upper1.length > 0 ? vb.upper1[vb.upper1.length - 1].value.toFixed(2) : '---';
         const l1 = vb.lower1.length > 0 ? vb.lower1[vb.lower1.length - 1].value.toFixed(2) : '---';
-        const u2 = vb.upper2.length > 0 ? vb.upper2[vb.upper2.length - 1].value.toFixed(2) : '---';
-        const l2 = vb.lower2.length > 0 ? vb.lower2[vb.lower2.length - 1].value.toFixed(2) : '---';
-        result.push({ id, label: 'VWAP Bands', color: '#00e5ff', value: `${v} (${l2}..${l1}|${u1}..${u2})` });
+        const u3 = vb.upper3.length > 0 ? vb.upper3[vb.upper3.length - 1].value.toFixed(2) : '---';
+        const l3 = vb.lower3.length > 0 ? vb.lower3[vb.lower3.length - 1].value.toFixed(2) : '---';
+        result.push({ id, label: 'VWAP Bands', color: '#00e5ff', value: `${v} (${l3}..${l1}|${u1}..${u3})` });
         continue;
       }
       if (id === 'prev-day-vwap') {

@@ -423,8 +423,10 @@ export const CandleChart: Component = () => {
           { data: toLineData(vb.vwap), color: '#00e5ff', style: 0, width: 2, label: true },
           { data: toLineData(vb.upper1), color: '#42a5f5', style: 2, width: 1, label: true },
           { data: toLineData(vb.lower1), color: '#42a5f5', style: 2, width: 1, label: true },
-          { data: toLineData(vb.upper2), color: '#7e57c2', style: 3, width: 1, label: true },
-          { data: toLineData(vb.lower2), color: '#7e57c2', style: 3, width: 1, label: true },
+          { data: toLineData(vb.upper2), color: '#7e57c2', style: 2, width: 1, label: true },
+          { data: toLineData(vb.lower2), color: '#7e57c2', style: 2, width: 1, label: true },
+          { data: toLineData(vb.upper3), color: '#ff7043', style: 3, width: 1, label: true },
+          { data: toLineData(vb.lower3), color: '#ff7043', style: 3, width: 1, label: true },
         ];
       } else if (id === 'prev-day-vwap') {
         const pv = calcPrevDayVWAP(candles);
