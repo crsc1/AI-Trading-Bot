@@ -96,6 +96,22 @@ function timeout(ms: number): Promise<never> {
 }
 
 /**
+ * Fetch the self-signed cert hash from the Rust engine.
+ * Required for WebTransport with self-signed certs in dev.
+ */
+async function fetchCertHash(host: string, wsPort: number): Promise<ArrayBuffer | null> {
+  try {
+    const resp = await fetch(`http://${host}:${wsPort}/cert-hash`);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (data.value && Array.isArray(data.value)) {
+      return new Uint8Array(data.value).buffer;
+    }
+  } catch {}
+  return null;
+}
+
+/**
  * Create the best available transport connection.
  * Tries WebTransport first (QUIC, no HoL blocking), falls back to WebSocket.
  */
@@ -107,12 +123,21 @@ export async function createTransport(
   // Try WebTransport first (Chrome 114+, Firefox partial)
   if (typeof WebTransport !== 'undefined') {
     try {
+      // Fetch self-signed cert hash from Rust engine for dev mode
+      const certHash = await fetchCertHash(host, wsPort);
+
       const url = `https://${host}:${wtPort}`;
-      const wt = new WebTransport(url, {
-        // For self-signed certs in dev, the browser needs the cert hash.
-        // In production, use a real cert and remove this.
-        // serverCertificateHashes: [{ algorithm: 'sha-256', value: certHash }],
-      });
+      const options: any = {};
+
+      if (certHash) {
+        options.serverCertificateHashes = [{
+          algorithm: 'sha-256',
+          value: certHash,
+        }];
+        console.log('[Transport] Using self-signed cert hash for WebTransport');
+      }
+
+      const wt = new WebTransport(url, options);
 
       // Race: connect within 3 seconds or fall through
       await Promise.race([wt.ready, timeout(3000)]);

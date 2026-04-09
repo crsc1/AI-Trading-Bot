@@ -1,10 +1,11 @@
 /**
- * Data layer — single WebSocket (protobuf binary) to Rust engine + REST to Python.
+ * Data layer — dual-transport (WebTransport + WebSocket fallback) to Rust engine + REST to Python.
  *
  * Architecture:
- *   Rust engine (port 8081) = unified WS broadcaster, protobuf binary frames
- *     - Flow events (tick, cvd, footprint, sweep, etc.) encoded natively by Rust
- *     - Python events (theta_trade, quote, bar) forwarded via /ingest, wrapped in ExternalJson
+ *   Rust engine = unified broadcaster
+ *     - WebTransport (QUIC datagrams, port 4433) for Chrome/Firefox — no HoL blocking
+ *     - WebSocket (TCP, port 8081) for Safari fallback
+ *     - Both send protobuf binary OR JSON text (auto-detected)
  *   Web Worker decodes protobuf off main thread via Comlink
  *   RAF gating: messages buffered, decoded in batch, applied at screen refresh rate
  *   Python backend (port 8000) = REST-only for AI, signals, positions, candles
@@ -12,6 +13,7 @@
  * Call `initDataLayer()` once on app mount.
  */
 import { WSClient } from './ws';
+import { createTransport, type TransportClient } from './transport';
 import { api } from './api';
 import * as Comlink from 'comlink';
 import { getProtoWorker } from '../workers/protobuf.api';
@@ -49,6 +51,7 @@ function getTodayETMidnightMs(): number {
 }
 
 let ws: WSClient | null = null;
+let transport: TransportClient | null = null;
 let _barPollInterval: ReturnType<typeof setInterval> | null = null;
 
 // RAF-gated message buffer: accumulate binary frames, decode in batch at refresh rate
@@ -230,72 +233,86 @@ function handleDecodedMessage(data: any) {
 
 // ── Data layer init/destroy ─────────────────────────────────────────────────
 
+/** Process a raw message (ArrayBuffer or string) from any transport */
+function handleRawMessage(raw: any, protoWorker: any) {
+  if (raw instanceof ArrayBuffer) {
+    const view = new Uint8Array(raw);
+    if (view.length === 0) return;
+
+    if (view[0] === 0x7B) {
+      // JSON text encoded as ArrayBuffer
+      try {
+        const text = new TextDecoder().decode(view);
+        if (text.indexOf('"theta_quote"') >= 0 && text.indexOf('"theta_quote"') < 20) return;
+        const data = JSON.parse(text);
+        handleDecodedMessage(data);
+      } catch {}
+    } else {
+      // Protobuf binary
+      msgBuffer.push(raw);
+      if (!protoBatchPending) {
+        protoBatchPending = true;
+        requestAnimationFrame(async () => {
+          protoBatchPending = false;
+          const batch = msgBuffer;
+          msgBuffer = [];
+          if (batch.length === 0) return;
+          try {
+            const decoded = await protoWorker.decodeBatch(
+              Comlink.transfer(batch, batch)
+            );
+            for (const msg of decoded) {
+              handleDecodedMessage(msg);
+            }
+          } catch (e) {
+            console.warn('[Data] Proto decode error:', e);
+          }
+        });
+      }
+    }
+  } else if (typeof raw === 'string') {
+    try {
+      if (raw.indexOf('"theta_quote"') >= 0 && raw.indexOf('"theta_quote"') < 20) return;
+      const data = JSON.parse(raw);
+      handleDecodedMessage(data);
+    } catch {}
+  }
+}
+
 export function initDataLayer() {
-  if (ws) return;
+  if (ws || transport) return;
 
   const protoWorker = getProtoWorker();
   const wsHost = window.location.hostname || 'localhost';
 
+  // Try WebTransport first, fall back to WebSocket
+  createTransport(wsHost, 4433, 8081).then((t) => {
+    transport = t;
+    console.log(`[Data] Connected via ${t.transport}`);
+    t.onMessage((buffer: ArrayBuffer) => handleRawMessage(buffer, protoWorker));
+    setConnected(true);
+    loadQuote();
+  }).catch(() => {
+    console.warn('[Data] Transport failed, using WSClient fallback');
+  });
+
+  // WebSocket as immediate connection (WebTransport is async, may take 3s to fail)
   ws = new WSClient({
     name: 'Engine',
     url: `ws://${wsHost}:8081/ws`,
     encoding: 'auto',
     onMessage: (raw: any) => {
-      // With binaryType='arraybuffer', ALL frames arrive as ArrayBuffer —
-      // even JSON text frames. Detect format by peeking at first byte:
-      // JSON starts with '{' (0x7B), protobuf never starts with 0x7B.
-      if (raw instanceof ArrayBuffer) {
-        const view = new Uint8Array(raw);
-        if (view.length === 0) return;
-
-        if (view[0] === 0x7B) {
-          // JSON text encoded as ArrayBuffer — decode to string and parse
-          try {
-            const text = new TextDecoder().decode(view);
-            // Skip theta_quote spam
-            if (text.indexOf('"theta_quote"') >= 0 && text.indexOf('"theta_quote"') < 20) return;
-            const data = JSON.parse(text);
-            handleDecodedMessage(data);
-          } catch {}
-        } else {
-          // Protobuf binary — accumulate for batch decode via worker
-          msgBuffer.push(raw);
-
-          if (!protoBatchPending) {
-            protoBatchPending = true;
-            requestAnimationFrame(async () => {
-              protoBatchPending = false;
-              const batch = msgBuffer;
-              msgBuffer = [];
-              if (batch.length === 0) return;
-
-              try {
-                const decoded = await protoWorker.decodeBatch(
-                  Comlink.transfer(batch, batch)
-                );
-                for (const msg of decoded) {
-                  handleDecodedMessage(msg);
-                }
-              } catch (e) {
-                console.warn('[Data] Proto decode error:', e);
-              }
-            });
-          }
-        }
-      } else if (typeof raw === 'string') {
-        // Plain text frame (when binaryType is not set)
-        try {
-          if (raw.indexOf('"theta_quote"') >= 0 && raw.indexOf('"theta_quote"') < 20) return;
-          const data = JSON.parse(raw);
-          handleDecodedMessage(data);
-        } catch {}
-      }
+      // If WebTransport connected, stop processing WS messages (avoid duplicates)
+      if (transport?.connected) return;
+      handleRawMessage(raw, protoWorker);
     },
     onConnect: () => {
-      setConnected(true);
+      if (!transport?.connected) setConnected(true);
       loadQuote();
     },
-    onDisconnect: () => setConnected(false),
+    onDisconnect: () => {
+      if (!transport?.connected) setConnected(false);
+    },
   });
 
   ws.connect();
@@ -336,8 +353,10 @@ export function initDataLayer() {
 }
 
 export function destroyDataLayer() {
+  transport?.close();
   ws?.destroy();
   if (_barPollInterval) clearInterval(_barPollInterval);
+  transport = null;
   ws = null;
   _barPollInterval = null;
   msgBuffer = [];

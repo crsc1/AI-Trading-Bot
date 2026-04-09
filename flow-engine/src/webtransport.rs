@@ -7,12 +7,32 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 use tracing::{error, info, warn};
 use wtransport::{Endpoint, Identity, ServerConfig};
 
 use crate::events::FlowEvent;
 use crate::proto;
+
+fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::new();
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[(n >> 18 & 0x3F) as usize] as char);
+        result.push(CHARS[(n >> 12 & 0x3F) as usize] as char);
+        if chunk.len() > 1 { result.push(CHARS[(n >> 6 & 0x3F) as usize] as char); } else { result.push('='); }
+        if chunk.len() > 2 { result.push(CHARS[(n & 0x3F) as usize] as char); } else { result.push('='); }
+    }
+    result
+}
+
+/// Shared cert hash for the /cert-hash endpoint.
+/// Set once at WebTransport server startup.
+pub static CERT_HASH: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
 
 /// Start the WebTransport server.
 pub async fn serve(
@@ -27,6 +47,17 @@ pub async fn serve(
             return;
         }
     };
+
+    // Extract and store the cert SHA-256 hash for browser serverCertificateHashes
+    let certs = identity.certificate_chain();
+    if let Some(cert) = certs.as_slice().first() {
+        let hash = cert.hash();
+        let hash_bytes = hash.as_ref().to_vec();
+        let hex = hash_bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        info!("WebTransport cert SHA-256: {hex}");
+        info!("WebTransport cert hash (base64): {}", base64_encode(&hash_bytes));
+        let _ = CERT_HASH.set(hash_bytes);
+    }
 
     info!("WebTransport server starting on port {port}");
 

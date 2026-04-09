@@ -234,6 +234,7 @@ async fn main() {
         .route("/stats", get(stats_handler))
         .route("/ingest", post(ingest_handler))
         .route("/flow-state", get(flow_state_handler))
+        .route("/cert-hash", get(cert_hash_handler))
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
         .with_state(state);
 
@@ -575,6 +576,16 @@ async fn ingest_handler(
             StatusCode::OK
         }
         Err(_) => StatusCode::BAD_REQUEST,
+    }
+}
+
+async fn cert_hash_handler() -> Json<serde_json::Value> {
+    match webtransport::CERT_HASH.get() {
+        Some(hash) => Json(serde_json::json!({
+            "algorithm": "sha-256",
+            "value": hash,
+        })),
+        None => Json(serde_json::json!({ "error": "no cert hash available" })),
     }
 }
 
