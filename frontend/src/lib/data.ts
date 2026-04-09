@@ -54,6 +54,29 @@ let _barPollInterval: ReturnType<typeof setInterval> | null = null;
 // RAF-gated message buffer: accumulate binary frames, decode in batch at refresh rate
 let msgBuffer: ArrayBuffer[] = [];
 let rafPending = false;
+let protoBatchPending = false;
+
+// 60fps tick throttler — batches high-frequency ticks, applies latest price per frame
+let lastTickRaf = 0;
+let pendingTick: Tick | null = null;
+function throttledTick(tick: Tick) {
+  pendingTick = tick;
+  const now = performance.now();
+  if (now - lastTickRaf > 16) {
+    lastTickRaf = now;
+    updateFromTick(pendingTick);
+    pendingTick = null;
+  } else if (!rafPending) {
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      if (pendingTick) {
+        updateFromTick(pendingTick);
+        pendingTick = null;
+      }
+    });
+  }
+}
 
 /**
  * Load historical candle data from REST API (Python backend).
@@ -122,7 +145,8 @@ function handleDecodedMessage(data: any) {
     case 'Tick':
     case 'trade': {
       if (data.symbol && data.symbol !== market.symbol) break;
-      updateFromTick({
+      // Throttle ticks to 60fps — high-frequency data would freeze the chart otherwise
+      throttledTick({
         price: data.price ?? data.p,
         size: data.size ?? data.s ?? 0,
         side: data.side ?? 'unknown',
@@ -215,44 +239,56 @@ export function initDataLayer() {
   ws = new WSClient({
     name: 'Engine',
     url: `ws://${wsHost}:8081/ws`,
-    encoding: 'auto',  // Auto-detect: binary → protobuf worker, text → JSON parse
+    encoding: 'auto',
     onMessage: (raw: any) => {
-      // Auto-detect: binary frames use protobuf worker, text frames use JSON
+      // With binaryType='arraybuffer', ALL frames arrive as ArrayBuffer —
+      // even JSON text frames. Detect format by peeking at first byte:
+      // JSON starts with '{' (0x7B), protobuf never starts with 0x7B.
       if (raw instanceof ArrayBuffer) {
-        // Binary frame → accumulate for protobuf batch decode
-        msgBuffer.push(raw);
+        const view = new Uint8Array(raw);
+        if (view.length === 0) return;
 
-        if (!rafPending) {
-          rafPending = true;
-          requestAnimationFrame(async () => {
-            rafPending = false;
-            const batch = msgBuffer;
-            msgBuffer = [];
-            if (batch.length === 0) return;
+        if (view[0] === 0x7B) {
+          // JSON text encoded as ArrayBuffer — decode to string and parse
+          try {
+            const text = new TextDecoder().decode(view);
+            // Skip theta_quote spam
+            if (text.indexOf('"theta_quote"') >= 0 && text.indexOf('"theta_quote"') < 20) return;
+            const data = JSON.parse(text);
+            handleDecodedMessage(data);
+          } catch {}
+        } else {
+          // Protobuf binary — accumulate for batch decode via worker
+          msgBuffer.push(raw);
 
-            try {
-              const decoded = await protoWorker.decodeBatch(
-                Comlink.transfer(batch, batch)
-              );
-              for (const msg of decoded) {
-                handleDecodedMessage(msg);
+          if (!protoBatchPending) {
+            protoBatchPending = true;
+            requestAnimationFrame(async () => {
+              protoBatchPending = false;
+              const batch = msgBuffer;
+              msgBuffer = [];
+              if (batch.length === 0) return;
+
+              try {
+                const decoded = await protoWorker.decodeBatch(
+                  Comlink.transfer(batch, batch)
+                );
+                for (const msg of decoded) {
+                  handleDecodedMessage(msg);
+                }
+              } catch (e) {
+                console.warn('[Data] Proto decode error:', e);
               }
-            } catch (e) {
-              console.warn('[Data] Proto decode error:', e);
-            }
-          });
+            });
+          }
         }
       } else if (typeof raw === 'string') {
-        // Text frame → JSON parse directly (legacy/fallback path)
+        // Plain text frame (when binaryType is not set)
         try {
-          // Skip theta_quote spam
           if (raw.indexOf('"theta_quote"') >= 0 && raw.indexOf('"theta_quote"') < 20) return;
           const data = JSON.parse(raw);
           handleDecodedMessage(data);
         } catch {}
-      } else if (typeof raw === 'object') {
-        // Already parsed object
-        handleDecodedMessage(raw);
       }
     },
     onConnect: () => {
