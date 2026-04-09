@@ -90,10 +90,10 @@ export const Scanner: Component = () => {
         <div class="flex items-center gap-3">
           <span class="font-display text-[13px] font-medium">Options Flow Scanner</span>
           <Show when={stats()}>
-            <span class="font-data text-[11px] text-text-muted">
+            <span class="font-data text-[11px] text-text-secondary">
               {stats()?.subscribed_symbols?.length || 0} symbols
             </span>
-            <span class="font-data text-[11px] text-text-muted">
+            <span class="font-data text-[11px] text-text-secondary">
               {stats()?.total_alerts || 0} alerts
             </span>
           </Show>
@@ -132,20 +132,32 @@ export const Scanner: Component = () => {
           </div>
         </Show>
 
-        <table class="w-full">
+        <table class="w-full table-fixed">
           <Show when={alerts().length > 0}>
+            <colgroup>
+              <col style="width: 5%" />   {/* SCORE */}
+              <col style="width: 7%" />   {/* TIME */}
+              <col style="width: 7%" />   {/* TYPE */}
+              <col style="width: 7%" />   {/* DIR */}
+              <col style="width: 6%" />   {/* SYMBOL */}
+              <col style="width: 12%" />  {/* CONTRACT */}
+              <col style="width: 7%" />   {/* SIZE */}
+              <col style="width: 8%" />   {/* PREMIUM */}
+              <col style="width: 6%" />   {/* FILLS */}
+              <col style="width: 35%" />  {/* DETAIL */}
+            </colgroup>
             <thead class="sticky top-0 bg-surface-1 z-10">
-              <tr class="text-[11px] font-display text-text-muted border-b border-border-default">
-                <th class="text-center px-2 py-2 w-10">SCORE</th>
-                <th class="text-left px-2 py-2 w-16">TIME</th>
-                <th class="text-left px-2 py-2 w-14">TYPE</th>
-                <th class="text-left px-2 py-2 w-12">DIR</th>
-                <th class="text-left px-2 py-2 w-14">SYMBOL</th>
-                <th class="text-left px-2 py-2 w-20">CONTRACT</th>
-                <th class="text-right px-2 py-2 w-12">SIZE</th>
-                <th class="text-right px-2 py-2 w-16">PREMIUM</th>
-                <th class="text-right px-2 py-2 w-10">FILLS</th>
-                <th class="text-left px-3 py-2">DETAIL</th>
+              <tr class="text-[11px] font-display text-text-secondary tracking-wider border-b border-border-default">
+                <th class="text-center px-3 py-2">SCORE</th>
+                <th class="text-left px-3 py-2">TIME</th>
+                <th class="text-left px-3 py-2">TYPE</th>
+                <th class="text-left px-3 py-2">DIR</th>
+                <th class="text-left px-3 py-2">SYMBOL</th>
+                <th class="text-left px-3 py-2">CONTRACT</th>
+                <th class="text-right px-3 py-2">SIZE</th>
+                <th class="text-right px-3 py-2">PREMIUM</th>
+                <th class="text-right px-3 py-2">FILLS</th>
+                <th class="text-left px-4 py-2">DETAIL</th>
               </tr>
             </thead>
           </Show>
@@ -157,8 +169,8 @@ export const Scanner: Component = () => {
                   alert.score >= 50 ? 'bg-warning/5' :
                   alert.alert_type === 'sweep' ? 'bg-purple/5' : ''
                 }`}>
-                  <td class="px-2 py-2 text-center">
-                    <span class={`font-data text-[11px] font-bold ${
+                  <td class="px-3 py-2.5 text-center">
+                    <span class={`font-data text-[12px] font-bold ${
                       alert.score >= 70 ? 'text-positive' :
                       alert.score >= 50 ? 'text-warning' :
                       alert.score >= 30 ? 'text-accent' : 'text-text-muted'
@@ -166,17 +178,17 @@ export const Scanner: Component = () => {
                       {alert.score}
                     </span>
                   </td>
-                  <td class="px-2 py-2 font-data text-[12px] text-accent">
+                  <td class="px-3 py-2.5 font-data text-[12px] text-accent">
                     {formatTime(alert.timestamp)}
                   </td>
-                  <td class="px-2 py-2">
-                    <span class={`font-data text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                  <td class="px-3 py-2.5">
+                    <span class={`font-data text-[10px] px-2 py-0.5 rounded font-medium ${
                       typeColors[alert.alert_type] || 'bg-surface-3 text-text-muted'
                     }`}>
                       {typeLabels[alert.alert_type] || alert.alert_type}
                     </span>
                   </td>
-                  <td class="px-2 py-2">
+                  <td class="px-3 py-2.5">
                     <span class={`font-data text-[11px] font-medium ${
                       dirColors[alert.direction] || 'text-text-muted'
                     }`}>
@@ -186,22 +198,22 @@ export const Scanner: Component = () => {
                        alert.direction === 'exit_bearish' ? '↙ EXIT' : '—'}
                     </span>
                   </td>
-                  <td class="px-2 py-2 font-data text-[12px] text-text-primary font-medium">
+                  <td class="px-3 py-2.5 font-data text-[13px] text-text-primary font-medium">
                     {alert.symbol}
                   </td>
-                  <td class="px-2 py-2 font-data text-[11px] text-text-secondary">
+                  <td class="px-3 py-2.5 font-data text-[12px] text-text-secondary">
                     ${alert.strike}{alert.right} @ ${alert.avg_price?.toFixed(2) || '?'}
                   </td>
-                  <td class="px-2 py-2 font-data text-[11px] text-text-primary text-right">
+                  <td class="px-3 py-2.5 font-data text-[12px] text-text-primary text-right font-medium">
                     {alert.size.toLocaleString()}x
                   </td>
-                  <td class="px-2 py-2 font-data text-[12px] text-text-primary text-right font-medium">
+                  <td class="px-3 py-2.5 font-data text-[13px] text-text-primary text-right font-medium">
                     {formatPremium(alert.premium)}
                   </td>
-                  <td class="px-2 py-2 font-data text-[11px] text-text-muted text-right">
+                  <td class="px-3 py-2.5 font-data text-[11px] text-text-secondary text-right">
                     {alert.fills}{alert.repeat_count >= 3 ? ` (${alert.repeat_count}x)` : ''}
                   </td>
-                  <td class="px-3 py-2 text-[12px] text-text-secondary truncate max-w-[350px]"
+                  <td class="px-4 py-2.5 text-[12px] text-text-secondary truncate"
                       style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                     {alert.detail}
                   </td>
