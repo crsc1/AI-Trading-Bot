@@ -480,7 +480,8 @@ export function computeBubblePoints(
       const opacity = Math.max(0.15, Math.min(0.95, 0.15 + age * 0.8));
       const totalVol = c.buy_vol + c.sell_vol;
       const deltaRatio = totalVol > 0 ? c.delta / totalVol : 0;
-      return { x, y, r, tMs: c._ms!, opacity, deltaRatio };
+      const buyRatio = totalVol > 0 ? c.buy_vol / totalVol : 0.5;
+      return { x, y, r, tMs: c._ms!, opacity, deltaRatio, buyRatio };
     })
     .filter((p) => p.x >= marginL - 30 && p.x <= W - ladderW + 30);
 }

@@ -60,10 +60,10 @@ export const OptionsBubbleChart: Component = () => {
   const MAX_TICKS = 10000;
   const MAX_NOTABLES = 500;
 
-  // Config — same as equity flow defaults
-  let aggSeconds = 0.5;
+  // Config
+  let aggSeconds = 0.25;   // 250ms buckets — tighter time resolution for snappy positioning
   let visibleWindowMs = 5 * 60 * 1000;  // 5 min visible window, scrolls with new trades
-  let renderInterval = 100;
+  let renderInterval = 80; // ~12fps — smooth real-time scrolling
 
   function ensureCanvas(): boolean {
     if (!containerRef) return false;
@@ -101,16 +101,18 @@ export const OptionsBubbleChart: Component = () => {
       // Use the trade's actual timestamp so bubbles replay at correct X position
       const tradeTs = t.timestamp || Date.now();
 
-      // Weight size by Smart Money Score, cap to prevent giant bubbles
-      const smsWeight = 0.5 + (t.sms / 100) * 1.0;  // 0.5 at SMS=0, 1.5 at SMS=100
-      const weightedSize = Math.min(200, t.size * smsWeight);  // Cap at 200 contracts visual
-      const side = t.side === 'sell' ? 'sell' as const : 'buy' as const;
-      ticks.push({
-        price: spyPrice,
-        size: weightedSize,
-        side,
-        ts: tradeTs,
-      });
+      // Size = actual contracts, capped for clean proportions
+      const displaySize = Math.min(80, t.size);
+
+      // Use actual Lee-Ready side — split mid trades 50/50 to avoid buy bias
+      if (t.side === 'mid') {
+        const half = displaySize / 2;
+        ticks.push({ price: spyPrice, size: half, side: 'buy', ts: tradeTs });
+        ticks.push({ price: spyPrice, size: half, side: 'sell', ts: tradeTs });
+      } else {
+        const side = t.side === 'sell' ? 'sell' as const : 'buy' as const;
+        ticks.push({ price: spyPrice, size: displaySize, side, ts: tradeTs });
+      }
 
       // Track notable trades for ring/glow overlays
       if (t.tag !== 'normal') {
@@ -163,14 +165,18 @@ export const OptionsBubbleChart: Component = () => {
       else cell.sell += t.size;
     }
 
-    return Array.from(grid.values()).map(c => ({
-      price: c.price,
-      time: new Date(c.time).toISOString(),
-      buy_vol: c.buy,
-      sell_vol: c.sell,
-      delta: c.buy - c.sell,
-      total_vol: c.buy + c.sell,
-    }));
+    const result: FlowCloudCell[] = [];
+    for (const c of grid.values()) {
+      result.push({
+        price: c.price,
+        time: new Date(c.time).toISOString(),
+        buy_vol: c.buy,
+        sell_vol: c.sell,
+        delta: c.buy - c.sell,
+        total_vol: c.buy + c.sell,
+      });
+    }
+    return result;
   }
 
   /**
@@ -245,9 +251,8 @@ export const OptionsBubbleChart: Component = () => {
       const age = now - n.ts;
       const freshness = Math.max(0.15, 1 - (age / visibleWindowMs) * 0.85);
 
-      // Base radius from contract size — capped to prevent chart-eating whales
-      // sqrt scaling with hard cap at 30px (before dpr)
-      const baseR = Math.min(30, Math.max(6, Math.sqrt(n.size) * 2)) * dpr;
+      // Base radius from contract size — capped for clean proportions
+      const baseR = Math.min(18, Math.max(5, Math.sqrt(n.size) * 1.5)) * dpr;
       const color = n.side === 'buy' ? '#00C805' : '#FF5000';
 
       if (n.tag === 'sweep') {
@@ -295,7 +300,6 @@ export const OptionsBubbleChart: Component = () => {
 
   function render(): void {
     syncTrades();
-
     if (!ensureCanvas() || !ctx || !canvas) return;
 
     const dpr = window.devicePixelRatio || 1;

@@ -8,7 +8,7 @@
  * - Premium-weighted: larger trades are visually prominent
  * - Running call/put premium ratio bar at top
  */
-import { type Component, For, Show } from 'solid-js';
+import { type Component, For, Show, createMemo } from 'solid-js';
 import { optionsFlow, getCluster } from '../../signals/optionsFlow';
 import { EmptyState } from '../system/EmptyState';
 
@@ -69,13 +69,16 @@ export const OptionsFlow: Component = () => {
     return 'NORMAL';
   };
 
+  // Memoize the visible slice — avoids creating a new array inside <For> on every store change
+  const visibleTrades = createMemo(() => optionsFlow.trades.slice(0, 50));
+
   return (
     <div class="flex flex-col h-full">
       {/* Header with running totals — h-[72px] matched with OptionsHeatmap */}
       <div class="px-4 py-2 h-[72px] border-b border-border-default shrink-0 flex flex-col justify-between">
         <div class="flex items-center justify-between">
           <span class="font-display text-[13px] font-medium text-text-primary">
-            Options Flow
+            Trade Tape
           </span>
           <div class="flex items-center gap-3">
             <Show when={latestVpin() != null}>
@@ -114,18 +117,18 @@ export const OptionsFlow: Component = () => {
         </div>
       </div>
 
-      {/* Column headers */}
-      <div class="flex items-center px-3 py-1.5 text-[8px] font-display text-text-secondary tracking-wider border-b border-border-default shrink-0">
-        <span class="w-14">TIME</span>
-        <span class="w-8">SIDE</span>
-        <span class="w-7">C/P</span>
-        <span class="w-11 text-right">STRIKE</span>
-        <span class="w-10 text-right">SIZE</span>
-        <span class="w-12 text-right">PRICE</span>
-        <span class="w-10 text-right">IV</span>
-        <span class="flex-1 text-right">PREMIUM</span>
-        <span class="w-8 text-right">SMS</span>
-        <span class="w-14 text-right">TAG</span>
+      {/* Column headers — proportional grid */}
+      <div class="grid grid-cols-[3fr_2fr_1.5fr_2.5fr_2fr_2.5fr_2fr_3fr_2fr_2.5fr] items-center px-3 py-1.5 text-[8px] font-display text-text-secondary tracking-wider border-b border-border-default shrink-0">
+        <span>TIME</span>
+        <span>SIDE</span>
+        <span>C/P</span>
+        <span class="text-right">STRIKE</span>
+        <span class="text-right">SIZE</span>
+        <span class="text-right">PRICE</span>
+        <span class="text-right">IV</span>
+        <span class="text-right">PREMIUM</span>
+        <span class="text-right">SMS</span>
+        <span class="text-right">TAG</span>
       </div>
 
       {/* Trade list */}
@@ -138,72 +141,69 @@ export const OptionsFlow: Component = () => {
           />
         </Show>
 
-        <For each={optionsFlow.trades.slice(0, 50)}>
+        <For each={visibleTrades()}>
           {(trade) => {
             const isCall = trade.right === 'C';
-            // Lee-Ready colors: buy=green (bought at ask), sell=red (sold at bid), mid=gray
             const sideColor = trade.side === 'buy' ? 'text-positive'
               : trade.side === 'sell' ? 'text-negative' : 'text-text-muted';
             const cpColor = isCall ? 'text-positive' : 'text-negative';
             const isNotable = trade.tag !== 'normal';
 
-            // Visual weight based on premium
             let rowClass = 'text-[10px]';
             if (trade.premium >= 50_000) rowClass = 'text-[12px] font-medium';
             else if (trade.premium >= 10_000) rowClass = 'text-[11px]';
 
             const bgClass = isNotable
               ? (trade.side === 'buy' ? 'bg-positive/5' : trade.side === 'sell' ? 'bg-negative/5' : 'bg-surface-2/5')
-              : 'hover:bg-surface-2/30';
+              : '';
+
+            // Pre-compute cluster once (avoid scanning inside JSX)
+            const cluster = trade.clusterId != null ? getCluster(trade.clusterId) : undefined;
+            const showCluster = cluster && cluster.tradeCount >= 2;
 
             return (
-              <div class={`flex items-center px-3 py-1 border-b border-border-subtle transition-colors ${rowClass} ${bgClass}`}>
-                <span class="w-14 font-data text-text-muted text-[9px]">
+              <div class={`grid grid-cols-[3fr_2fr_1.5fr_2.5fr_2fr_2.5fr_2fr_3fr_2fr_2.5fr] items-center px-3 py-1 border-b border-border-subtle ${rowClass} ${bgClass}`}>
+                <span class="font-data text-text-muted text-[9px] truncate">
                   {formatTime(trade.timestamp)}
                 </span>
-                <span class={`w-8 font-medium text-[9px] ${sideColor}`}>
+                <span class={`font-medium text-[9px] ${sideColor}`}>
                   {trade.side === 'buy' ? 'BUY' : trade.side === 'sell' ? 'SELL' : 'MID'}
                 </span>
-                <span class={`w-7 font-medium ${cpColor}`}>
+                <span class={`font-medium ${cpColor}`}>
                   {trade.right}
                 </span>
-                <span class="w-11 font-data text-text-primary text-right">
+                <span class="font-data text-text-primary text-right">
                   {trade.strike}
                 </span>
-                <span class={`w-10 font-data text-right ${sideColor}`}>
+                <span class={`font-data text-right ${sideColor}`}>
                   {trade.size}
                 </span>
-                <span class="w-12 font-data text-text-primary text-right">
+                <span class="font-data text-text-primary text-right">
                   ${trade.price.toFixed(2)}
                 </span>
-                <span class="w-10 font-data text-text-secondary text-right text-[9px]">
+                <span class="font-data text-text-secondary text-right text-[9px]">
                   {trade.iv != null ? `${(trade.iv * 100).toFixed(0)}%` : '—'}
                 </span>
-                <span class={`flex-1 font-data text-right ${sideColor} ${trade.premium >= 25_000 ? 'font-medium' : ''}`}>
+                <span class={`font-data text-right ${sideColor} ${trade.premium >= 25_000 ? 'font-medium' : ''}`}>
                   {formatPremium(trade.premium)}
                 </span>
-                <span class={`w-8 font-data text-right text-[9px] ${
+                <span class={`font-data text-right text-[9px] ${
                   trade.sms >= 70 ? 'text-warning font-medium' :
                   trade.sms >= 50 ? 'text-accent' : 'text-text-muted'
                 }`}>
                   {trade.sms}
                 </span>
-                <span class="w-14 text-right flex items-center justify-end gap-1">
-                  <Show when={trade.clusterId != null}>
-                    {(() => {
-                      const cluster = getCluster(trade.clusterId!);
-                      return cluster && cluster.tradeCount >= 2 ? (
-                        <span class="text-[7px] px-1 py-0.5 rounded bg-accent/15 text-accent border border-accent/25" title={`Cluster: ${cluster.tradeCount} trades, ${cluster.totalSize} contracts`}>
-                          {cluster.tradeCount}x
-                        </span>
-                      ) : null;
-                    })()}
-                  </Show>
-                  <Show when={isNotable}>
+                <span class="text-right flex items-center justify-end gap-1">
+                  {showCluster && (
+                    <span class="text-[7px] px-1 py-0.5 rounded bg-accent/15 text-accent border border-accent/25">
+                      {cluster!.tradeCount}x
+                    </span>
+                  )}
+                  {isNotable && (
                     <span class={`text-[7px] px-1.5 py-0.5 rounded border ${TAG_STYLES[trade.tag]}`}>
                       {TAG_LABELS[trade.tag]}
                     </span>
-                  </Show>
+                  )}
                 </span>
               </div>
             );

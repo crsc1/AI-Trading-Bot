@@ -1,12 +1,13 @@
 /**
  * GPU-accelerated bubble renderer using PixiJS v8.
  *
- * Visual design (researched from Bookmap, ATAS, FlowAlgo):
- * - Vibrant green/red: high-contrast on dark backgrounds
- * - Spray animation: new bubbles start 1.5x size, shrink over 300ms
- * - 3 tiers: normal (small), block (medium + thick border), whale (large + glow)
- * - Age fade: older bubbles fade to 30% over the window duration
- * - Pulse ring on recent trades for "alive" feel
+ * Bookmap-style split-circle bubbles:
+ * - Each bubble shows the buy/sell RATIO as a two-arc pie chart
+ * - Green arc = buy volume proportion, Red arc = sell volume proportion
+ * - Size = total volume (percentile-scaled)
+ * - 11 quantized ratio steps × 5 size tiers = 55 pre-rendered textures
+ * - Spray animation: new bubbles start 1.5x size with glow ring
+ * - Age fade: older bubbles fade to 15% over the window duration
  */
 import * as PIXI from 'pixi.js';
 
@@ -17,6 +18,7 @@ export interface BubblePoint {
   tMs: number;
   opacity: number;
   deltaRatio: number; // -1 (all sell) to +1 (all buy)
+  buyRatio: number;   // 0.0 (all sell) to 1.0 (all buy) — drives split-circle texture
 }
 
 const TIER_NAMES = ['tiny', 'small', 'medium', 'large', 'huge'] as const;
@@ -28,15 +30,20 @@ const TIER_SIZES: Record<TierName, number> = {
 
 const MAX_SPRITES = 5000;
 
-// Vibrant, high-contrast colors for dark backgrounds
-type ColorKey = 'buy' | 'sell' | 'neutral';
+// 11 quantized buy ratio steps: 0%, 10%, 20%, ..., 100%
+const RATIO_STEPS = 11;
+
+// Colors for split-circle arcs
+const BUY_COLORS = { center: '#4ade80', mid: '#22c55e', edge: '#16a34a' };
+const SELL_COLORS = { center: '#f87171', mid: '#ef4444', edge: '#dc2626' };
 
 export class FlowBubbleRenderer {
   private app: PIXI.Application | null = null;
   private bubbleContainer: PIXI.Container | null = null;
   private labelContainer: PIXI.Container | null = null;
   private textures: Map<string, PIXI.Texture> = new Map();
-  // Fast lookup: texGrid[colorIndex][tierIndex] — no string concat in hot loop
+  // Fast lookup: texGrid[ratioIndex][tierIndex]
+  // ratioIndex: 0 = 0% buy (all sell), 10 = 100% buy (all buy)
   private texGrid: PIXI.Texture[][] = [];
   private tierRadii: number[] = [];
   private spritePool: PIXI.Sprite[] = [];
@@ -69,20 +76,18 @@ export class FlowBubbleRenderer {
       if (pos === 'static') container.style.position = 'relative';
       container.appendChild(this.app.canvas);
 
-      // ParticleContainer: single GPU draw call for all sprites of same texture
       this.bubbleContainer = new PIXI.Container();
-      this.bubbleContainer.sortableChildren = false; // skip sort overhead
+      this.bubbleContainer.sortableChildren = false;
       this.app.stage.addChild(this.bubbleContainer);
 
       this.labelContainer = new PIXI.Container();
       this.app.stage.addChild(this.labelContainer);
 
       this._createTextures(dpr);
-      // Build fast lookup grid: texGrid[colorIdx][tierIdx]
-      // colorIdx: 0=buy, 1=sell, 2=neutral
-      const colorKeys: ColorKey[] = ['buy', 'sell', 'neutral'];
-      this.texGrid = colorKeys.map(ck =>
-        TIER_NAMES.map(tn => this.textures.get(`${ck}_${tn}`)!)
+
+      // Build fast lookup grid: texGrid[ratioIdx][tierIdx]
+      this.texGrid = Array.from({ length: RATIO_STEPS }, (_, ri) =>
+        TIER_NAMES.map(tn => this.textures.get(`r${ri}_${tn}`)!)
       );
       this.tierRadii = TIER_NAMES.map(tn => this.textureRadii.get(tn)!);
       this.initialized = true;
@@ -93,62 +98,119 @@ export class FlowBubbleRenderer {
   }
 
   private _createTextures(dpr: number): void {
-    // Vibrant colors: bright enough to pop on #0a0a12 background
-    const colors: Record<ColorKey, { center: string; mid: string; edge: string }> = {
-      buy:     { center: '#4ade80', mid: '#22c55e', edge: '#16a34a' },  // Vibrant green
-      sell:    { center: '#f87171', mid: '#ef4444', edge: '#dc2626' },  // Vibrant red
-      neutral: { center: '#94a3b8', mid: '#64748b', edge: '#475569' },  // Slate gray
-    };
-
     for (const name of TIER_NAMES) {
       const baseSize = TIER_SIZES[name];
       const r = Math.ceil(baseSize * dpr);
       this.textureRadii.set(name, r);
 
-      for (const [colorKey, color] of Object.entries(colors) as [ColorKey, { center: string; mid: string; edge: string }][]) {
+      for (let ri = 0; ri < RATIO_STEPS; ri++) {
+        const buyFrac = ri / (RATIO_STEPS - 1); // 0.0 to 1.0
+
         const canvas = document.createElement('canvas');
         canvas.width = r * 2;
         canvas.height = r * 2;
         const ctx = canvas.getContext('2d')!;
 
-        // Solid vibrant fill with subtle radial gradient for depth
-        const grad = ctx.createRadialGradient(
-          r - r * 0.15, r - r * 0.15, r * 0.05,
-          r, r, r
-        );
-        grad.addColorStop(0, color.center);
-        grad.addColorStop(0.5, color.mid);
-        grad.addColorStop(0.85, color.edge);
-        grad.addColorStop(1, color.edge + 'aa'); // slight fade at edge
+        const circR = r * 0.92;
+        const startAngle = -Math.PI / 2; // 12 o'clock
 
-        ctx.beginPath();
-        ctx.arc(r, r, r * 0.92, 0, Math.PI * 2);
-        ctx.fillStyle = grad;
-        ctx.fill();
+        if (buyFrac >= 0.999) {
+          // Pure buy: solid green circle
+          this._drawSolidCircle(ctx, r, circR, dpr, BUY_COLORS);
+        } else if (buyFrac <= 0.001) {
+          // Pure sell: solid red circle
+          this._drawSolidCircle(ctx, r, circR, dpr, SELL_COLORS);
+        } else {
+          const buyAngle = buyFrac * 2 * Math.PI;
 
-        // Crisp border for definition
-        ctx.strokeStyle = color.center + 'cc';
-        ctx.lineWidth = Math.max(1, 1.5 * dpr);
-        ctx.stroke();
+          // Buy arc (green) — from 12 o'clock, clockwise
+          this._drawArc(ctx, r, circR, startAngle, startAngle + buyAngle, BUY_COLORS);
 
-        this.textures.set(`${colorKey}_${name}`, PIXI.Texture.from(canvas));
+          // Sell arc (red) — remainder
+          this._drawArc(ctx, r, circR, startAngle + buyAngle, startAngle + 2 * Math.PI, SELL_COLORS);
+
+          // Full circle border — color interpolates between green and red
+          const borderColor = buyFrac > 0.5
+            ? BUY_COLORS.center + 'bb'
+            : SELL_COLORS.center + 'bb';
+          ctx.beginPath();
+          ctx.arc(r, r, circR, 0, Math.PI * 2);
+          ctx.strokeStyle = borderColor;
+          ctx.lineWidth = Math.max(1, 1.5 * dpr);
+          ctx.stroke();
+        }
+
+        this.textures.set(`r${ri}_${name}`, PIXI.Texture.from(canvas));
       }
     }
   }
 
-  // Fast numeric index versions for hot loop (no string alloc)
+  /** Draw a solid circle with radial gradient (for pure buy or pure sell). */
+  private _drawSolidCircle(
+    ctx: CanvasRenderingContext2D,
+    center: number,
+    radius: number,
+    dpr: number,
+    colors: { center: string; mid: string; edge: string },
+  ): void {
+    const grad = ctx.createRadialGradient(
+      center - center * 0.15, center - center * 0.15, center * 0.05,
+      center, center, center
+    );
+    grad.addColorStop(0, colors.center);
+    grad.addColorStop(0.5, colors.mid);
+    grad.addColorStop(0.85, colors.edge);
+    grad.addColorStop(1, colors.edge + 'aa');
+
+    ctx.beginPath();
+    ctx.arc(center, center, radius, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.strokeStyle = colors.center + 'cc';
+    ctx.lineWidth = Math.max(1, 1.5 * dpr);
+    ctx.stroke();
+  }
+
+  /** Draw a pie-slice arc with a solid fill. */
+  private _drawArc(
+    ctx: CanvasRenderingContext2D,
+    center: number,
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    colors: { center: string; mid: string; edge: string },
+  ): void {
+    ctx.beginPath();
+    ctx.moveTo(center, center);
+    ctx.arc(center, center, radius, startAngle, endAngle);
+    ctx.closePath();
+
+    // Radial gradient for depth within the arc
+    const grad = ctx.createRadialGradient(
+      center - center * 0.1, center - center * 0.1, center * 0.05,
+      center, center, center
+    );
+    grad.addColorStop(0, colors.center);
+    grad.addColorStop(0.5, colors.mid);
+    grad.addColorStop(0.85, colors.edge);
+    grad.addColorStop(1, colors.edge + 'aa');
+
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
+
+  // Quantize buyRatio (0.0-1.0) to texture index (0-10)
+  private _getRatioIdx(buyRatio: number): number {
+    return Math.round(Math.min(1, Math.max(0, buyRatio)) * (RATIO_STEPS - 1));
+  }
+
   private _getTierIdx(cssRadius: number): number {
     if (cssRadius <= 7) return 0;
     if (cssRadius <= 13) return 1;
     if (cssRadius <= 20) return 2;
     if (cssRadius <= 30) return 3;
     return 4;
-  }
-
-  private _getColorIdx(deltaRatio: number): number {
-    if (deltaRatio > 0.1) return 0;  // buy
-    if (deltaRatio < -0.1) return 1; // sell
-    return 2;                         // neutral
   }
 
   private _getSprite(): PIXI.Sprite {
@@ -181,14 +243,12 @@ export class FlowBubbleRenderer {
     this.poolIndex = 0;
 
     const now = Date.now();
-
     const invDpr = 1 / dpr;
     const invPulse = 1 / pulseThresholdMs;
 
-    // Single pass: render glow + main bubble together (avoids iterating points twice)
     for (const p of points) {
       const age = now - p.tMs;
-      const colorIdx = this._getColorIdx(p.deltaRatio);
+      const ratioIdx = this._getRatioIdx(p.buyRatio);
 
       // Glow ring for recent trades (spray effect)
       if (age < pulseThresholdMs) {
@@ -197,7 +257,7 @@ export class FlowBubbleRenderer {
         const sprayScale = 1.0 + 0.8 * freshness;
         const cssR = p.r * sprayScale * invDpr;
         const tierIdx = this._getTierIdx(cssR);
-        sprite.texture = this.texGrid[colorIdx][tierIdx];
+        sprite.texture = this.texGrid[ratioIdx][tierIdx];
         sprite.position.set(p.x * invDpr, p.y * invDpr);
         sprite.scale.set(cssR / (this.tierRadii[tierIdx] * invDpr));
         sprite.tint = 0xFFFFFF;
@@ -208,7 +268,7 @@ export class FlowBubbleRenderer {
       const sprite = this._getSprite();
       const cssR = p.r * invDpr;
       const tierIdx = this._getTierIdx(cssR);
-      sprite.texture = this.texGrid[colorIdx][tierIdx];
+      sprite.texture = this.texGrid[ratioIdx][tierIdx];
       sprite.position.set(p.x * invDpr, p.y * invDpr);
       sprite.scale.set(cssR / (this.tierRadii[tierIdx] * invDpr));
       sprite.tint = 0xFFFFFF;
