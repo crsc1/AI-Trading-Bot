@@ -29,7 +29,7 @@ import { cvd } from '../../signals/flow';
 
 const PRICE_TICK = 0.05;
 
-type ChartMode = 'grid' | 'snake';
+type ChartMode = 'grid' | 'snake' | 'demo';
 
 interface OptionTick {
   price: number;
@@ -645,14 +645,81 @@ export const OptionsBubbleChart: Component = () => {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // DEMO MODE — Simulated trade generator for testing without live data
+  // ═══════════════════════════════════════════════════════════════════════
+
+  let simInterval: ReturnType<typeof setInterval> | null = null;
+  let simPrice = 550; // simulated SPY price
+  let simTrend = 0; // momentum drift (-1 to +1)
+  let simSeeded = false;
+
+  function startSim() {
+    if (simInterval) return;
+    simSeeded = false;
+
+    // Seed with 2 minutes of historical sim data so chart isn't empty
+    function seedHistory() {
+      if (simSeeded) return;
+      simSeeded = true;
+      const now = Date.now();
+      for (let ms = now - 120_000; ms < now; ms += 200 + Math.random() * 300) {
+        injectSimTrade(ms);
+      }
+    }
+
+    seedHistory();
+
+    // Inject 3-8 trades per second (realistic 0DTE flow during active session)
+    simInterval = setInterval(() => {
+      const count = 3 + Math.floor(Math.random() * 6);
+      const now = Date.now();
+      for (let i = 0; i < count; i++) {
+        injectSimTrade(now - Math.random() * 80);
+      }
+    }, 200);
+  }
+
+  function stopSim() {
+    if (simInterval) { clearInterval(simInterval); simInterval = null; }
+  }
+
+  function injectSimTrade(ts: number) {
+    // Random walk for price with momentum
+    simTrend += (Math.random() - 0.5) * 0.1;
+    simTrend = Math.max(-0.6, Math.min(0.6, simTrend)) * 0.995; // mean-revert
+    simPrice += simTrend * 0.02 + (Math.random() - 0.5) * 0.03;
+    simPrice = Math.max(540, Math.min(560, simPrice));
+
+    // Directional bias follows trend
+    const buyProb = 0.5 + simTrend * 0.3;
+    const side: 'buy' | 'sell' = Math.random() < buyProb ? 'buy' : 'sell';
+
+    // Size: mostly small, occasional large (power law)
+    const sizeRaw = Math.random();
+    const size = sizeRaw < 0.7 ? 1 + Math.floor(Math.random() * 5)
+      : sizeRaw < 0.92 ? 10 + Math.floor(Math.random() * 40)
+      : 50 + Math.floor(Math.random() * 150); // rare whale
+
+    ticks.push({
+      price: Math.round(simPrice * 100) / 100,
+      size: Math.min(80, size),
+      side,
+      ts,
+    });
+
+    if (ticks.length > MAX_TICKS) ticks = ticks.slice(-Math.floor(MAX_TICKS * 0.8));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // RENDER DISPATCH + LOOP
   // ═══════════════════════════════════════════════════════════════════════
 
   function render(): void {
-    syncTrades();
+    const m = mode();
+    if (m !== 'demo') syncTrades();
     if (!ensureCanvas() || !ctx || !canvas) return;
 
-    if (mode() === 'snake') {
+    if (m === 'snake' || m === 'demo') {
       renderSnake();
     } else {
       renderGrid();
@@ -666,7 +733,8 @@ export const OptionsBubbleChart: Component = () => {
     running = true;
     function tick() {
       if (!running) return;
-      if (ticks.length > 0 || optionsFlow.tradeCount > lastTradeCount) render();
+      // Demo mode always renders (sim generates ticks continuously)
+      if (mode() === 'demo' || ticks.length > 0 || optionsFlow.tradeCount > lastTradeCount) render();
       animTimer = setTimeout(tick, renderInterval);
     }
     animTimer = setTimeout(tick, renderInterval);
@@ -689,6 +757,7 @@ export const OptionsBubbleChart: Component = () => {
 
   onCleanup(() => {
     stopLoop();
+    stopSim();
     if (resizeObs) resizeObs.disconnect();
     if (bubbleRenderer) bubbleRenderer.destroy();
     bubbleRenderer = null;
@@ -703,26 +772,26 @@ export const OptionsBubbleChart: Component = () => {
     <div ref={containerRef} class="w-full h-full relative" style={{ 'min-height': '150px' }}>
       {/* Mode toggle overlay */}
       <div class="absolute top-2 right-2 z-10 flex items-center gap-0.5 bg-surface-2/80 backdrop-blur-sm rounded-lg border border-border-default p-0.5">
-        <button
-          class={`px-2.5 py-1 text-[10px] font-display rounded-md transition-colors ${
-            mode() === 'grid'
-              ? 'bg-accent/20 text-accent'
-              : 'text-text-muted hover:text-text-secondary'
-          }`}
-          onClick={() => setMode('grid')}
-        >
-          Grid
-        </button>
-        <button
-          class={`px-2.5 py-1 text-[10px] font-display rounded-md transition-colors ${
-            mode() === 'snake'
-              ? 'bg-accent/20 text-accent'
-              : 'text-text-muted hover:text-text-secondary'
-          }`}
-          onClick={() => setMode('snake')}
-        >
-          Snake
-        </button>
+        {(['grid', 'snake', 'demo'] as ChartMode[]).map(m => (
+          <button
+            class={`px-2.5 py-1 text-[10px] font-display rounded-md transition-colors ${
+              mode() === m
+                ? m === 'demo' ? 'bg-warning/20 text-warning' : 'bg-accent/20 text-accent'
+                : 'text-text-muted hover:text-text-secondary'
+            }`}
+            onClick={() => {
+              const prev = mode();
+              if (prev === 'demo') stopSim();
+              setMode(m);
+              if (m === 'demo') {
+                ticks = []; snakePoints = []; smoothedPressure = 0;
+                startSim();
+              }
+            }}
+          >
+            {m === 'demo' ? 'Demo' : m === 'snake' ? 'Snake' : 'Grid'}
+          </button>
+        ))}
       </div>
     </div>
   );
