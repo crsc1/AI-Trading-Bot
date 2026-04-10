@@ -314,85 +314,67 @@ Optional:
 
 ## Migration Order
 
-### Phase 1: Rust parity
+### Phase 1: Rust parity ✅ DONE (2026-04-10)
 
-Add the missing Rust-side enrichment so `ThetaDataDx` can produce a frontend-ready option trade.
+Rust-side enrichment in [`flow-engine/src/options_enrichment.rs`](../flow-engine/src/options_enrichment.rs):
 
-Needed:
+- ✅ parse/decompose option contract identity into `root`, `expiration`, `strike`, `right`
+- ✅ keep per-contract quote book (bid/ask cache by contract_id)
+- ✅ classify trade side from latest bid/ask (Lee-Ready)
+- ✅ calculate `premium` (price × size × 100)
+- ✅ calculate IV / delta / gamma (Newton-Raphson BS solver, 30 iterations)
+- ✅ maintain options VPIN state (200 contracts/bucket, 40-bucket rolling window)
+- ✅ compute Smart Money Score (size + gamma + aggression + ATM proximity)
+- ✅ carry a real timestamp (date + ms_of_day → Unix ms)
 
-- parse/decompose option contract identity into `root`, `expiration`, `strike`, `right`
-- keep per-contract quote book
-- classify trade side from latest bid/ask
-- calculate `premium`
-- calculate IV / delta / gamma
-- maintain options VPIN state
-- compute Smart Money Score
-- carry a real timestamp
+### Phase 2: Dynamic subscriptions ✅ DONE (pre-existing)
 
-### Phase 2: Dynamic subscriptions
+Already implemented before the migration audit:
 
-Add Rust HTTP endpoints for:
+- ✅ `POST /theta/options/subscribe` endpoint in Rust (symbol, expiration, spot_price, strike_range)
+- ✅ Frontend `switchSymbol()` calls `/api/theta/subscribe` which bridges to Rust
+- ✅ Python `/api/theta/subscribe` forwards to Rust endpoint
+- ✅ Automatic unsubscribe of old contracts on symbol change
 
-- subscribe current symbol 0DTE options
-- subscribe scanner contracts
-- reset / refresh symbol scope on frontend symbol change
+### Phase 3: Frontend cutover ✅ DONE (2026-04-10)
 
-At that point the current Python endpoint
-[`/api/theta/subscribe`](../dashboard/app.py)
-should drive the Rust engine instead of the Python Theta stream.
+De-duplication guard in [`dashboard/app.py`](../dashboard/app.py):
 
-### Phase 3: Frontend cutover
+- ✅ `_theta_dx_is_active()` checks Rust health endpoint at startup
+- ✅ `_python_theta_forward_enabled` flag gates Python → Rust forwarding
+- ✅ When ThetaDx active: Python `broadcast_theta_trade` skips `forward_to_rust()`
+- ✅ Frontend receives enriched theta_trade exclusively from Rust ThetaDx
+- ✅ Chain patching reads IV/delta/gamma from Rust-enriched trades
 
-Switch the frontend to trust only Rust-originated options events.
+### Phase 4: Scanner migration ✅ DONE (2026-04-10)
 
-Success criteria:
+Scanner stays in Python but de-duplicated:
 
-- `OptionsFlow` keeps updating with no Python Theta dependency
-- `OptionsHeatmap` still builds correctly
-- `OptionsBubbleChart` still renders
-- live chain patching still updates IV / delta / gamma
-- unusual activity and scanner still work
+- ✅ Python theta_stream always subscribes SPY + scanner symbols (for scanner feed)
+- ✅ `flow_scanner.on_trade()` always called regardless of ThetaDx status
+- ✅ Forward-to-Rust skipped when ThetaDx active (no duplicate broadcast)
+- ✅ Scanner symbols (SPY, QQQ, AAPL, TSLA, NVDA, etc.) fed from Python path
+- ✅ Current UI symbol options fed from Rust ThetaDx (enriched)
 
-### Phase 4: Scanner migration
+### Phase 5: Retire Python Theta flow path — DEFERRED
 
-Move the options flow scanner off Python `flow_scanner.py` if desired, or keep the scanner
-logic in Python but feed it from the Rust event stream instead of `theta_stream.py`.
+The Python theta_stream still serves two purposes:
 
-### Phase 5: Retire Python Theta flow path
+1. Scanner feed for multi-symbol option flow alerts
+2. Fallback when ThetaDx FPSS credentials are unavailable
 
-Only after parity is verified:
+Full retirement requires either:
 
-- remove Python live forwarding ownership from `dashboard/app.py`
-- retire `theta_stream.py` from the live options tape path
-- keep it only for historical / fallback tools if still useful
+- Moving scanner to Rust (subscribe all scanner symbols via FPSS)
+- Or adding a Rust → Python scanner feed (Rust POSTs trades to Python endpoint)
 
-## Recommended Next Implementation Slice
-
-The safest next coding step is:
-
-1. extend the Rust `ThetaDxEvent::OptionTrade` path to produce:
-   - `root`
-   - `expiration`
-   - `strike`
-   - `right`
-   - `premium`
-   - `timestamp`
-2. extend Rust to maintain an option quote cache
-3. compute `side`, `iv`, `delta`, `gamma`, `sms`
-4. add a dynamic Rust subscription endpoint for the currently selected symbol
-
-That gets the platform much closer to cutting over without trying to rewrite everything at once.
+Neither is urgent since the de-duplication guard prevents duplicate broadcasts.
 
 ## Bottom Line
 
-Today:
+As of 2026-04-10:
 
-- `Theta Terminal` is the live options-flow source of truth
-- `ThetaDataDx` is a partial parallel path
-
-Target:
-
-- `ThetaDataDx` should become the single live options-flow source of truth
-
-But the cutover is not a toggle. It requires Rust-side parity with the enriched option trade
-contract the frontend already depends on.
+- `ThetaDataDx` is the live options-flow source of truth for the frontend
+- Rust produces fully enriched `theta_trade` events (IV, Greeks, VPIN, SMS)
+- Python theta_stream runs alongside for scanner feed only (no duplicate broadcast)
+- Fallback: if ThetaDx credentials are missing, Python path auto-activates
