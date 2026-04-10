@@ -195,6 +195,9 @@ export const OptionsBubbleChart: Component = () => {
     const cutoff = now - visibleWindowMs;
     const bucketMs = visibleWindowMs / SNAKE_CONTROL_COUNT;
 
+    // Reset pressure state each rebuild so it tracks the visible window only
+    smoothedPressure = 0;
+
     const buckets = new Map<number, { buy: number; sell: number; total: number }>();
     for (let i = ticks.length - 1; i >= 0; i--) {
       const t = ticks[i];
@@ -714,22 +717,22 @@ export const OptionsBubbleChart: Component = () => {
     simTrend = 0;
     simPhase = Math.random() * Math.PI * 2;
 
-    // Light seed: 30s of history so the chart isn't empty but new flow dominates
+    // Seed 60s of history — enough to show the snake with some shape
     const now = Date.now();
-    for (let ms = now - 30_000; ms < now; ms += 50 + Math.random() * 80) {
+    for (let ms = now - 60_000; ms < now; ms += 100 + Math.random() * 150) {
       injectSimTrade(ms);
     }
     simSeeded = true;
 
-    // Aggressive flow: 10-20 trades every 100ms (~100-200 trades/sec)
-    // Simulates a volatile 0DTE session with rapid directional shifts
+    // Steady flow: 5-10 trades every 150ms (~30-65 trades/sec)
+    // Fast enough to feel real-time, light enough to not choke the renderer
     simInterval = setInterval(() => {
       const now = Date.now();
-      const burst = 10 + Math.floor(Math.random() * 11);
+      const burst = 5 + Math.floor(Math.random() * 6);
       for (let i = 0; i < burst; i++) {
-        injectSimTrade(now - Math.random() * 50);
+        injectSimTrade(now - Math.random() * 100);
       }
-    }, 100);
+    }, 150);
   }
 
   function stopSim() {
