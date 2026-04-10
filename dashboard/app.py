@@ -195,6 +195,33 @@ async def _flow_engine_is_active() -> bool:
         return False
 
 
+async def _theta_dx_is_active() -> bool:
+    """Return whether Rust ThetaDx FPSS is handling live options data.
+
+    When True, Rust produces enriched theta_trade events directly —
+    Python must NOT also forward theta_trades to Rust (would duplicate).
+    """
+    try:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{cfg.FLOW_ENGINE_HTTP_URL}/health",
+                timeout=aiohttp.ClientTimeout(total=cfg.FLOW_ENGINE_STATS_TIMEOUT),
+            ) as resp:
+                if resp.status != 200:
+                    return False
+                data = await resp.json()
+                return data.get("theta_dx", {}).get("active", False)
+    except Exception:
+        return False
+
+
+# Module-level flag: set once at startup, governs whether Python theta_stream
+# forwards trades to Rust (False = Rust ThetaDx handles it, skip forwarding).
+_python_theta_forward_enabled: bool = True
+
+
 @app.on_event("startup")
 async def startup_event():
     """
@@ -309,6 +336,24 @@ async def startup_event():
         )
 
     # ── ThetaData WebSocket streaming (opt-in via THETA_STREAM_ENABLED) ──
+    # Check if Rust ThetaDx FPSS is handling options data directly.
+    # If so, Python theta_stream still runs (feeds scanner) but skips
+    # forwarding theta_trades to Rust (Rust already produces them from FPSS).
+    global _python_theta_forward_enabled
+    theta_dx_active = await _theta_dx_is_active()
+    if theta_dx_active:
+        _python_theta_forward_enabled = False
+        logger.info(
+            "ThetaDx FPSS active — Python theta_trade forwarding DISABLED "
+            "(Rust produces enriched trades directly). Scanner still fed from Python path."
+        )
+    else:
+        _python_theta_forward_enabled = True
+        logger.info(
+            "ThetaDx not active — Python theta_trade forwarding ENABLED "
+            "(Python enriches and forwards to Rust for broadcast)"
+        )
+
     if cfg.THETA_STREAM_ENABLED:
         logger.info("ThetaData WebSocket streaming enabled — starting...")
         theta_stream.ws_url = cfg.THETA_WS_URL
@@ -327,8 +372,12 @@ async def startup_event():
             size = event.get("size", 0)
             event["premium"] = round(price * size * 100, 2)
             event["timestamp"] = event.get("timestamp") or __import__("time").time()
-            await forward_to_rust(event)
-            # Feed to flow scanner for multi-symbol alert detection
+            # Only forward to Rust if ThetaDx is NOT active — otherwise Rust
+            # already produces enriched theta_trade events from FPSS and
+            # forwarding would create duplicates.
+            if _python_theta_forward_enabled:
+                await forward_to_rust(event)
+            # Always feed scanner regardless of ThetaDx status
             flow_scanner.on_trade(event)
 
         # Broadcast connection status changes
@@ -379,12 +428,22 @@ async def startup_event():
         await theta_stream.connect()
         logger.info(f"ThetaData WS stream started — {cfg.THETA_WS_URL}")
 
-        # Auto-subscribe to 0DTE option trades once connected
+        # Auto-subscribe to 0DTE option trades once connected.
+        # When ThetaDx is active, skip Python 0DTE subscription (Rust handles
+        # options subscriptions via FPSS). Still init scanner symbols.
         async def _subscribe_when_ready():
             """Wait for ThetaData WS to connect, then subscribe to 0DTE trades + scanner symbols."""
             for _ in range(30):  # Wait up to 30 seconds
                 if theta_stream.connected:
+                    # Always subscribe SPY 0DTE trades via Python for scanner feed,
+                    # even when ThetaDx is active. The broadcast callback skips
+                    # forwarding to Rust when ThetaDx handles it (no duplicates).
                     await theta_stream.auto_subscribe_0dte("SPY")
+                    if not _python_theta_forward_enabled:
+                        logger.info(
+                            "ThetaDx active — Python SPY 0DTE subscribed for scanner only "
+                            "(trades NOT forwarded to Rust)"
+                        )
                     # Subscribe scanner symbols (fetch prices from Alpaca first)
                     await _init_flow_scanner()
                     return
@@ -633,14 +692,16 @@ async def theta_subscribe(body: dict):
     except Exception:
         pass
 
+    # Always subscribe Python theta_stream if available — it feeds the scanner.
+    # When ThetaDx is active, the broadcast callback skips forwarding trades
+    # to Rust (no duplicates). Scanner still gets fed from Python callbacks.
     if cfg.THETA_STREAM_ENABLED and theta_stream.connected:
         await theta_stream.auto_subscribe_0dte(symbol)
         if price > 0:
             theta_stream.update_underlying_price(price)
         python_subscribed = True
 
-    # Best-effort bridge into the Rust ThetaDataDx path so the engine can start
-    # owning symbol-driven option subscriptions without breaking the current UI.
+    # Bridge into the Rust ThetaDataDx path for direct FPSS subscriptions.
     try:
         import aiohttp
         from datetime import datetime
@@ -671,15 +732,17 @@ async def theta_subscribe(body: dict):
             "subscribed": symbol,
             "python_subscribed": python_subscribed,
             "rust_subscribed": rust_subscribed,
+            "theta_dx_active": not _python_theta_forward_enabled,
             "spot_price": price or None,
             "rust_error": rust_error,
         }
 
     return {
         "subscribed": None,
-        "reason": "theta stream not connected",
+        "reason": "theta stream not connected and rust not available",
         "python_subscribed": False,
         "rust_subscribed": False,
+        "theta_dx_active": not _python_theta_forward_enabled,
         "rust_error": rust_error,
     }
 
