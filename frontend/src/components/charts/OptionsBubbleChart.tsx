@@ -479,10 +479,10 @@ export const OptionsBubbleChart: Component = () => {
 
     drawMomentumGlow(ctx, spline, snakePoints, marginL, plotW, plotH, centerY, dpr);
 
-    // ── Place bubbles along spline using PixiJS ──
+    // ── Place bubbles along spline ──
 
     const cells = ticksToCells();
-    if (!cells.length || !bubbleRenderer?.isReady) return;
+    if (!cells.length) return;
 
     const cutoff = now - visibleWindowMs;
     const bubblePoints: BubblePoint[] = [];
@@ -559,8 +559,85 @@ export const OptionsBubbleChart: Component = () => {
 
     drawClusterThickness(ctx, spline, cells, cutoff, visibleWindowMs, dpr);
 
-    bubbleRenderer.resize(containerRef!.getBoundingClientRect().width, containerRef!.getBoundingClientRect().height);
-    bubbleRenderer.renderBubbles(bubblePoints, dpr, 3000);
+    // Render bubbles: PixiJS + Canvas 2D fallback (always draw both for visibility)
+    // Canvas 2D bubbles render on the grid canvas (z-index:1)
+    // PixiJS bubbles render on the GPU canvas (z-index:2) — adds glow/spray effects
+    drawBubblesCanvas2D(ctx, bubblePoints, dpr, now);
+
+    if (bubbleRenderer?.isReady) {
+      bubbleRenderer.resize(containerRef!.getBoundingClientRect().width, containerRef!.getBoundingClientRect().height);
+      bubbleRenderer.renderBubbles(bubblePoints, dpr, 3000);
+    }
+  }
+
+  /** Canvas 2D fallback for split-circle bubbles (when PixiJS unavailable). */
+  function drawBubblesCanvas2D(
+    ctx: CanvasRenderingContext2D,
+    points: BubblePoint[],
+    dpr: number,
+    now: number,
+  ): void {
+    const buyColor = '#22c55e';
+    const sellColor = '#ef4444';
+
+    for (const p of points) {
+      const r = Math.max(2 * dpr, p.r);
+      const age = now - p.tMs;
+
+      ctx.save();
+      ctx.globalAlpha = p.opacity;
+
+      // Glow ring for fresh trades (< 3s)
+      if (age < 3000) {
+        const freshness = 1 - age / 3000;
+        ctx.globalAlpha = 0.2 * freshness;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r * (1.0 + 0.6 * freshness), 0, Math.PI * 2);
+        ctx.fillStyle = p.buyRatio > 0.5 ? buyColor : sellColor;
+        ctx.fill();
+        ctx.globalAlpha = p.opacity;
+      }
+
+      // Split circle: buy arc (green) + sell arc (red)
+      const startAngle = -Math.PI / 2;
+      const buyAngle = p.buyRatio * 2 * Math.PI;
+
+      if (p.buyRatio >= 0.999) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = buyColor;
+        ctx.fill();
+      } else if (p.buyRatio <= 0.001) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = sellColor;
+        ctx.fill();
+      } else {
+        // Buy arc
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.arc(p.x, p.y, r, startAngle, startAngle + buyAngle);
+        ctx.closePath();
+        ctx.fillStyle = buyColor;
+        ctx.fill();
+        // Sell arc
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.arc(p.x, p.y, r, startAngle + buyAngle, startAngle + Math.PI * 2);
+        ctx.closePath();
+        ctx.fillStyle = sellColor;
+        ctx.fill();
+      }
+
+      // Border
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.strokeStyle = (p.buyRatio > 0.5 ? buyColor : sellColor) + '88';
+      ctx.lineWidth = Math.max(1, dpr);
+      ctx.stroke();
+
+      ctx.restore();
+    }
   }
 
   // ─── Alpha Feature: Absorption Zones ────────────────────────────────
