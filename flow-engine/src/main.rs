@@ -45,6 +45,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thetadatadx::fpss::protocol::Contract;
 use thetadatadx::fpss::FpssClient;
+use std::collections::VecDeque;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
@@ -52,6 +53,8 @@ use tracing::{info, warn};
 // ─────────────────────────────────────────────────────────────────────────────
 // Application state shared across handlers
 // ─────────────────────────────────────────────────────────────────────────────
+
+const MAX_RECENT_THETA_TRADES: usize = 2000;
 
 struct AppState {
     /// Broadcast channel for flow events → WebSocket clients
@@ -66,6 +69,8 @@ struct AppState {
     theta_dx_client: RwLock<Option<Arc<FpssClient>>>,
     /// Current UI-managed ThetaDataDx option scope (serialized updates).
     theta_dx_option_scope: Mutex<ThetaDxOptionScope>,
+    /// Ring buffer of recent theta_trade JSON strings for frontend hydration on refresh.
+    recent_theta_trades: RwLock<VecDeque<String>>,
 }
 
 #[derive(Debug, Default)]
@@ -190,6 +195,7 @@ async fn main() {
         flow_state: RwLock::new(FlowStateSnapshot::default()),
         theta_dx_client: RwLock::new(None),
         theta_dx_option_scope: Mutex::new(ThetaDxOptionScope::default()),
+        recent_theta_trades: RwLock::new(VecDeque::with_capacity(MAX_RECENT_THETA_TRADES)),
     });
 
     // Build ingestion config from environment
@@ -358,6 +364,14 @@ async fn main() {
                             .to_string()
                         }
                     };
+                    // Buffer theta_trade events for frontend hydration on refresh
+                    if json.starts_with("{\"type\":\"theta_trade\"") {
+                        let mut buf = tdx_state.recent_theta_trades.write().await;
+                        if buf.len() >= MAX_RECENT_THETA_TRADES {
+                            buf.pop_front();
+                        }
+                        buf.push_back(json.clone());
+                    }
                     let _ = tdx_ext_tx.send(json);
                 }
                 warn!("ThetaDataDx stream ended");
@@ -394,6 +408,7 @@ async fn main() {
         .route("/ingest", post(ingest_handler))
         .route("/theta/options/subscribe", post(theta_dx_subscribe_handler))
         .route("/flow-state", get(flow_state_handler))
+        .route("/theta/trades/recent", get(recent_theta_trades_handler))
         .route("/cert-hash", get(cert_hash_handler))
         .layer(
             CorsLayer::new()
@@ -831,6 +846,14 @@ async fn ingest_handler(
 ) -> StatusCode {
     match serde_json::to_string(&event) {
         Ok(json) => {
+            // Buffer theta_trade events from Python path for hydration
+            if event.get("type").and_then(|v| v.as_str()) == Some("theta_trade") {
+                let mut buf = state.recent_theta_trades.write().await;
+                if buf.len() >= MAX_RECENT_THETA_TRADES {
+                    buf.pop_front();
+                }
+                buf.push_back(json.clone());
+            }
             let _ = state.external_tx.send(json);
             StatusCode::OK
         }
@@ -944,6 +967,28 @@ async fn cert_hash_handler() -> Json<serde_json::Value> {
 async fn flow_state_handler(State(state): State<Arc<AppState>>) -> Json<FlowStateSnapshot> {
     let snapshot = state.flow_state.read().await.clone();
     Json(snapshot)
+}
+
+#[derive(Debug, Deserialize)]
+struct RecentTradesQuery {
+    limit: Option<usize>,
+}
+
+async fn recent_theta_trades_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<RecentTradesQuery>,
+) -> impl IntoResponse {
+    let limit = q.limit.unwrap_or(500).min(MAX_RECENT_THETA_TRADES);
+    let buf = state.recent_theta_trades.read().await;
+    // Return newest first (most recent trades at index 0)
+    let trades: Vec<&str> = buf.iter().rev().take(limit).map(|s| s.as_str()).collect();
+    // Build raw JSON array to avoid double-serialization
+    let body = format!("[{}]", trades.join(","));
+    (
+        StatusCode::OK,
+        [("content-type", "application/json")],
+        body,
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

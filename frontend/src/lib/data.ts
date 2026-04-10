@@ -371,6 +371,21 @@ function handleRawMessage(raw: any, protoWorker: any) {
   }
 }
 
+async function hydrateOptionsFlow() {
+  try {
+    const trades = await api.getRecentThetaTrades(1000);
+    if (!Array.isArray(trades) || trades.length === 0) return;
+    // Trades are newest-first from the API. Process oldest-first so
+    // the store accumulates in chronological order.
+    for (let i = trades.length - 1; i >= 0; i--) {
+      handleDecodedMessage(trades[i]);
+    }
+    console.info(`[Data] Hydrated ${trades.length} recent options trades`);
+  } catch (e) {
+    console.warn('[Data] Options flow hydration failed (engine may be down):', e);
+  }
+}
+
 export function initDataLayer() {
   if (engineTransport || _connecting) return;
 
@@ -430,6 +445,10 @@ export function initDataLayer() {
   // Load initial data via REST (Python backend)
   loadCandles();
   loadQuote();
+
+  // Hydrate options flow from Rust engine's recent trade buffer.
+  // This restores the trade tape, bubble chart, and premium totals on refresh.
+  hydrateOptionsFlow();
 
   // Refresh quote when tab becomes visible
   _visibilityHandler = () => {

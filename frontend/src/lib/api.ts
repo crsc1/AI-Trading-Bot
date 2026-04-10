@@ -32,6 +32,14 @@ export interface RecentOrderFlowTrade {
   x?: string;
 }
 
+const FLOW_ENGINE_URL = `http://${window.location.hostname || 'localhost'}:8081`;
+
+async function flowEngineRequest<T>(path: string): Promise<T> {
+  const res = await fetch(`${FLOW_ENGINE_URL}${path}`);
+  if (!res.ok) throw new Error(`Flow engine ${path}: ${res.status}`);
+  return res.json();
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -86,6 +94,10 @@ export const api = {
     request<{ trades: RecentOrderFlowTrade[]; count: number; symbol: string; feed: string; live: boolean }>(
       `/api/orderflow/trades/recent?symbol=${symbol}&limit=${limit}&minutes=${minutes}`
     ),
+
+  // Recent options theta_trade events from Rust engine (for hydration on refresh)
+  getRecentThetaTrades: (limit = 500) =>
+    flowEngineRequest<any[]>(`/theta/trades/recent?limit=${limit}`),
 
   // GEX
   getGex: () => request<any>('/api/signals/gex'),
