@@ -88,6 +88,11 @@ export const OptionsBubbleChart: Component = () => {
   let smoothedPressure = 0;
   let lastSnakeRebuildMs = 0;
 
+  // Frozen bubble position cache: once a bubble is placed on the snake,
+  // its position is locked. Past data doesn't move — trades are final.
+  // Key: "timeBucket:priceBucket" (same as cell key)
+  let frozenPositions: Map<string, { x: number; y: number }> = new Map();
+
   // ─── Canvas management ──────────────────────────────────────────────
 
   function ensureCanvas(): boolean {
@@ -496,28 +501,54 @@ export const OptionsBubbleChart: Component = () => {
       return minR * 3.5 + Math.min(1, (vol - p95) / (p95 * 2 || 1)) * (maxR - minR * 3.5);
     }
 
+    // Only place NEW bubbles on the spline. Past bubbles keep their frozen position.
+    // This is correct: a call or put that printed 3 minutes ago is historical fact.
+    // The "recency threshold" defines how fresh a cell must be to still be positioned
+    // on the live spline (last 3 seconds). Everything older uses its frozen position.
+    const recencyThresholdMs = 3000;
+
+    // Purge frozen positions that scrolled off the visible window
+    for (const [key, _] of frozenPositions) {
+      const keyMs = parseInt(key.split(':')[0], 10);
+      if (keyMs < cutoff) frozenPositions.delete(key);
+    }
+
     for (const c of cells) {
       const cellMs = c._ms ?? Date.parse(c.time);
       if (cellMs < cutoff) continue;
 
-      // Map cell time to spline parameter (0 = oldest, 1 = newest)
-      const t = (cellMs - cutoff) / visibleWindowMs;
-      const pt = spline.getPointAt(Math.max(0, Math.min(1, t)));
-
-      // Slight vertical scatter by price hash to prevent bubble stacking
+      const cellKey = `${cellMs}:${c.price.toFixed(2)}`;
       const priceHash = ((c.price * 100) % 17) / 17 - 0.5;
       const scatter = priceHash * 12 * dpr;
+
+      let bx: number;
+      let by: number;
+      const isRecent = (now - cellMs) < recencyThresholdMs;
+
+      if (frozenPositions.has(cellKey) && !isRecent) {
+        // Past data: use frozen position (does not move)
+        const frozen = frozenPositions.get(cellKey)!;
+        bx = frozen.x;
+        by = frozen.y;
+      } else {
+        // New/recent data: position on the live spline, then freeze
+        const t = (cellMs - cutoff) / visibleWindowMs;
+        const pt = spline.getPointAt(Math.max(0, Math.min(1, t)));
+        bx = pt.x;
+        by = pt.y + scatter;
+        frozenPositions.set(cellKey, { x: bx, y: by });
+      }
 
       const r = volToRadius(c.total_vol);
       const totalVol = c.buy_vol + c.sell_vol;
       const buyRatio = totalVol > 0 ? c.buy_vol / totalVol : 0.5;
       const deltaRatio = totalVol > 0 ? c.delta / totalVol : 0;
-      const age = t;
+      const age = (cellMs - cutoff) / visibleWindowMs;
       const opacity = Math.max(0.15, Math.min(0.95, 0.15 + age * 0.8));
 
       bubblePoints.push({
-        x: pt.x,
-        y: pt.y + scatter,
+        x: bx,
+        y: by,
         r,
         tMs: cellMs,
         opacity,
@@ -798,6 +829,7 @@ export const OptionsBubbleChart: Component = () => {
     ticks = [];
     notables = [];
     snakePoints = [];
+    frozenPositions = new Map();
   });
 
   return (
@@ -816,7 +848,7 @@ export const OptionsBubbleChart: Component = () => {
               if (prev === 'demo') stopSim();
               setMode(m);
               if (m === 'demo') {
-                ticks = []; snakePoints = []; smoothedPressure = 0;
+                ticks = []; snakePoints = []; smoothedPressure = 0; frozenPositions = new Map();
                 startSim();
               }
             }}
