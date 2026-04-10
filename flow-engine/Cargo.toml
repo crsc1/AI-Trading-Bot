@@ -46,6 +46,9 @@ dotenvy = "0.15"
 # Ordered float for price keys
 ordered-float = { version = "4", features = ["serde"] }
 
+# Math functions (erf for normal CDF in BS model)
+libm = "0.2"
+
 # Futures utilities
 futures = "0.3"
 

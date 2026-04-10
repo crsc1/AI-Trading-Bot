@@ -64,11 +64,17 @@ enum ParsedFpssSymbol {
         strike: f64,
         right: Arc<str>,
     },
+    Equity {
+        root: Arc<str>,
+    },
 }
 
 fn parse_fpss_symbol(symbol: &str) -> Option<ParsedFpssSymbol> {
     let parts: Vec<&str> = symbol.split_whitespace().collect();
     match parts.as_slice() {
+        [root, "STOCK"] => Some(ParsedFpssSymbol::Equity {
+            root: Arc::<str>::from((*root).to_owned()),
+        }),
         [root, "OPTION", expiration, right, strike_raw] => {
             let expiration = expiration.parse().ok()?;
             let strike_raw = strike_raw.parse::<i32>().ok()?;
@@ -200,6 +206,9 @@ pub fn start_theta_dx(config: &ThetaDxConfig, channel_size: usize) -> ThetaDxSta
                                 date: *date,
                             });
                         }
+                        Some(ParsedFpssSymbol::Equity { .. }) => {
+                            // Equity quotes handled by Alpaca, skip
+                        }
                         None => {
                             warn!("ThetaDataDx: could not parse quote symbol {symbol}");
                         }
@@ -243,6 +252,9 @@ pub fn start_theta_dx(config: &ThetaDxConfig, channel_size: usize) -> ThetaDxSta
                             ms_of_day: *ms_of_day,
                             date: *date,
                         });
+                    }
+                    Some(ParsedFpssSymbol::Equity { .. }) => {
+                        // Equity trades handled by Alpaca, skip
                     }
                     None => {
                         warn!("ThetaDataDx: could not parse trade symbol {symbol}");

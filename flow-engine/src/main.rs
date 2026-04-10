@@ -19,6 +19,7 @@ mod events;
 mod footprint;
 mod ingestion;
 mod proto;
+mod options_enrichment;
 mod theta_dx;
 mod webtransport;
 
@@ -266,39 +267,53 @@ async fn main() {
                     stats.theta_dx_credential_source = Some(credential_source.to_string());
                 }
                 info!("ThetaDataDx active — streaming directly from FPSS");
+
+                // Options enrichment pipeline: IV, Greeks, VPIN, SMS
+                let mut enricher = options_enrichment::OptionsEnricher::new();
+
                 while let Some(event) = rx.recv().await {
-                    // Convert ThetaDxEvent to JSON and broadcast via external channel
-                    // This keeps the same format the frontend expects
+                    // Update enricher with latest underlying price from equity pipeline
+                    {
+                        let fs = tdx_state.flow_state.read().await;
+                        enricher.set_underlying_price(fs.last_price);
+                    }
+
                     let json = match &event {
                         theta_dx::ThetaDxEvent::OptionQuote {
                             root,
                             expiration,
                             strike,
                             right,
+                            contract_id,
                             bid,
                             ask,
                             bid_size,
                             ask_size,
                             ms_of_day,
                             date,
-                            ..
-                        } => serde_json::json!({
-                            "type": "theta_quote",
-                            "root": root.as_ref(),
-                            "expiration": expiration,
-                            "strike": strike,
-                            "right": right.as_ref(),
-                            "bid": bid, "ask": ask,
-                            "bid_size": bid_size, "ask_size": ask_size,
-                            "ms_of_day": ms_of_day,
-                            "date": date,
-                        })
-                        .to_string(),
+                        } => {
+                            // Feed quote to enricher for Greeks computation on trades
+                            enricher.on_quote(*contract_id, *bid, *ask);
+
+                            serde_json::json!({
+                                "type": "theta_quote",
+                                "root": root.as_ref(),
+                                "expiration": expiration,
+                                "strike": strike,
+                                "right": right.as_ref(),
+                                "bid": bid, "ask": ask,
+                                "bid_size": bid_size, "ask_size": ask_size,
+                                "ms_of_day": ms_of_day,
+                                "date": date,
+                            })
+                            .to_string()
+                        }
                         theta_dx::ThetaDxEvent::OptionTrade {
                             root,
                             expiration,
                             strike,
                             right,
+                            contract_id,
                             price,
                             size,
                             premium,
@@ -307,21 +322,41 @@ async fn main() {
                             exchange,
                             ms_of_day,
                             date,
-                            ..
-                        } => serde_json::json!({
-                            "type": "theta_trade",
-                            "root": root.as_ref(),
-                            "expiration": expiration,
-                            "strike": strike,
-                            "right": right.as_ref(),
-                            "price": price, "size": size,
-                            "premium": premium,
-                            "side": side,
-                            "condition": condition, "exchange": exchange,
-                            "ms_of_day": ms_of_day,
-                            "date": date,
-                        })
-                        .to_string(),
+                        } => {
+                            let is_call = right.as_ref() == "C";
+                            let enriched = enricher.enrich_trade(
+                                *contract_id,
+                                *strike,
+                                is_call,
+                                *price,
+                                *size,
+                                side,
+                                *expiration,
+                                *date,
+                                *ms_of_day,
+                            );
+
+                            serde_json::json!({
+                                "type": "theta_trade",
+                                "root": root.as_ref(),
+                                "expiration": expiration,
+                                "strike": strike,
+                                "right": right.as_ref(),
+                                "price": price, "size": size,
+                                "premium": premium,
+                                "side": side,
+                                "condition": condition, "exchange": exchange,
+                                "ms_of_day": ms_of_day,
+                                "date": date,
+                                "timestamp": enriched.timestamp_ms as f64 / 1000.0,
+                                "iv": enriched.iv,
+                                "delta": enriched.delta,
+                                "gamma": enriched.gamma,
+                                "vpin": enriched.vpin,
+                                "sms": enriched.sms,
+                            })
+                            .to_string()
+                        }
                     };
                     let _ = tdx_ext_tx.send(json);
                 }
