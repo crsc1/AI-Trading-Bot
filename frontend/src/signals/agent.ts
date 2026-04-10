@@ -1,5 +1,5 @@
 import { createStore } from 'solid-js/store';
-import type { AgentState, ChatMessage, BrainState, BrainDecision, CycleUpdate, PatternRecall, ResearchFinding } from '../types/agent';
+import type { AgentState, ChatMessage, BrainState, BrainDecision, CycleUpdate, PatternRecall, ResearchFinding, DataSource } from '../types/agent';
 
 const initialBrain: BrainState = {
   status: 'idle',
@@ -15,8 +15,16 @@ const initialState: AgentState = {
   brain: initialBrain,
   messages: [],
   decisions: [],
+  recentDecisionsLoading: false,
+  lastRecentDecisionsUpdateAt: null,
   lastCycle: null,
   patternRecall: null,
+  sources: [],
+  model: '',
+  sourcesLoading: true,
+  findingsLoading: true,
+  lastSourcesUpdateAt: null,
+  lastFindingsUpdateAt: null,
   findings: [],
   chatConnected: false,
   activeTab: 'brain',
@@ -42,6 +50,10 @@ export function addDecision(decision: BrainDecision) {
   });
 }
 
+export function setDecisions(decisions: BrainDecision[]) {
+  setAgent('decisions', decisions);
+}
+
 export function setLastCycle(cycle: CycleUpdate) {
   setAgent('lastCycle', cycle);
 }
@@ -56,6 +68,38 @@ export function updateBrain(state: Partial<BrainState>) {
 
 export function setFindings(findings: ResearchFinding[]) {
   setAgent('findings', findings);
+}
+
+export function setSources(sources: DataSource[]) {
+  setAgent('sources', sources);
+}
+
+export function setModel(model: string) {
+  setAgent('model', model);
+}
+
+export function setSourcesLoading(loading: boolean) {
+  setAgent('sourcesLoading', loading);
+}
+
+export function setFindingsLoading(loading: boolean) {
+  setAgent('findingsLoading', loading);
+}
+
+export function setLastSourcesUpdateAt(timestamp: number | null) {
+  setAgent('lastSourcesUpdateAt', timestamp);
+}
+
+export function setLastFindingsUpdateAt(timestamp: number | null) {
+  setAgent('lastFindingsUpdateAt', timestamp);
+}
+
+export function setRecentDecisionsLoading(loading: boolean) {
+  setAgent('recentDecisionsLoading', loading);
+}
+
+export function setLastRecentDecisionsUpdateAt(timestamp: number | null) {
+  setAgent('lastRecentDecisionsUpdateAt', timestamp);
 }
 
 export function setChatConnected(connected: boolean) {

@@ -47,7 +47,7 @@ function decode(buffer: ArrayBuffer): any {
     }
     case 'cvd': {
       const d = msg.cvd!;
-      return { type: 'cvd', value: num(d.value), delta_1m: num(d.delta1m), delta_5m: num(d.delta5m) };
+      return { type: 'cvd', value: num(d.value), delta_1m: num(d.delta_1m), delta_5m: num(d.delta_5m) };
     }
     case 'footprint': {
       const f = msg.footprint!;
@@ -76,21 +76,30 @@ function decode(buffer: ArrayBuffer): any {
     case 'optionTrade': {
       const o = msg.optionTrade!;
       return {
-        type: 'theta_trade', root: o.root, strike: o.strike, right: o.right,
+        type: 'theta_trade', root: String(o.root ?? ''), strike: o.strike, right: String(o.right ?? ''),
         price: o.price, size: num(o.size), premium: o.premium,
-        side: o.side, iv: o.iv, delta: o.delta, gamma: o.gamma,
-        vpin: o.vpin, sms: o.sms, expiration: o.expiration,
-        exchange: o.exchange, timestamp: num(o.timestampMs) / 1000, // seconds for existing handler
-        ms_of_day: num(o.msOfDay), condition: o.condition,
+        side: String(o.side ?? ''), iv: o.iv, delta: o.delta, gamma: o.gamma,
+        vpin: o.vpin, sms: o.sms, expiration: num(o.expiration),
+        exchange: String(o.exchange ?? ''), timestamp: num(o.timestampMs) / 1000, // seconds for existing handler
+        ms_of_day: num(o.msOfDay), condition: num(o.condition),
       };
     }
     case 'heartbeat': {
-      return { type: 'heartbeat' };
+      const h = msg.heartbeat!;
+      return {
+        type: 'heartbeat',
+        timestamp: num(h.timestampMs),
+        ticks_processed: num(h.ticksProcessed),
+        last_price: h.lastPrice,
+        data_source: String(h.dataSource ?? ''),
+      };
     }
     case 'external': {
       // Python-forwarded events: JSON string inside protobuf wrapper
       try {
-        return JSON.parse(msg.external!.json);
+        const rawJson = msg.external?.json;
+        if (!rawJson) return null;
+        return JSON.parse(rawJson);
       } catch {
         return null;
       }

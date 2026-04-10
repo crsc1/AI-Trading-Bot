@@ -2,7 +2,7 @@
  * Indicator Settings Panel — popover for configuring indicator parameters.
  * Renders dynamic form controls based on the indicator's config.
  */
-import { type Component, For, Show, createSignal, onCleanup } from 'solid-js';
+import { type Component, For, Show, onCleanup } from 'solid-js';
 import {
   getConfigForIndicator,
   getIndicatorParams,

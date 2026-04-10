@@ -136,14 +136,6 @@ export class FlowBubbleRenderer {
     }
   }
 
-  private _getTier(cssRadius: number): TierName {
-    if (cssRadius <= 7) return 'tiny';
-    if (cssRadius <= 13) return 'small';
-    if (cssRadius <= 20) return 'medium';
-    if (cssRadius <= 30) return 'large';
-    return 'huge';
-  }
-
   // Fast numeric index versions for hot loop (no string alloc)
   private _getTierIdx(cssRadius: number): number {
     if (cssRadius <= 7) return 0;
@@ -157,12 +149,6 @@ export class FlowBubbleRenderer {
     if (deltaRatio > 0.1) return 0;  // buy
     if (deltaRatio < -0.1) return 1; // sell
     return 2;                         // neutral
-  }
-
-  private _getColorKey(deltaRatio: number): ColorKey {
-    if (deltaRatio > 0.1) return 'buy';
-    if (deltaRatio < -0.1) return 'sell';
-    return 'neutral';
   }
 
   private _getSprite(): PIXI.Sprite {

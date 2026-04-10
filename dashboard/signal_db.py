@@ -18,20 +18,27 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 _DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-DB_PATH = os.path.join(_DB_DIR, "signals.db")
+_DEFAULT_DB_PATH = os.path.join(_DB_DIR, "signals.db")
+DB_PATH = os.environ.get("SIGNAL_DB_PATH", _DEFAULT_DB_PATH)
+_db_initialized = False
 
 
-def _get_conn() -> sqlite3.Connection:
-    os.makedirs(_DB_DIR, exist_ok=True)
+def _connect() -> sqlite3.Connection:
+    db_dir = os.path.dirname(DB_PATH) or "."
+    os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
-def init_db():
+def init_db(force: bool = False):
     """Create tables if they don't exist."""
-    conn = _get_conn()
+    global _db_initialized
+    if _db_initialized and not force:
+        return
+
+    conn = _connect()
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS signals (
             id TEXT PRIMARY KEY,
@@ -197,6 +204,12 @@ def init_db():
         pass
 
     conn.close()
+    _db_initialized = True
+
+
+def _get_conn() -> sqlite3.Connection:
+    init_db()
+    return _connect()
 
 
 # ── Signals ──
@@ -792,7 +805,3 @@ def get_persisted_exit_advisories(trade_id: str = None, limit: int = 100) -> Lis
             d["key_signals"] = []
         result.append(d)
     return result
-
-
-# Initialize on import
-init_db()

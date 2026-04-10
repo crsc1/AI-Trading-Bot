@@ -6,6 +6,10 @@ interface SignalState {
   history: Signal[];
   positions: Position[];
   daily: DailyPerformance;
+  signalsLoading: boolean;
+  positionsLoading: boolean;
+  lastSignalsUpdateAt: number | null;
+  lastPositionsUpdateAt: number | null;
 }
 
 const initialState: SignalState = {
@@ -19,6 +23,10 @@ const initialState: SignalState = {
     win_rate: 0,
     trades_today: 0,
   },
+  signalsLoading: true,
+  positionsLoading: true,
+  lastSignalsUpdateAt: null,
+  lastPositionsUpdateAt: null,
 };
 
 const [signals, setSignals] = createStore(initialState);
@@ -39,4 +47,20 @@ export function setPositions(positions: Position[]) {
 
 export function setDailyPerformance(daily: DailyPerformance) {
   setSignals('daily', daily);
+}
+
+export function setSignalsLoading(loading: boolean) {
+  setSignals('signalsLoading', loading);
+}
+
+export function setPositionsLoading(loading: boolean) {
+  setSignals('positionsLoading', loading);
+}
+
+export function setLastSignalsUpdateAt(timestamp: number | null) {
+  setSignals('lastSignalsUpdateAt', timestamp);
+}
+
+export function setLastPositionsUpdateAt(timestamp: number | null) {
+  setSignals('lastPositionsUpdateAt', timestamp);
 }

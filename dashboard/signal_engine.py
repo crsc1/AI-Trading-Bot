@@ -50,7 +50,7 @@ class SignalEngine:
         self._chain_cache: Optional[Dict] = None
         self._options_snapshot_cache: Optional[Dict] = None
 
-    async def fetch_market_data(self, app_request=None) -> Dict[str, Any]:
+    async def fetch_market_data(self, app_request=None, symbol: Optional[str] = None) -> Dict[str, Any]:
         """
         Fetch all required market data from internal API endpoints.
         This runs server-side, so no external network needed from frontend.
@@ -58,6 +58,7 @@ class SignalEngine:
         import aiohttp
 
         base = cfg.DASHBOARD_BASE_URL
+        requested_symbol = (symbol or self.symbol or SYMBOL).upper()
         data = {
             "bars_1m": [],
             "bars_daily": [],
@@ -85,12 +86,12 @@ class SignalEngine:
                 expiry = _get_nearest_expiry()
 
                 results = await asyncio.gather(
-                    fetch_json(f"{base}/api/bars?symbol={self.symbol}&timeframe=1Min&limit={cfg.SIGNAL_BARS_1M_LIMIT}"),
-                    fetch_json(f"{base}/api/bars?symbol={self.symbol}&timeframe=1D&limit={cfg.SIGNAL_BARS_DAILY_LIMIT}"),
-                    fetch_json(f"{base}/api/market?symbol={self.symbol}"),
-                    fetch_json(f"{base}/api/quote?symbol={self.symbol}"),
-                    fetch_json(f"{base}/api/options/chain?root={self.symbol}&exp={expiry}"),
-                    fetch_json(f"{base}/api/options/snapshot?root={self.symbol}&exp={expiry}"),
+                    fetch_json(f"{base}/api/bars?symbol={requested_symbol}&timeframe=1Min&limit={cfg.SIGNAL_BARS_1M_LIMIT}"),
+                    fetch_json(f"{base}/api/bars?symbol={requested_symbol}&timeframe=1D&limit={cfg.SIGNAL_BARS_DAILY_LIMIT}"),
+                    fetch_json(f"{base}/api/market?symbol={requested_symbol}"),
+                    fetch_json(f"{base}/api/quote?symbol={requested_symbol}"),
+                    fetch_json(f"{base}/api/options/chain?root={requested_symbol}&exp={expiry}"),
+                    fetch_json(f"{base}/api/options/snapshot?root={requested_symbol}&exp={expiry}"),
                     return_exceptions=True,
                 )
 
@@ -101,7 +102,12 @@ class SignalEngine:
                 if bars_daily_resp and not isinstance(bars_daily_resp, Exception):
                     data["bars_daily"] = bars_daily_resp.get("bars", [])
                 if market_resp and not isinstance(market_resp, Exception):
-                    data["market"] = market_resp.get("spy") or {}
+                    market_key = requested_symbol.lower()
+                    data["market"] = (
+                        market_resp.get(market_key)
+                        or market_resp.get("spy")
+                        or {}
+                    )
                 if quote_resp and not isinstance(quote_resp, Exception):
                     data["quote"] = quote_resp
                 if chain_resp and not isinstance(chain_resp, Exception):

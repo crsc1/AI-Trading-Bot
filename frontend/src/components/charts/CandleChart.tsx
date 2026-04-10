@@ -16,7 +16,7 @@ import { signals } from '../../signals/signals';
 import { chartTheme } from '../../lib/theme';
 import { calcVWAP, calcVWAPBands, calcPrevDayVWAP, calcBB, calcAAVWAP, calcBB_RH, calcAlligator_RH, calcFOSC_RH, calcHV_RH, calcIV, calcVolumeProfile, calcSessionVolumeProfile } from '../../lib/indicators';
 import { optionsFlow } from '../../signals/optionsFlow';
-import type { Candle } from '../../types/market';
+import type { Candle, ChartRange } from '../../types/market';
 import { ChartControls, getIndicatorColor } from './ChartControls';
 import { ChartLegend } from './ChartLegend';
 import { findIndicator } from '../../lib/indicatorRegistry';
@@ -116,15 +116,127 @@ function toLineData(data: { time: number; value: number }[]): LineData<Time>[] {
   return data.map(d => ({ time: toETTime(d.time) as Time, value: d.value }));
 }
 
+function shiftedDateKey(shiftedSec: number): string {
+  const d = new Date(shiftedSec * 1000);
+  const year = d.getUTCFullYear();
+  const month = `${d.getUTCMonth() + 1}`.padStart(2, '0');
+  const day = `${d.getUTCDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function shiftedSessionTime(shiftedSec: number, hour: number, minute = 0): number {
+  const d = new Date(shiftedSec * 1000);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour, minute, 0, 0) / 1000;
+}
+
+function buildTimelineSlots(candles: Candle[], intervalSeconds: number): number[] {
+  if (candles.length === 0 || intervalSeconds >= 86400) return [];
+
+  const grouped = new Map<string, { shiftedTimes: number[]; hasExtended: boolean }>();
+  for (const candle of candles) {
+    const shiftedTime = toETTime(candle.time);
+    const key = shiftedDateKey(shiftedTime);
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.shiftedTimes.push(shiftedTime);
+      existing.hasExtended = existing.hasExtended || !isRTH(candle.time);
+    } else {
+      grouped.set(key, {
+        shiftedTimes: [shiftedTime],
+        hasExtended: !isRTH(candle.time),
+      });
+    }
+  }
+
+  const slots: number[] = [];
+  const sortedGroups = [...grouped.values()].sort((a, b) => a.shiftedTimes[0] - b.shiftedTimes[0]);
+  for (const group of sortedGroups) {
+    const referenceTime = group.shiftedTimes[0];
+    const start = group.hasExtended
+      ? shiftedSessionTime(referenceTime, 4, 0)
+      : shiftedSessionTime(referenceTime, 9, 30);
+    const end = group.hasExtended
+      ? shiftedSessionTime(referenceTime, 20, 0)
+      : shiftedSessionTime(referenceTime, 16, 0);
+
+    for (let t = start; t <= end; t += intervalSeconds) {
+      slots.push(t);
+    }
+  }
+
+  return slots;
+}
+
+function timeframeToSeconds(timeframe: string): number {
+  const match = timeframe.match(/^(\d+)(Min|H|Hour|D|Week)$/);
+  if (!match) return 300;
+  const amount = Number(match[1]);
+  const unit = match[2];
+  switch (unit) {
+    case 'Min':
+      return amount * 60;
+    case 'H':
+    case 'Hour':
+      return amount * 3600;
+    case 'D':
+      return amount * 86400;
+    case 'Week':
+      return amount * 604800;
+    default:
+      return 300;
+  }
+}
+
+function rangeToSeconds(range: ChartRange): number | null {
+  switch (range) {
+    case '1D':
+      return 86400;
+    case '1W':
+      return 7 * 86400;
+    case '1M':
+      return 31 * 86400;
+    case '3M':
+      return 93 * 86400;
+    case '1Y':
+      return 366 * 86400;
+    case 'MAX':
+      return null;
+  }
+}
+
+function minimumViewportBars(intervalSeconds: number, range: ChartRange): number {
+  if (range === 'MAX') return 0;
+  if (intervalSeconds <= 60) return range === '1D' ? 90 : 60;
+  if (intervalSeconds <= 120) return range === '1D' ? 72 : 48;
+  if (intervalSeconds <= 300) return range === '1D' ? 48 : 36;
+  if (intervalSeconds <= 900) return range === '1D' ? 32 : 24;
+  if (intervalSeconds <= 1800) return range === '1D' ? 24 : 18;
+  if (intervalSeconds <= 3600) return range === '1D' ? 18 : 14;
+  if (intervalSeconds < 86400) return 12;
+  if (intervalSeconds < 604800) return 20;
+  return 26;
+}
+
+function extendViewportLeft(fromIdx: number, candleCount: number, minBars: number): number {
+  if (minBars <= 0) return fromIdx;
+  const visibleBars = candleCount - fromIdx;
+  if (visibleBars >= minBars) return fromIdx;
+  return Math.max(0, candleCount - minBars);
+}
+
 export const CandleChart: Component = () => {
   let containerRef: HTMLDivElement | undefined;
   let chart: IChartApi | undefined;
   let candleSeries: ISeriesApi<'Candlestick'> | undefined;
   let volumeSeries: ISeriesApi<'Histogram'> | undefined;
+  let timelineSeries: ISeriesApi<'Line'> | undefined;
   let overlaySeries: ISeriesApi<any>[] = [];
   let markersPlugin: ISeriesMarkersPluginApi<Time> | undefined;
   let dataLoaded = false;
   let lastBarCount = 0;
+  let lastDatasetKey = '';
+  let lastSeriesKey = '';
+  let lastFirstBarTime = 0;
 
   const savedIds = (() => {
     try {
@@ -180,7 +292,7 @@ export const CandleChart: Component = () => {
         timeVisible: true,
         secondsVisible: false,
         borderColor: chartTheme.gridColor,
-        rightOffset: 5,
+        rightOffset: 14,
         barSpacing: 8,
         minBarSpacing: 4,
         shiftVisibleRangeOnNewBar: true,
@@ -207,6 +319,14 @@ export const CandleChart: Component = () => {
       lastValueVisible: false,
       priceLineVisible: false,
     }, 1);
+
+    timelineSeries = chart.addSeries(LineSeries, {
+      color: 'rgba(0,0,0,0)',
+      lineWidth: 1,
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+    });
 
     // Set pane sizes: 80% price, 20% volume
     const panes = chart.panes();
@@ -235,23 +355,25 @@ export const CandleChart: Component = () => {
     if (chart) { chart.remove(); chart = undefined; }
     candleSeries = undefined;
     volumeSeries = undefined;
+    timelineSeries = undefined;
     overlaySeries = [];
   });
 
   // ── Load initial historical data (called once) ───────────────────────
 
   function loadInitialData() {
-    if (dataLoaded || !candleSeries || !volumeSeries) return;
+    if (dataLoaded || !candleSeries || !volumeSeries || !timelineSeries) return;
     const candles = market.candles;
     if (candles.length === 0) return;
 
     candleSeries.setData(candles.map(toCandlestick));
     volumeSeries.setData(candles.map(toVolume));
+    timelineSeries.setData(buildTimelineSlots(candles, timeframeToSeconds(market.interval)).map((time) => ({ time: time as Time })));
     lastBarCount = candles.length;
     dataLoaded = true;
 
-    // Fit visible range to today's session (from 9:30 AM ET open)
-    fitToTodaySession(candles);
+    // Fit visible range using timeframe-aware defaults.
+    fitToInitialRange(candles);
 
     // Set signal markers (includes session boundaries)
     updateMarkers();
@@ -259,44 +381,124 @@ export const CandleChart: Component = () => {
     rebuildIndicators();
   }
 
-  /** Fit visible range to today's RTH session (9:30 AM ET) with some pre-market context */
-  function fitToTodaySession(candles: Candle[]) {
+  /** Fit visible range using timeframe-aware defaults */
+  function fitToInitialRange(candles: Candle[]) {
     if (!chart || candles.length === 0) return;
+    const seconds = timeframeToSeconds(market.interval);
+    const lookbackSeconds = rangeToSeconds(market.range);
+    const minBars = minimumViewportBars(seconds, market.range);
+    const timelineSlots = buildTimelineSlots(candles, seconds);
+    const latestVisibleTime = (timelineSlots[timelineSlots.length - 1] ?? toETTime(candles[candles.length - 1].time)) as Time;
 
-    // Find today's 9:00 AM ET bar (30 min before open for context)
-    const now = new Date();
-    const todayStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
-
-    let sessionStart = -1;
-    for (let i = candles.length - 1; i >= 0; i--) {
-      const d = new Date(candles[i].time * 1000);
-      const dayStr = d.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
-      if (dayStr !== todayStr) break;
-      const { h } = getETHourMin(candles[i].time);
-      if (h >= 9) sessionStart = i;
+    if (market.range === 'MAX' || lookbackSeconds == null) {
+      chart.timeScale().fitContent();
+      return;
     }
 
-    if (sessionStart >= 0) {
-      // Show from 30 min before session start (or session start if no pre-market)
-      const fromIdx = Math.max(0, sessionStart - 6); // 6 bars * 5min = 30 min
-      const fromTime = toETTime(candles[fromIdx].time) as Time;
-      const toTime = toETTime(candles[candles.length - 1].time) as Time;
-      chart.timeScale().setVisibleRange({ from: fromTime, to: toTime });
+    if (market.range === '1D' && seconds < 86400) {
+      // Intraday 1D should show the current session with a little context,
+      // not collapse to a handful of giant bars.
+      const now = new Date();
+      const todayStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+      let sessionStart = -1;
+      for (let i = candles.length - 1; i >= 0; i--) {
+        const d = new Date(candles[i].time * 1000);
+        const dayStr = d.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+        if (dayStr !== todayStr) break;
+        const { h } = getETHourMin(candles[i].time);
+        if (h >= 9) sessionStart = i;
+      }
+
+      if (sessionStart >= 0) {
+        const barsOfPremarketContext = Math.max(1, Math.ceil(1800 / seconds));
+        let fromIdx = Math.max(0, sessionStart - barsOfPremarketContext);
+        fromIdx = extendViewportLeft(fromIdx, candles.length, minBars);
+        chart.timeScale().setVisibleRange({
+          from: toETTime(candles[fromIdx].time) as Time,
+          to: latestVisibleTime,
+        });
+        return;
+      }
     }
+
+    const targetStart = candles[candles.length - 1].time - lookbackSeconds;
+    let fromIdx = candles.findIndex((c) => c.time >= targetStart);
+    if (fromIdx < 0) fromIdx = 0;
+
+    const visibleBars = candles.length - fromIdx;
+    const leftPaddingBars = Math.max(2, Math.round(visibleBars * 0.05));
+    fromIdx = Math.max(0, fromIdx - leftPaddingBars);
+    fromIdx = extendViewportLeft(fromIdx, candles.length, minBars);
+
+    chart.timeScale().setVisibleRange({
+      from: toETTime(candles[fromIdx].time) as Time,
+      to: latestVisibleTime,
+    });
   }
 
   // ── React to candles arriving (for initial load timing) ──────────────
 
   createEffect(on(
-    () => market.candles.length,
-    (len) => {
-      if (!dataLoaded) { loadInitialData(); return; }
-      // New bar appended
-      if (len > lastBarCount && candleSeries && volumeSeries) {
-        const c = market.candles[len - 1];
+    () => {
+      const candles = market.candles;
+      const first = candles[0]?.time ?? 0;
+      const last = candles[candles.length - 1]?.time ?? 0;
+      return `${market.symbol}|${market.interval}|${market.range}|${candles.length}|${first}|${last}`;
+    },
+    (datasetKey) => {
+      if (!candleSeries || !volumeSeries || !timelineSeries) return;
+
+      const candles = market.candles;
+      const seriesKey = `${market.symbol}|${market.interval}`;
+      if (candles.length === 0) {
+        candleSeries.setData([]);
+        volumeSeries.setData([]);
+        timelineSeries.setData([]);
+        overlaySeries.forEach((s) => { try { chart?.removeSeries(s); } catch {} });
+        overlaySeries = [];
+        dataLoaded = false;
+        lastBarCount = 0;
+        lastDatasetKey = '';
+        lastSeriesKey = '';
+        lastFirstBarTime = 0;
+        return;
+      }
+
+      const firstBarTime = candles[0]?.time ?? 0;
+      const isSingleBarAppend =
+        candles.length === lastBarCount + 1 &&
+        firstBarTime === lastFirstBarTime &&
+        seriesKey === lastSeriesKey;
+      const fullResetNeeded =
+        !dataLoaded ||
+        !lastDatasetKey ||
+        seriesKey !== lastSeriesKey ||
+        (datasetKey !== lastDatasetKey && !isSingleBarAppend);
+      if (fullResetNeeded) {
+        candleSeries.setData(candles.map(toCandlestick));
+        volumeSeries.setData(candles.map(toVolume));
+        timelineSeries.setData(buildTimelineSlots(candles, timeframeToSeconds(market.interval)).map((time) => ({ time: time as Time })));
+        lastBarCount = candles.length;
+        dataLoaded = true;
+        lastDatasetKey = datasetKey;
+        lastSeriesKey = seriesKey;
+        lastFirstBarTime = firstBarTime;
+        fitToInitialRange(candles);
+        updateMarkers();
+        rebuildIndicators();
+        return;
+      }
+
+      lastDatasetKey = datasetKey;
+      lastSeriesKey = seriesKey;
+      lastFirstBarTime = firstBarTime;
+      if (candles.length > lastBarCount) {
+        const c = candles[candles.length - 1];
         candleSeries.update(toCandlestick(c));
         volumeSeries.update(toVolume(c));
-        lastBarCount = len;
+        timelineSeries.setData(buildTimelineSlots(candles, timeframeToSeconds(market.interval)).map((time) => ({ time: time as Time })));
+        lastBarCount = candles.length;
+        updateMarkers();
         scheduleIndicatorRebuild();
       }
     }

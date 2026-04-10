@@ -4,7 +4,7 @@
  * Provides: consistent header, loading/error states, fullscreen toggle.
  * Every tile on the Reference page (and eventually other pages) uses this.
  */
-import { type Component, type JSX, Show, createSignal, onCleanup } from 'solid-js';
+import { type Component, type JSX, Show, createEffect, createSignal, onCleanup } from 'solid-js';
 
 interface PanelProps {
   title: string;
@@ -21,23 +21,26 @@ export const Panel: Component<PanelProps> = (props) => {
 
   const toggle = () => setFullscreen(!fullscreen());
 
-  // Escape key exits fullscreen
-  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && fullscreen()) setFullscreen(false); };
-  if (typeof window !== 'undefined') {
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false); };
+
+  createEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!fullscreen()) return;
+
     window.addEventListener('keydown', onKey);
     onCleanup(() => window.removeEventListener('keydown', onKey));
-  }
+  });
 
   return (
     <div
       class={`flex flex-col ${
         fullscreen()
-          ? 'fixed inset-0 z-50 bg-surface-1'
-          : 'h-full'
+          ? 'fixed inset-0 z-50 bg-surface-0'
+          : 'h-full bg-surface-1'
       }`}
     >
       {/* Header */}
-      <div class="h-10 px-4 flex items-center justify-between border-b border-border-default shrink-0">
+      <div class="h-10 px-4 flex items-center justify-between border-b border-border-default shrink-0 bg-surface-0">
         <div class="flex items-center gap-2">
           <span class="font-display text-[11px] font-medium text-text-secondary tracking-wider uppercase">
             {props.title}

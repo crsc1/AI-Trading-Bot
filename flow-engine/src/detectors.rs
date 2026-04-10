@@ -37,7 +37,11 @@ impl ImbalanceDetector {
     /// Check footprint levels for imbalances. Returns events for any detected.
     ///
     /// `levels` = sorted list of (price_level, bid_vol, ask_vol) from footprint.
-    pub fn check(&self, levels: &[(PriceLevel, u64, u64)], timestamp: DateTime<Utc>) -> Vec<FlowEvent> {
+    pub fn check(
+        &self,
+        levels: &[(PriceLevel, u64, u64)],
+        timestamp: DateTime<Utc>,
+    ) -> Vec<FlowEvent> {
         let mut events = Vec::new();
 
         // Track consecutive imbalances for stacking
@@ -112,7 +116,8 @@ impl ImbalanceDetector {
     ) {
         if stack.len() as u32 >= self.min_stacked {
             let mid_idx = stack.len() / 2;
-            let avg_ratio: f64 = stack.iter().map(|(_, r)| r.min(100.0)).sum::<f64>() / stack.len() as f64;
+            let avg_ratio: f64 =
+                stack.iter().map(|(_, r)| r.min(100.0)).sum::<f64>() / stack.len() as f64;
             events.push(FlowEvent::Imbalance {
                 price: stack[mid_idx].0.into_inner(),
                 side,
@@ -202,7 +207,8 @@ impl SweepDetector {
 
             if total_size >= self.min_total_size && unique_levels.len() as u32 >= self.min_levels {
                 // Found a sweep — emit event and clear window to avoid duplicates
-                let avg_price = same_side.iter().map(|t| t.price).sum::<f64>() / same_side.len() as f64;
+                let avg_price =
+                    same_side.iter().map(|t| t.price).sum::<f64>() / same_side.len() as f64;
                 self.recent_ticks.clear();
 
                 return Some(FlowEvent::Sweep {
@@ -260,13 +266,16 @@ impl AbsorptionDetector {
         let level = price_to_level(tick.price, 0.01);
 
         // Update or create watch entry
-        let entry = self.level_volume.entry(level).or_insert_with(|| LevelWatch {
-            total_volume: 0,
-            side: tick.side,
-            first_seen: tick.timestamp,
-            last_seen: tick.timestamp,
-            emitted: false,
-        });
+        let entry = self
+            .level_volume
+            .entry(level)
+            .or_insert_with(|| LevelWatch {
+                total_volume: 0,
+                side: tick.side,
+                first_seen: tick.timestamp,
+                last_seen: tick.timestamp,
+                emitted: false,
+            });
 
         entry.total_volume += tick.size;
         entry.last_seen = tick.timestamp;
@@ -298,6 +307,7 @@ impl AbsorptionDetector {
 mod tests {
     use super::*;
     use crate::events::TickSource;
+    use ordered_float::OrderedFloat;
 
     fn make_tick(price: f64, size: u64, side: TradeSide) -> ClassifiedTick {
         ClassifiedTick {
@@ -363,7 +373,10 @@ mod tests {
         let result = detector.process_tick(&t2);
 
         assert!(result.is_some(), "Should detect sweep across 2 levels");
-        if let Some(FlowEvent::Sweep { levels_hit, size, .. }) = result {
+        if let Some(FlowEvent::Sweep {
+            levels_hit, size, ..
+        }) = result
+        {
             assert_eq!(levels_hit, 2);
             assert_eq!(size, 600);
         }

@@ -1428,13 +1428,13 @@ async def set_current_trade_mode(mode: str = Query(...)):
 
 
 @router.get("/levels")
-async def get_market_levels():
+async def get_market_levels(symbol: str = Query("SPY")):
     """
     Get current market structure levels (VWAP, pivots, HOD/LOD, ORB, etc).
     Useful for the frontend to draw level lines on the chart.
     """
     try:
-        market_data = await engine.fetch_market_data()
+        market_data = await engine.fetch_market_data(symbol=symbol.upper())
 
         quote = {**market_data.get("quote", {})}
         market = market_data.get("market", {})

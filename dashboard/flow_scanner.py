@@ -172,8 +172,7 @@ class FlowScanner:
         logger.info(f"[Scanner] Subscribed {symbol} @ ${price:.2f}: {len(strikes)*2} contracts")
 
     async def subscribe_all(self, theta_stream):
-        from datetime import date
-        today = int(date.today().strftime("%Y%m%d"))
+        today = int(datetime.now(_ET).strftime("%Y%m%d"))
         for symbol in SCANNER_SYMBOLS:
             if symbol in self._subscribed_symbols:
                 continue

@@ -11,7 +11,7 @@ Data sources:
 """
 
 from fastapi import APIRouter, Query
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import json as _json
 import logging
@@ -319,7 +319,7 @@ async def get_live_quote(symbol: str = Query("SPY"), feed: str = Query("sip")):
 @router.get("/bars")
 async def get_historical_bars(
     symbol: str = Query("SPY"),
-    timeframe: str = Query("1D", description="1Min, 5Min, 15Min, 1H, 1D"),
+    timeframe: str = Query("1D", description="1Min, 2Min, 5Min, 10Min, 15Min, 30Min, 1H, 4Hour, 1D, 1Week"),
     limit: int = Query(365, ge=1, le=5000),
     feed: str = Query("sip"),
     indicators: Optional[str] = Query(None, description="Comma-separated indicators, e.g. ema21,sma50,rsi14,atr14"),
@@ -355,17 +355,35 @@ async def _fetch_alpaca_bars(symbol: str, timeframe: str, limit: int, feed: str)
     }
     alpaca_tf = tf_map.get(timeframe, timeframe)
 
-    # Calculate start date — tight window to avoid fetching weeks of data
-    if alpaca_tf == "1Day":
-        start_dt = datetime.now() - timedelta(days=min(limit * 2, 730))
-    elif alpaca_tf == "1Hour":
-        start_dt = datetime.now() - timedelta(days=min(limit // 7 + 3, 60))
-    elif alpaca_tf == "15Min":
-        start_dt = datetime.now() - timedelta(days=min(limit // 26 + 2, 30))
-    elif alpaca_tf == "5Min":
-        start_dt = datetime.now() - timedelta(days=min(limit // 78 + 3, 30))
-    else:  # 1Min
-        start_dt = datetime.now() - timedelta(days=min(limit // 390 + 3, 14))
+    def _timeframe_to_seconds(value: str) -> Optional[int]:
+        match = re.fullmatch(r"(\d+)(Min|Hour|Day|Week)", value)
+        if not match:
+            return None
+        amount = int(match.group(1))
+        unit = match.group(2)
+        unit_seconds = {
+            "Min": 60,
+            "Hour": 3600,
+            "Day": 86400,
+            "Week": 604800,
+        }
+        return amount * unit_seconds[unit]
+
+    interval_seconds = _timeframe_to_seconds(alpaca_tf)
+    now_utc = datetime.now(timezone.utc)
+
+    # Calculate start date based on requested timeframe so wider bars like
+    # 30Min / 4Hour / 1Week return enough history instead of falling through
+    # to the old 1-minute window heuristic.
+    if interval_seconds is None:
+        start_dt = now_utc - timedelta(days=min(limit // 390 + 3, 14))
+    elif interval_seconds >= 604800:
+        start_dt = now_utc - timedelta(seconds=interval_seconds * max(limit * 3, 12))
+    elif interval_seconds >= 86400:
+        start_dt = now_utc - timedelta(seconds=interval_seconds * max(limit * 3, 45))
+    else:
+        buffer_seconds = max(interval_seconds * max(limit * 2, 120), 3 * 86400)
+        start_dt = now_utc - timedelta(seconds=buffer_seconds)
 
     start = start_dt.strftime("%Y-%m-%dT00:00:00Z")
 

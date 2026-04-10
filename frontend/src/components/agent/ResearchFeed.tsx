@@ -1,7 +1,7 @@
-import { type Component, For, Show, onMount, onCleanup, createSignal } from 'solid-js';
-import { agent, setFindings } from '../../signals/agent';
-import { api } from '../../lib/api';
-import type { ResearchFinding } from '../../types/agent';
+import { type Component, For, Show, onMount, onCleanup } from 'solid-js';
+import { agent } from '../../signals/agent';
+import { subscribeResearchFindings, unsubscribeResearchFindings } from '../../runtime/agentRuntime';
+import { EmptyState } from '../system/EmptyState';
 
 const typeIcons: Record<string, string> = {
   sentiment: 'S',
@@ -10,31 +10,17 @@ const typeIcons: Record<string, string> = {
 };
 
 const typeColors: Record<string, string> = {
-  sentiment: 'bg-accent/15 text-accent',
-  pattern: 'bg-purple/15 text-purple',
-  suggestion: 'bg-warning/15 text-warning',
+  sentiment: 'bg-accent/14 text-accent border border-accent/30',
+  pattern: 'bg-surface-3 text-text-primary border border-border-default',
+  suggestion: 'bg-warning/12 text-warning border border-warning/30',
 };
 
 export const ResearchFeed: Component = () => {
-  const [loading, setLoading] = createSignal(true);
-  let pollInterval: ReturnType<typeof setInterval>;
-
-  async function loadFindings() {
-    try {
-      const data = await (api.get<{ findings: ResearchFinding[] }>('/api/research/findings?limit=10'));
-      if (data?.findings) {
-        setFindings(data.findings);
-      }
-    } catch (_) { /* noop */ }
-    setLoading(false);
-  }
-
   onMount(() => {
-    loadFindings();
-    pollInterval = setInterval(loadFindings, 60000);
+    subscribeResearchFindings();
   });
 
-  onCleanup(() => clearInterval(pollInterval));
+  onCleanup(() => unsubscribeResearchFindings());
 
   const formatTime = (ts: string) => {
     try {
@@ -51,8 +37,8 @@ export const ResearchFeed: Component = () => {
   return (
     <div class="flex flex-col h-full">
       {/* Header */}
-      <div class="px-3 py-3 border-b border-border-default flex items-center justify-between">
-        <span class="font-display text-text-secondary text-[11px] font-medium tracking-[0.8px]">
+      <div class="px-4 py-4 border-b-[1.5px] border-border-default flex items-center justify-between">
+        <span class="font-display text-text-secondary text-[11px] font-semibold tracking-[0.12em] uppercase">
           RESEARCH
         </span>
         <Show when={agent.findings.length > 0}>
@@ -64,30 +50,26 @@ export const ResearchFeed: Component = () => {
 
       {/* Feed */}
       <div class="flex-1 overflow-y-auto min-h-0">
-        <Show when={loading()}>
-          <div class="px-3 py-4 font-ai text-[11px] text-text-muted">
-            Loading research data...
-          </div>
+        <Show when={agent.findingsLoading}>
+          <EmptyState eyebrow="Research" title="Loading research" description="Pulling the latest structured findings into the workspace." />
         </Show>
 
-        <Show when={!loading() && agent.findings.length === 0}>
-          <div class="px-3 py-4 font-ai text-[11px] text-text-muted">
-            No research findings yet. Agent runs every 30 minutes.
-          </div>
+        <Show when={!agent.findingsLoading && agent.findings.length === 0}>
+          <EmptyState eyebrow="Research" title="No findings yet" description="Research findings will appear here when the agent publishes a new observation." />
         </Show>
 
         <For each={agent.findings}>
           {(finding) => (
-            <div class="px-3 py-3 border-b border-border-subtle hover:bg-surface-2/30 transition-colors">
+            <div class="px-4 py-4 border-b border-border-subtle hover:bg-surface-2/30 transition-colors">
               <div class="flex items-start gap-2.5">
                 {/* Type badge */}
-                <span class={`font-display text-[11px] font-medium w-5 h-5 flex items-center justify-center rounded shrink-0 mt-0.5 ${typeColors[finding.type] || 'bg-surface-3 text-text-muted'}`}>
+                <span class={`font-display text-[11px] font-semibold w-6 h-6 flex items-center justify-center rounded-lg shrink-0 mt-0.5 ${typeColors[finding.type] || 'bg-surface-3 text-text-muted border border-border-default'}`}>
                   {typeIcons[finding.type] || '?'}
                 </span>
 
                 <div class="flex-1 min-w-0">
                   {/* Title */}
-                  <div class="font-display text-[12px] font-medium text-text-primary leading-tight">
+                  <div class="font-display text-[12px] font-semibold text-text-primary leading-tight">
                     {finding.title}
                   </div>
 

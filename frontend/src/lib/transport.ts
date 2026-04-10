@@ -8,6 +8,7 @@
 
 export interface TransportClient {
   onMessage(handler: (buffer: ArrayBuffer) => void): void;
+  onClose(handler: () => void): void;
   close(): void;
   readonly connected: boolean;
   readonly transport: 'webtransport' | 'websocket';
@@ -18,11 +19,15 @@ export interface TransportClient {
 class WebTransportClient implements TransportClient {
   private wt: WebTransport;
   private handler: ((buffer: ArrayBuffer) => void) | null = null;
+  private closeHandler: (() => void) | null = null;
   private reading = false;
   readonly transport = 'webtransport' as const;
 
   constructor(wt: WebTransport) {
     this.wt = wt;
+    void this.wt.closed.finally(() => {
+      this.closeHandler?.();
+    });
   }
 
   onMessage(handler: (buffer: ArrayBuffer) => void) {
@@ -31,6 +36,10 @@ class WebTransportClient implements TransportClient {
       this.reading = true;
       this.readDatagrams();
     }
+  }
+
+  onClose(handler: () => void) {
+    this.closeHandler = handler;
   }
 
   private async readDatagrams() {
@@ -63,6 +72,7 @@ class WebTransportClient implements TransportClient {
 class WebSocketTransportClient implements TransportClient {
   private ws: WebSocket;
   private handler: ((buffer: ArrayBuffer) => void) | null = null;
+  private closeHandler: (() => void) | null = null;
   readonly transport = 'websocket' as const;
 
   constructor(url: string) {
@@ -73,10 +83,46 @@ class WebSocketTransportClient implements TransportClient {
         this.handler(event.data);
       }
     };
+    this.ws.onclose = () => {
+      this.closeHandler?.();
+    };
   }
 
   onMessage(handler: (buffer: ArrayBuffer) => void) {
     this.handler = handler;
+  }
+
+  onClose(handler: () => void) {
+    this.closeHandler = handler;
+  }
+
+  waitUntilOpen(timeoutMs = 3000): Promise<void> {
+    if (this.ws.readyState === WebSocket.OPEN) return Promise.resolve();
+
+    return new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('websocket timeout'));
+      }, timeoutMs);
+
+      const handleOpen = () => {
+        cleanup();
+        resolve();
+      };
+      const handleError = () => {
+        cleanup();
+        reject(new Error('websocket connection failed'));
+      };
+
+      const cleanup = () => {
+        window.clearTimeout(timer);
+        this.ws.removeEventListener('open', handleOpen);
+        this.ws.removeEventListener('error', handleError);
+      };
+
+      this.ws.addEventListener('open', handleOpen, { once: true });
+      this.ws.addEventListener('error', handleError, { once: true });
+    });
   }
 
   close() {
@@ -151,5 +197,7 @@ export async function createTransport(
   // Fallback: WebSocket (Safari, cert issues, older browsers)
   const wsUrl = `ws://${host}:${wsPort}/ws`;
   console.log(`[Transport] Using WebSocket fallback: ${wsUrl}`);
-  return new WebSocketTransportClient(wsUrl);
+  const client = new WebSocketTransportClient(wsUrl);
+  await client.waitUntilOpen();
+  return client;
 }

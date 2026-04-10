@@ -157,7 +157,7 @@ impl Default for TradeClassifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{TickSource, NbboQuote};
+    use crate::events::{NbboQuote, TickSource};
     use chrono::Utc;
 
     fn make_tick(price: f64, size: u64) -> RawTick {

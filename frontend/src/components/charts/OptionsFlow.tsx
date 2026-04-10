@@ -10,6 +10,7 @@
  */
 import { type Component, For, Show } from 'solid-js';
 import { optionsFlow, getCluster } from '../../signals/optionsFlow';
+import { EmptyState } from '../system/EmptyState';
 
 function formatPremium(p: number): string {
   if (p >= 1_000_000) return `$${(p / 1_000_000).toFixed(1)}M`;
@@ -130,14 +131,11 @@ export const OptionsFlow: Component = () => {
       {/* Trade list */}
       <div class="flex-1 overflow-y-auto min-h-0">
         <Show when={optionsFlow.trades.length === 0}>
-          <div class="flex items-center justify-center h-full text-text-muted text-[11px]">
-            <div class="text-center">
-              <div class="mb-1">Waiting for option trades...</div>
-              <div class="text-[9px] opacity-50">
-                ThetaData streams 0DTE SPY option executions
-              </div>
-            </div>
-          </div>
+          <EmptyState
+            eyebrow="Options Flow"
+            title="Waiting for option trades"
+            description="ThetaData streams 0DTE option executions here as soon as the next linked prints arrive."
+          />
         </Show>
 
         <For each={optionsFlow.trades.slice(0, 50)}>

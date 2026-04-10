@@ -123,6 +123,22 @@ pub enum AlpacaFeedMsg {
     Quote(NbboQuote),
 }
 
+#[derive(Debug)]
+enum AlpacaConnectError {
+    Retryable(String),
+    Fatal(String),
+}
+
+impl std::fmt::Display for AlpacaConnectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Retryable(msg) | Self::Fatal(msg) => f.write_str(msg),
+        }
+    }
+}
+
+impl std::error::Error for AlpacaConnectError {}
+
 /// Spawns an Alpaca WebSocket connection that sends trades + quotes through an mpsc channel.
 /// Automatically reconnects on disconnect with exponential backoff.
 pub fn spawn_alpaca_feed(config: AlpacaWsConfig) -> mpsc::Receiver<AlpacaFeedMsg> {
@@ -137,8 +153,12 @@ pub fn spawn_alpaca_feed(config: AlpacaWsConfig) -> mpsc::Receiver<AlpacaFeedMsg
                     info!("Alpaca WebSocket closed gracefully");
                     backoff_secs = 1; // Reset on clean close
                 }
-                Err(e) => {
+                Err(AlpacaConnectError::Retryable(e)) => {
                     error!("Alpaca WebSocket error: {}", e);
+                }
+                Err(AlpacaConnectError::Fatal(e)) => {
+                    error!("Alpaca WebSocket fatal error: {}", e);
+                    break;
                 }
             }
 
@@ -160,22 +180,28 @@ pub fn spawn_alpaca_feed(config: AlpacaWsConfig) -> mpsc::Receiver<AlpacaFeedMsg
 async fn run_alpaca_connection(
     config: &AlpacaWsConfig,
     tx: &mpsc::Sender<AlpacaFeedMsg>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), AlpacaConnectError> {
     info!("Connecting to Alpaca WebSocket: {}", config.ws_url);
 
-    let (ws_stream, _response) = connect_async(&config.ws_url).await?;
+    let (ws_stream, _response) = connect_async(&config.ws_url)
+        .await
+        .map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?;
     let (mut write, mut read) = ws_stream.split();
 
     // Step 1: Wait for "connected" message
     if let Some(msg) = read.next().await {
-        let msg = msg?;
+        let msg = msg.map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?;
         if let Message::Text(text) = msg {
-            let elements: Vec<AlpacaStreamElement> = serde_json::from_str(&text)?;
+            let elements: Vec<AlpacaStreamElement> = serde_json::from_str(&text)
+                .map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?;
             if let Some(el) = elements.first() {
                 if el.msg_type == "success" && el.msg.as_deref() == Some("connected") {
                     info!("Alpaca WebSocket connected");
                 } else {
-                    return Err(format!("Unexpected first message: {:?}", el).into());
+                    return Err(AlpacaConnectError::Retryable(format!(
+                        "Unexpected first message: {:?}",
+                        el
+                    )));
                 }
             }
         }
@@ -188,23 +214,28 @@ async fn run_alpaca_connection(
         secret: config.secret_key.clone(),
     };
     write
-        .send(Message::Text(serde_json::to_string(&auth_msg)?))
-        .await?;
+        .send(Message::Text(
+            serde_json::to_string(&auth_msg)
+                .map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?
+                .into(),
+        ))
+        .await
+        .map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?;
 
     // Wait for auth response
     if let Some(msg) = read.next().await {
-        let msg = msg?;
+        let msg = msg.map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?;
         if let Message::Text(text) = msg {
-            let elements: Vec<AlpacaStreamElement> = serde_json::from_str(&text)?;
+            let elements: Vec<AlpacaStreamElement> = serde_json::from_str(&text)
+                .map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?;
             if let Some(el) = elements.first() {
                 if el.msg_type == "success" && el.msg.as_deref() == Some("authenticated") {
                     info!("Alpaca WebSocket authenticated");
                 } else if el.msg_type == "error" {
-                    return Err(format!(
+                    return Err(AlpacaConnectError::Fatal(format!(
                         "Alpaca auth failed (code {:?}): {:?}",
                         el.code, el.msg
-                    )
-                    .into());
+                    )));
                 }
             }
         }
@@ -217,14 +248,20 @@ async fn run_alpaca_connection(
         quotes: vec![config.symbol.clone()],
     };
     write
-        .send(Message::Text(serde_json::to_string(&sub_msg)?))
-        .await?;
+        .send(Message::Text(
+            serde_json::to_string(&sub_msg)
+                .map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?
+                .into(),
+        ))
+        .await
+        .map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?;
 
     // Wait for subscription confirmation
     if let Some(msg) = read.next().await {
-        let msg = msg?;
+        let msg = msg.map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?;
         if let Message::Text(text) = msg {
-            let elements: Vec<AlpacaStreamElement> = serde_json::from_str(&text)?;
+            let elements: Vec<AlpacaStreamElement> = serde_json::from_str(&text)
+                .map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?;
             if let Some(el) = elements.first() {
                 if el.msg_type == "subscription" {
                     info!("Alpaca subscribed to trades for {}", config.symbol);
@@ -237,7 +274,7 @@ async fn run_alpaca_connection(
     let mut trade_count: u64 = 0;
 
     while let Some(msg) = read.next().await {
-        let msg = msg?;
+        let msg = msg.map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?;
 
         match msg {
             Message::Text(text) => {
@@ -248,13 +285,10 @@ async fn run_alpaca_connection(
                             if el.msg_type == "t" {
                                 // Trade message
                                 if let (Some(price), Some(size)) = (el.p, el.s) {
-                                    let timestamp = el
-                                        .t
-                                        .as_ref()
-                                        .and_then(|ts| {
-                                            ts.parse::<DateTime<Utc>>().ok()
-                                        })
-                                        .unwrap_or_else(Utc::now);
+                                    let timestamp =
+                                        el.t.as_ref()
+                                            .and_then(|ts| ts.parse::<DateTime<Utc>>().ok())
+                                            .unwrap_or_else(Utc::now);
 
                                     let conditions = el.c.unwrap_or_default();
 
@@ -281,11 +315,10 @@ async fn run_alpaca_connection(
                             } else if el.msg_type == "q" {
                                 // Quote message — NBBO for buy/sell classification
                                 if let (Some(bp), Some(ap)) = (el.bp, el.ap) {
-                                    let timestamp = el
-                                        .t
-                                        .as_ref()
-                                        .and_then(|ts| ts.parse::<DateTime<Utc>>().ok())
-                                        .unwrap_or_else(Utc::now);
+                                    let timestamp =
+                                        el.t.as_ref()
+                                            .and_then(|ts| ts.parse::<DateTime<Utc>>().ok())
+                                            .unwrap_or_else(Utc::now);
 
                                     let quote = NbboQuote {
                                         bid: bp,
@@ -303,12 +336,19 @@ async fn run_alpaca_connection(
                         }
                     }
                     Err(e) => {
-                        warn!("Failed to parse Alpaca message: {} — raw: {}", e, &text[..text.len().min(200)]);
+                        warn!(
+                            "Failed to parse Alpaca message: {} — raw: {}",
+                            e,
+                            &text[..text.len().min(200)]
+                        );
                     }
                 }
             }
             Message::Ping(data) => {
-                write.send(Message::Pong(data)).await?;
+                write
+                    .send(Message::Pong(data))
+                    .await
+                    .map_err(|e| AlpacaConnectError::Retryable(e.to_string()))?;
             }
             Message::Close(_) => {
                 info!("Alpaca WebSocket received close frame");

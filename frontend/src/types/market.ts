@@ -1,3 +1,5 @@
+export type MarketTransport = 'webtransport' | 'websocket' | 'disconnected';
+
 export interface Tick {
   price: number;
   size: number;
@@ -29,11 +31,18 @@ export interface MarketState {
   candles: Candle[];
   currentCandle: Candle | null;
   quote: Quote | null;
-  timeframe: Timeframe;
+  dataSource: string | null;
+  quoteSource: string | null;
+  lastEngineMessageAt: number | null;
+  lastQuoteUpdateAt: number | null;
+  interval: ChartInterval;
+  range: ChartRange;
   connected: boolean;
+  transport: MarketTransport;
 }
 
-export type Timeframe = '1Min' | '5Min' | '15Min' | '1H' | '1D';
+export type ChartInterval = '1Min' | '2Min' | '5Min' | '10Min' | '15Min' | '30Min' | '1H' | '4Hour' | '1D' | '1Week';
+export type ChartRange = '1D' | '1W' | '1M' | '3M' | '1Y' | 'MAX';
 
 export interface Level {
   price: number;

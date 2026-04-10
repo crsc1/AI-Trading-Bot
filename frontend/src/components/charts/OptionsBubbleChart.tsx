@@ -182,7 +182,7 @@ export const OptionsBubbleChart: Component = () => {
   function drawCvdGradient(
     ctx: CanvasRenderingContext2D,
     layout: FlowLayout,
-    dpr: number,
+    _dpr: number,
   ): void {
     const vel = cvd.velocity;
     const accel = cvd.acceleration;

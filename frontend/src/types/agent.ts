@@ -81,6 +81,18 @@ export interface ResearchFinding {
   timestamp: string;
 }
 
+export interface DataSource {
+  name: string;
+  status: 'live' | 'offline' | 'error';
+  detail?: string;
+  source?: string;
+}
+
+export interface SourcesResponse {
+  sources: DataSource[];
+  model: string;
+}
+
 export interface CycleUpdate {
   action: string;
   confidence: number;
@@ -94,8 +106,16 @@ export interface AgentState {
   brain: BrainState;
   messages: ChatMessage[];
   decisions: BrainDecision[];
+  recentDecisionsLoading: boolean;
+  lastRecentDecisionsUpdateAt: number | null;
   lastCycle: CycleUpdate | null;
   patternRecall: PatternRecall | null;
+  sources: DataSource[];
+  model: string;
+  sourcesLoading: boolean;
+  findingsLoading: boolean;
+  lastSourcesUpdateAt: number | null;
+  lastFindingsUpdateAt: number | null;
   findings: ResearchFinding[];
   chatConnected: boolean;
   activeTab: 'brain' | 'chat';

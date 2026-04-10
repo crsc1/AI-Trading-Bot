@@ -845,8 +845,7 @@ class ThetaStreamClient:
         for both trades and quotes on today's expiration.
         Standard plan: per-contract subscriptions (not wildcard).
         """
-        from datetime import date
-        today = int(date.today().strftime("%Y%m%d"))
+        today = int(datetime.now(self._ET).strftime("%Y%m%d"))
 
         logger.info(f"Auto-subscribing to 0DTE options: {root} exp={today}")
 

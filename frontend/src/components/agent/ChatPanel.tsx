@@ -150,14 +150,14 @@ export const ChatPanel: Component = () => {
       {/* Messages */}
       <div class="flex-1 overflow-y-auto min-h-0">
         <Show when={agent.messages.length === 0}>
-          <div class="flex items-center justify-center h-full">
-            <div class="text-center px-6">
-              <div class="text-[20px] text-text-secondary mb-3" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-weight: 500;">
-                Market Brain
+          <div class="flex items-center justify-center h-full px-6">
+            <div class="text-center max-w-[420px]">
+              <div class="text-[20px] text-text-secondary mb-3" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-weight: 600;">
+                Market Brain Chat
               </div>
               <div class="text-[14px] text-text-muted leading-relaxed" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                Ask about market conditions, chart analysis, setups, or anything about the platform.
-                <br />Full Claude Code powers: file access, web search, codebase context.
+                Ask about setups, chart context, research findings, or platform behavior.
+                <br />You’re chatting with the same live workspace context shown elsewhere in the app.
               </div>
             </div>
           </div>
@@ -170,7 +170,7 @@ export const ChatPanel: Component = () => {
                 <div class={`${msg.role === 'user' ? 'max-w-[85%]' : 'w-full'}`}>
                   {/* User bubble */}
                   <Show when={msg.role === 'user'}>
-                    <div class="bg-accent/10 border border-accent/20 rounded-lg px-4 py-3">
+                    <div class="bg-accent/12 border border-accent/30 rounded-xl px-4 py-3">
                       <div class="chat-content text-[14px] text-text-primary leading-[1.6]"
                            style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"
                            innerHTML={renderMarkdown(msg.content)} />
@@ -181,8 +181,8 @@ export const ChatPanel: Component = () => {
                   <Show when={msg.role === 'brain'}>
                     <div class="py-1">
                       <div class="flex items-center gap-2 mb-2">
-                        <span class="w-5 h-5 rounded-full bg-purple/20 flex items-center justify-center">
-                          <span class="text-purple text-[10px] font-bold">AI</span>
+                        <span class="w-5 h-5 rounded-full bg-accent/16 flex items-center justify-center">
+                          <span class="text-accent text-[10px] font-bold">AI</span>
                         </span>
                         <span class="text-[12px] text-text-muted" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                           {new Date(msg.timestamp).toLocaleTimeString('en-US', {
@@ -232,13 +232,13 @@ export const ChatPanel: Component = () => {
           {/* Thinking indicator */}
           <Show when={waiting()}>
             <div class="flex items-center gap-2 pl-7 py-2">
-              <span class="w-5 h-5 rounded-full bg-purple/20 flex items-center justify-center">
-                <span class="text-purple text-[10px] font-bold">AI</span>
+              <span class="w-5 h-5 rounded-full bg-accent/16 flex items-center justify-center">
+                <span class="text-accent text-[10px] font-bold">AI</span>
               </span>
               <div class="flex items-center gap-1">
-                <span class="w-1.5 h-1.5 rounded-full bg-purple/50 animate-pulse" />
-                <span class="w-1.5 h-1.5 rounded-full bg-purple/50 animate-pulse" style="animation-delay: 0.2s" />
-                <span class="w-1.5 h-1.5 rounded-full bg-purple/50 animate-pulse" style="animation-delay: 0.4s" />
+                <span class="w-1.5 h-1.5 rounded-full bg-accent/60 animate-pulse" />
+                <span class="w-1.5 h-1.5 rounded-full bg-accent/60 animate-pulse" style="animation-delay: 0.2s" />
+                <span class="w-1.5 h-1.5 rounded-full bg-accent/60 animate-pulse" style="animation-delay: 0.4s" />
               </div>
               <span class="text-[13px] text-text-muted" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                 Thinking...
@@ -253,7 +253,7 @@ export const ChatPanel: Component = () => {
       {/* Input area */}
       <div class="border-t border-border-default bg-surface-1">
         <div class="max-w-[800px] mx-auto px-4 py-3">
-          <div class="flex items-end gap-2 bg-surface-2 border border-purple/20 rounded-lg px-3 py-2 focus-within:border-purple/50 transition-colors">
+          <div class="flex items-end gap-2 bg-surface-2 border border-border-default rounded-xl px-3 py-2 focus-within:border-accent/45 transition-colors">
             <textarea
               ref={inputRef}
               value={input()}
@@ -271,7 +271,7 @@ export const ChatPanel: Component = () => {
             <button
               onClick={sendMessage}
               disabled={!agent.chatConnected || !input().trim() || sending()}
-              class="shrink-0 w-8 h-8 flex items-center justify-center bg-purple/80 text-white rounded-lg hover:bg-purple disabled:opacity-30 disabled:cursor-not-allowed transition-colors mb-0.5"
+              class="shrink-0 w-8 h-8 flex items-center justify-center bg-accent text-white rounded-lg hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors mb-0.5"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="22" y1="2" x2="11" y2="13" />

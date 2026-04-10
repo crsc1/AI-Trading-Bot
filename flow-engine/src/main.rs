@@ -22,6 +22,7 @@ mod proto;
 mod theta_dx;
 mod webtransport;
 
+use alpaca_ws::AlpacaWsConfig;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -32,19 +33,20 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use alpaca_ws::AlpacaWsConfig;
 use classifier::TradeClassifier;
 use cvd::{CvdCalculator, CvdConfig};
 use detectors::{AbsorptionDetector, ImbalanceDetector, SweepDetector};
 use events::FlowEvent;
-use serde::Serialize;
 use footprint::{FootprintBuilder, FootprintConfig};
 use futures::{SinkExt, StreamExt};
 use ingestion::{IngestionConfig, IngestionMode, TickIngestor};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use thetadatadx::fpss::protocol::Contract;
+use thetadatadx::fpss::FpssClient;
+use tokio::sync::{broadcast, Mutex, RwLock};
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Application state shared across handlers
@@ -59,6 +61,10 @@ struct AppState {
     stats: RwLock<EngineStats>,
     /// Live flow state snapshot for Python signal bridge
     flow_state: RwLock<FlowStateSnapshot>,
+    /// Optional direct ThetaDataDx client for dynamic option subscriptions.
+    theta_dx_client: RwLock<Option<Arc<FpssClient>>>,
+    /// Current UI-managed ThetaDataDx option scope (serialized updates).
+    theta_dx_option_scope: Mutex<ThetaDxOptionScope>,
 }
 
 #[derive(Debug, Default)]
@@ -69,6 +75,11 @@ struct EngineStats {
     engine_running: bool,
     data_source: String,
     last_price: f64,
+    webtransport_enabled: bool,
+    webtransport_port: u16,
+    theta_dx_status: String,
+    theta_dx_reason: Option<String>,
+    theta_dx_credential_source: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -84,6 +95,63 @@ struct FlowStateSnapshot {
     recent_absorptions: Vec<serde_json::Value>,
     recent_imbalances: Vec<serde_json::Value>,
     data_source: String,
+}
+
+#[derive(Debug, Default)]
+struct ThetaDxOptionScope {
+    symbol: Option<String>,
+    expiration: Option<i32>,
+    contracts: Vec<Contract>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ThetaDxSubscribeRequest {
+    symbol: String,
+    expiration: Option<i32>,
+    spot_price: Option<f64>,
+    strike_range: Option<i32>,
+}
+
+fn strike_spacing(symbol: &str, spot_price: f64) -> f64 {
+    match symbol {
+        "SPY" | "QQQ" | "IWM" => 1.0,
+        _ if spot_price > 200.0 => 2.5,
+        _ => 1.0,
+    }
+}
+
+fn round_to_spacing(value: f64, spacing: f64) -> f64 {
+    (value / spacing).round() * spacing
+}
+
+fn build_option_scope_contracts(
+    symbol: &str,
+    expiration: i32,
+    spot_price: f64,
+    strike_range: i32,
+) -> Vec<Contract> {
+    let spacing = strike_spacing(symbol, spot_price);
+    let atm = round_to_spacing(spot_price, spacing);
+    let mut contracts = Vec::new();
+
+    for offset in -strike_range..=strike_range {
+        let strike = (atm + spacing * offset as f64).max(spacing);
+        let strike_raw = (strike * 1000.0).round() as i32;
+        contracts.push(Contract::option_raw(
+            symbol.to_string(),
+            expiration,
+            true,
+            strike_raw,
+        ));
+        contracts.push(Contract::option_raw(
+            symbol.to_string(),
+            expiration,
+            false,
+            strike_raw,
+        ));
+    }
+
+    contracts
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -119,6 +187,8 @@ async fn main() {
         external_tx: external_tx.clone(),
         stats: RwLock::new(EngineStats::default()),
         flow_state: RwLock::new(FlowStateSnapshot::default()),
+        theta_dx_client: RwLock::new(None),
+        theta_dx_option_scope: Mutex::new(ThetaDxOptionScope::default()),
     });
 
     // Build ingestion config from environment
@@ -156,6 +226,12 @@ async fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(4433);
+    {
+        let mut stats = state.stats.write().await;
+        stats.webtransport_enabled = true;
+        stats.webtransport_port = wt_port;
+        stats.theta_dx_status = "starting".to_string();
+    }
     let wt_flow_tx = event_tx.clone();
     let wt_ext_tx = external_tx.clone();
     tokio::spawn(async move {
@@ -163,65 +239,113 @@ async fn main() {
     });
 
     // Spawn ThetaDataDx direct ingestion (if credentials available)
+    // ThetaDx is the EXCLUSIVE source for options data.
+    // Alpaca is the EXCLUSIVE source for equity/stock data.
     let tdx_ext_tx = external_tx.clone();
+    let tdx_state = state.clone();
     tokio::spawn(async move {
         let config = theta_dx::ThetaDxConfig {
-            equity_symbols: vec!["SPY".to_string()],
             option_contracts: vec![], // Options subscribed dynamically via API
         };
 
         match theta_dx::start_theta_dx(&config, 8192) {
-            Ok(Some((mut rx, _client))) => {
+            theta_dx::ThetaDxStartOutcome::Connected {
+                mut rx,
+                client,
+                credential_source,
+            } => {
+                let client = Arc::new(client);
+                {
+                    let mut holder = tdx_state.theta_dx_client.write().await;
+                    *holder = Some(client.clone());
+                }
+                {
+                    let mut stats = tdx_state.stats.write().await;
+                    stats.theta_dx_status = "active".to_string();
+                    stats.theta_dx_reason = None;
+                    stats.theta_dx_credential_source = Some(credential_source.to_string());
+                }
                 info!("ThetaDataDx active — streaming directly from FPSS");
                 while let Some(event) = rx.recv().await {
                     // Convert ThetaDxEvent to JSON and broadcast via external channel
                     // This keeps the same format the frontend expects
                     let json = match &event {
-                        theta_dx::ThetaDxEvent::OptionQuote { symbol, bid, ask, bid_size, ask_size, ms_of_day, .. } => {
-                            serde_json::json!({
-                                "type": "theta_quote",
-                                "root": symbol.as_ref(),
-                                "bid": bid, "ask": ask,
-                                "bid_size": bid_size, "ask_size": ask_size,
-                                "ms_of_day": ms_of_day,
-                            }).to_string()
-                        }
-                        theta_dx::ThetaDxEvent::OptionTrade { symbol, price, size, condition, exchange, ms_of_day, .. } => {
-                            serde_json::json!({
-                                "type": "theta_trade",
-                                "root": symbol.as_ref(),
-                                "price": price, "size": size,
-                                "condition": condition, "exchange": exchange,
-                                "ms_of_day": ms_of_day,
-                            }).to_string()
-                        }
-                        theta_dx::ThetaDxEvent::EquityQuote { symbol, bid, ask, bid_size, ask_size, ms_of_day } => {
-                            serde_json::json!({
-                                "type": "quote",
-                                "symbol": symbol.as_ref(),
-                                "bid": bid, "ask": ask,
-                                "bid_size": bid_size, "ask_size": ask_size,
-                                "timestamp": ms_of_day,
-                            }).to_string()
-                        }
-                        theta_dx::ThetaDxEvent::EquityTrade { symbol, price, size, exchange, ms_of_day } => {
-                            serde_json::json!({
-                                "type": "trade",
-                                "symbol": symbol.as_ref(),
-                                "price": price, "size": size,
-                                "exchange": exchange,
-                                "timestamp": ms_of_day,
-                            }).to_string()
-                        }
+                        theta_dx::ThetaDxEvent::OptionQuote {
+                            root,
+                            expiration,
+                            strike,
+                            right,
+                            bid,
+                            ask,
+                            bid_size,
+                            ask_size,
+                            ms_of_day,
+                            date,
+                            ..
+                        } => serde_json::json!({
+                            "type": "theta_quote",
+                            "root": root.as_ref(),
+                            "expiration": expiration,
+                            "strike": strike,
+                            "right": right.as_ref(),
+                            "bid": bid, "ask": ask,
+                            "bid_size": bid_size, "ask_size": ask_size,
+                            "ms_of_day": ms_of_day,
+                            "date": date,
+                        })
+                        .to_string(),
+                        theta_dx::ThetaDxEvent::OptionTrade {
+                            root,
+                            expiration,
+                            strike,
+                            right,
+                            price,
+                            size,
+                            premium,
+                            side,
+                            condition,
+                            exchange,
+                            ms_of_day,
+                            date,
+                            ..
+                        } => serde_json::json!({
+                            "type": "theta_trade",
+                            "root": root.as_ref(),
+                            "expiration": expiration,
+                            "strike": strike,
+                            "right": right.as_ref(),
+                            "price": price, "size": size,
+                            "premium": premium,
+                            "side": side,
+                            "condition": condition, "exchange": exchange,
+                            "ms_of_day": ms_of_day,
+                            "date": date,
+                        })
+                        .to_string(),
                     };
                     let _ = tdx_ext_tx.send(json);
                 }
+                warn!("ThetaDataDx stream ended");
+                {
+                    let mut holder = tdx_state.theta_dx_client.write().await;
+                    *holder = None;
+                }
+                let mut stats = tdx_state.stats.write().await;
+                stats.theta_dx_status = "disconnected".to_string();
+                stats.theta_dx_reason = Some("stream_ended".to_string());
             }
-            Ok(None) => {
+            theta_dx::ThetaDxStartOutcome::Unavailable {
+                reason,
+                credential_source,
+            } => {
+                {
+                    let mut stats = tdx_state.stats.write().await;
+                    stats.theta_dx_status = "unavailable".to_string();
+                    stats.theta_dx_reason = Some(reason.clone());
+                    stats.theta_dx_credential_source =
+                        credential_source.map(std::string::ToString::to_string);
+                }
                 info!("ThetaDataDx not available — using Python path for options data");
-            }
-            Err(e) => {
-                warn!("ThetaDataDx initialization error: {e}");
             }
         }
     });
@@ -233,9 +357,15 @@ async fn main() {
         .route("/health", get(health_handler))
         .route("/stats", get(stats_handler))
         .route("/ingest", post(ingest_handler))
+        .route("/theta/options/subscribe", post(theta_dx_subscribe_handler))
         .route("/flow-state", get(flow_state_handler))
         .route("/cert-hash", get(cert_hash_handler))
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .with_state(state);
 
     let port: u16 = std::env::var("FLOW_ENGINE_PORT")
@@ -250,9 +380,7 @@ async fn main() {
         .await
         .expect("Failed to bind");
 
-    axum::serve(listener, app)
-        .await
-        .expect("Server error");
+    axum::serve(listener, app).await.expect("Server error");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -285,13 +413,9 @@ async fn run_engine(
         stats.engine_running = true;
     }
 
-    // ── Data source priority ──
-    // 1. Alpaca WebSocket SIP (best for order flow — actual trades, real timestamps)
-    // 2. ThetaData Realtime NBBO (synthetic ticks from quote changes)
-    // 3. ThetaData EOD replay (offline/testing only)
-    //
-    // Note: ThetaData is ALWAYS used for options data via the dashboard's
-    // api_routes.py. The engine only handles stock ticks for order flow.
+    // ── Data source routing ──
+    // STOCKS: Alpaca WebSocket SIP (exclusive) → REST polling fallback
+    // OPTIONS: ThetaData via ThetaDx FPSS (exclusive)
 
     let alpaca_available = alpaca_config
         .as_ref()
@@ -299,114 +423,169 @@ async fn run_engine(
         .unwrap_or(false);
 
     if alpaca_available {
-        // ── PRIMARY: Alpaca WebSocket SIP — real trades + NBBO quotes ──
+        // ── Alpaca WebSocket SIP — real trades + NBBO quotes for stocks ──
         let alpaca_cfg = alpaca_config.unwrap();
-        info!(
-            "Using Alpaca SIP as primary data source (trades + quotes): {}",
-            alpaca_cfg.ws_url
+        run_alpaca_primary(
+            &alpaca_cfg,
+            &classifier,
+            &mut footprint,
+            &mut cvd_calc,
+            &imbalance_detector,
+            &mut sweep_detector,
+            &mut absorption_detector,
+            &state,
+        )
+        .await;
+    }
+
+    // Alpaca unavailable or disconnected — fall back to REST polling for stocks
+    warn!("Alpaca not available — falling back to REST polling for stock data");
+    run_theta_fallback(
+        &mut ingestor,
+        &config,
+        &classifier,
+        &mut footprint,
+        &mut cvd_calc,
+        &imbalance_detector,
+        &mut sweep_detector,
+        &mut absorption_detector,
+        &state,
+        true,
+    )
+    .await;
+}
+
+async fn run_alpaca_primary(
+    alpaca_cfg: &AlpacaWsConfig,
+    classifier: &TradeClassifier,
+    footprint: &mut FootprintBuilder,
+    cvd_calc: &mut CvdCalculator,
+    imbalance_detector: &ImbalanceDetector,
+    sweep_detector: &mut SweepDetector,
+    absorption_detector: &mut AbsorptionDetector,
+    state: &Arc<AppState>,
+) {
+    info!(
+        "Using Alpaca SIP as primary data source (trades + quotes): {}",
+        alpaca_cfg.ws_url
+    );
+    {
+        let mut stats = state.stats.write().await;
+        stats.data_source = format!(
+            "Alpaca SIP ({})",
+            alpaca_cfg.ws_url.split('/').last().unwrap_or("ws")
         );
-        {
-            let mut stats = state.stats.write().await;
-            stats.data_source = format!("Alpaca SIP ({})", alpaca_cfg.ws_url.split('/').last().unwrap_or("ws"));
+    }
+
+    let mut alpaca_rx = alpaca_ws::spawn_alpaca_feed(alpaca_cfg.clone());
+
+    info!("Waiting for live Alpaca trades + quotes...");
+
+    loop {
+        match alpaca_rx.recv().await {
+            Some(alpaca_ws::AlpacaFeedMsg::Trade(raw_tick)) => {
+                process_tick(
+                    &raw_tick,
+                    classifier,
+                    footprint,
+                    cvd_calc,
+                    imbalance_detector,
+                    sweep_detector,
+                    absorption_detector,
+                    state,
+                )
+                .await;
+            }
+            Some(alpaca_ws::AlpacaFeedMsg::Quote(nbbo)) => {
+                classifier.update_quote(nbbo);
+            }
+            None => {
+                warn!("Alpaca feed channel closed");
+                return;
+            }
         }
+    }
+}
 
-        let mut alpaca_rx = alpaca_ws::spawn_alpaca_feed(alpaca_cfg);
+/// Consume ThetaDataDx equity ticks as an order flow data source.
+async fn run_theta_fallback(
+    ingestor: &mut TickIngestor,
+    config: &IngestionConfig,
+    classifier: &TradeClassifier,
+    footprint: &mut FootprintBuilder,
+    cvd_calc: &mut CvdCalculator,
+    imbalance_detector: &ImbalanceDetector,
+    sweep_detector: &mut SweepDetector,
+    absorption_detector: &mut AbsorptionDetector,
+    state: &Arc<AppState>,
+    log_no_alpaca: bool,
+) {
+    let mode = ingestor.detect_mode().await;
+    if log_no_alpaca {
+        info!("No Alpaca — ThetaData ingestion mode: {:?}", mode);
+    } else {
+        info!("ThetaData fallback ingestion mode: {:?}", mode);
+    }
 
-        // Main loop: consume trades and quotes from Alpaca
-        info!("Waiting for live Alpaca trades + quotes...");
+    match mode {
+        IngestionMode::Realtime => {
+            info!("Using ThetaData Standard real-time NBBO as data source");
+            {
+                let mut stats = state.stats.write().await;
+                stats.data_source = "ThetaData Realtime".to_string();
+            }
 
-        loop {
-            match alpaca_rx.recv().await {
-                Some(alpaca_ws::AlpacaFeedMsg::Trade(raw_tick)) => {
+            let poll_interval = tokio::time::Duration::from_millis(config.poll_interval_ms);
+
+            loop {
+                let (ticks, nbbo) = ingestor.poll_realtime().await;
+                if let Some(quote) = nbbo {
+                    classifier.update_quote(quote);
+                }
+                for raw_tick in &ticks {
                     process_tick(
-                        &raw_tick,
-                        &classifier,
-                        &mut footprint,
-                        &mut cvd_calc,
-                        &imbalance_detector,
-                        &mut sweep_detector,
-                        &mut absorption_detector,
-                        &state,
+                        raw_tick,
+                        classifier,
+                        footprint,
+                        cvd_calc,
+                        imbalance_detector,
+                        sweep_detector,
+                        absorption_detector,
+                        state,
                     )
                     .await;
                 }
-                Some(alpaca_ws::AlpacaFeedMsg::Quote(nbbo)) => {
-                    // Update classifier with NBBO for accurate buy/sell classification
-                    classifier.update_quote(nbbo);
-                }
-                None => {
-                    warn!("Alpaca feed channel closed");
-                    break;
-                }
+                tokio::time::sleep(poll_interval).await;
             }
         }
-    } else {
-        // ── FALLBACK: ThetaData only ──
-        let mode = ingestor.detect_mode().await;
-        info!("No Alpaca — ThetaData ingestion mode: {:?}", mode);
-
-        match mode {
-            IngestionMode::Realtime => {
-                info!("Using ThetaData Standard real-time NBBO as data source");
-                {
-                    let mut stats = state.stats.write().await;
-                    stats.data_source = "ThetaData Realtime".to_string();
-                }
-
-                let poll_interval =
-                    tokio::time::Duration::from_millis(config.poll_interval_ms);
-
-                loop {
-                    let (ticks, nbbo) = ingestor.poll_realtime().await;
-                    if let Some(quote) = nbbo {
-                        classifier.update_quote(quote);
-                    }
-                    for raw_tick in &ticks {
-                        process_tick(
-                            raw_tick,
-                            &classifier,
-                            &mut footprint,
-                            &mut cvd_calc,
-                            &imbalance_detector,
-                            &mut sweep_detector,
-                            &mut absorption_detector,
-                            &state,
-                        )
-                        .await;
-                    }
-                    tokio::time::sleep(poll_interval).await;
-                }
+        _ => {
+            info!("No real-time source — using ThetaData EOD replay");
+            {
+                let mut stats = state.stats.write().await;
+                stats.data_source = "ThetaData EOD Replay".to_string();
             }
-            _ => {
-                info!("No real-time source — using ThetaData EOD replay");
-                {
-                    let mut stats = state.stats.write().await;
-                    stats.data_source = "ThetaData EOD Replay".to_string();
-                }
 
-                let poll_interval =
-                    tokio::time::Duration::from_millis(config.poll_interval_ms);
+            let poll_interval = tokio::time::Duration::from_millis(config.poll_interval_ms);
 
-                loop {
-                    let raw_ticks = ingestor.poll_replay().await;
-                    if let Some(quote) = ingestor.poll_eod_quote().await {
-                        classifier.update_quote(quote);
-                    }
-                    for raw_tick in &raw_ticks {
-                        process_tick(
-                            raw_tick,
-                            &classifier,
-                            &mut footprint,
-                            &mut cvd_calc,
-                            &imbalance_detector,
-                            &mut sweep_detector,
-                            &mut absorption_detector,
-                            &state,
-                        )
-                        .await;
-                    }
-                    tokio::time::sleep(poll_interval).await;
+            loop {
+                let raw_ticks = ingestor.poll_replay().await;
+                if let Some(quote) = ingestor.poll_eod_quote().await {
+                    classifier.update_quote(quote);
                 }
+                for raw_tick in &raw_ticks {
+                    process_tick(
+                        raw_tick,
+                        classifier,
+                        footprint,
+                        cvd_calc,
+                        imbalance_detector,
+                        sweep_detector,
+                        absorption_detector,
+                        state,
+                    )
+                    .await;
+                }
+                tokio::time::sleep(poll_interval).await;
             }
         }
     }
@@ -439,16 +618,29 @@ async fn process_tick(
 
     // 1. Update footprint
     let fp_event = footprint.process_tick(&classified);
-    let fp_totals = if let FlowEvent::Footprint { total_buy_vol, total_sell_vol, .. } = &fp_event {
+    let fp_totals = if let FlowEvent::Footprint {
+        total_buy_vol,
+        total_sell_vol,
+        ..
+    } = &fp_event
+    {
         Some((*total_buy_vol, *total_sell_vol))
-    } else { None };
+    } else {
+        None
+    };
     publish_event(state, fp_event).await;
 
     // 2. Update CVD + detect delta flips / large trades
     let cvd_events = cvd_calc.process_tick(&classified);
     let mut latest_cvd: Option<(i64, i64, i64)> = None;
     for event in &cvd_events {
-        if let FlowEvent::Cvd { value, delta_1m, delta_5m, .. } = event {
+        if let FlowEvent::Cvd {
+            value,
+            delta_1m,
+            delta_5m,
+            ..
+        } = event
+        {
             latest_cvd = Some((*value, *delta_1m, *delta_5m));
         }
     }
@@ -514,13 +706,21 @@ async fn heartbeat_loop(tx: broadcast::Sender<FlowEvent>, state: Arc<AppState>) 
         interval.tick().await;
         let (ticks, price, source) = {
             let stats = state.stats.read().await;
-            (stats.ticks_processed, stats.last_price, stats.data_source.clone())
+            (
+                stats.ticks_processed,
+                stats.last_price,
+                stats.data_source.clone(),
+            )
         };
         let _ = tx.send(FlowEvent::Heartbeat {
             timestamp: chrono::Utc::now(),
             ticks_processed: ticks,
             last_price: price,
-            data_source: if source.is_empty() { None } else { Some(source) },
+            data_source: if source.is_empty() {
+                None
+            } else {
+                Some(source)
+            },
         });
     }
 }
@@ -547,6 +747,18 @@ async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
         "engine_running": stats.engine_running,
         "ticks_processed": stats.ticks_processed,
         "data_source": stats.data_source,
+        "webtransport": {
+            "enabled": stats.webtransport_enabled,
+            "port": stats.webtransport_port,
+            "cert_hash_available": webtransport::cert_hash_available(),
+            "clients_connected": webtransport::client_count(),
+        },
+        "theta_dx": {
+            "status": stats.theta_dx_status,
+            "active": stats.theta_dx_status == "active",
+            "reason": stats.theta_dx_reason,
+            "credential_source": stats.theta_dx_credential_source,
+        },
     }))
 }
 
@@ -559,6 +771,18 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         "engine_running": stats.engine_running,
         "data_source": stats.data_source,
         "last_price": stats.last_price,
+        "webtransport": {
+            "enabled": stats.webtransport_enabled,
+            "port": stats.webtransport_port,
+            "cert_hash_available": webtransport::cert_hash_available(),
+            "clients_connected": webtransport::client_count(),
+        },
+        "theta_dx": {
+            "status": stats.theta_dx_status,
+            "active": stats.theta_dx_status == "active",
+            "reason": stats.theta_dx_reason,
+            "credential_source": stats.theta_dx_credential_source,
+        },
     }))
 }
 
@@ -579,6 +803,99 @@ async fn ingest_handler(
     }
 }
 
+async fn theta_dx_subscribe_handler(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<ThetaDxSubscribeRequest>,
+) -> impl IntoResponse {
+    let symbol = body.symbol.trim().to_uppercase();
+    if symbol.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "symbol_required" })),
+        );
+    }
+
+    let Some(client) = state.theta_dx_client.read().await.clone() else {
+        let stats = state.stats.read().await;
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "theta_dx_inactive",
+                "theta_dx_status": stats.theta_dx_status,
+                "theta_dx_reason": stats.theta_dx_reason,
+                "theta_dx_credential_source": stats.theta_dx_credential_source,
+            })),
+        );
+    };
+
+    let spot_price = body.spot_price.unwrap_or(0.0);
+    if spot_price <= 0.0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "spot_price_required" })),
+        );
+    }
+
+    let expiration = body.expiration.unwrap_or_else(|| {
+        chrono::Utc::now()
+            .format("%Y%m%d")
+            .to_string()
+            .parse()
+            .unwrap_or_default()
+    });
+    let strike_range = body.strike_range.unwrap_or(15).clamp(1, 50);
+    let new_contracts = build_option_scope_contracts(&symbol, expiration, spot_price, strike_range);
+
+    let old_contracts = {
+        let mut scope = state.theta_dx_option_scope.lock().await;
+        let old = std::mem::take(&mut scope.contracts);
+        scope.symbol = Some(symbol.clone());
+        scope.expiration = Some(expiration);
+        scope.contracts = new_contracts.clone();
+        old
+    };
+
+    let mut unsubscribe_errors = Vec::new();
+    for contract in &old_contracts {
+        if let Err(err) = client.unsubscribe_quotes(contract) {
+            unsubscribe_errors.push(format!("quote_unsub:{err}"));
+        }
+        if let Err(err) = client.unsubscribe_trades(contract) {
+            unsubscribe_errors.push(format!("trade_unsub:{err}"));
+        }
+    }
+
+    let mut subscribe_errors = Vec::new();
+    for contract in &new_contracts {
+        if let Err(err) = client.subscribe_quotes(contract) {
+            subscribe_errors.push(format!("quote_sub:{err}"));
+        }
+        if let Err(err) = client.subscribe_trades(contract) {
+            subscribe_errors.push(format!("trade_sub:{err}"));
+        }
+    }
+
+    let status = if subscribe_errors.is_empty() {
+        StatusCode::OK
+    } else {
+        StatusCode::BAD_GATEWAY
+    };
+
+    (
+        status,
+        Json(serde_json::json!({
+            "symbol": symbol,
+            "expiration": expiration,
+            "spot_price": spot_price,
+            "strike_range": strike_range,
+            "contracts": new_contracts.len(),
+            "unsubscribed_contracts": old_contracts.len(),
+            "unsubscribe_errors": unsubscribe_errors,
+            "subscribe_errors": subscribe_errors,
+        })),
+    )
+}
+
 async fn cert_hash_handler() -> Json<serde_json::Value> {
     match webtransport::CERT_HASH.get() {
         Some(hash) => Json(serde_json::json!({
@@ -589,9 +906,7 @@ async fn cert_hash_handler() -> Json<serde_json::Value> {
     }
 }
 
-async fn flow_state_handler(
-    State(state): State<Arc<AppState>>,
-) -> Json<FlowStateSnapshot> {
+async fn flow_state_handler(State(state): State<Arc<AppState>>) -> Json<FlowStateSnapshot> {
     let snapshot = state.flow_state.read().await.clone();
     Json(snapshot)
 }
@@ -600,10 +915,7 @@ async fn flow_state_handler(
 // WebSocket handler — streams FlowEvents to connected agents
 // ─────────────────────────────────────────────────────────────────────────────
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_ws_client(socket, state))
 }
 
@@ -643,9 +955,8 @@ async fn handle_ws_client(socket: WebSocket, state: Arc<AppState>) {
         }
     });
 
-    let recv_task = tokio::spawn(async move {
-        while let Some(Ok(_msg)) = receiver.next().await {}
-    });
+    let recv_task =
+        tokio::spawn(async move { while let Some(Ok(_msg)) = receiver.next().await {} });
 
     tokio::select! {
         _ = send_task => {},

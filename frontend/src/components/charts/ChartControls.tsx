@@ -1,14 +1,28 @@
 import { type Component, For, Show, createSignal, createMemo, onCleanup } from 'solid-js';
-import { market, setTimeframe } from '../../signals/market';
-import type { Timeframe } from '../../types/market';
+import { market, setChartInterval, setChartRange } from '../../signals/market';
+import type { ChartInterval, ChartRange } from '../../types/market';
 import { searchIndicators, overlayIndicators, oscillatorIndicators, type IndicatorInfo } from '../../lib/indicatorRegistry';
 
-const timeframes: { label: string; value: Timeframe }[] = [
+const ranges: { label: string; value: ChartRange }[] = [
+  { label: '1D', value: '1D' },
+  { label: '1W', value: '1W' },
+  { label: '1M', value: '1M' },
+  { label: '3M', value: '3M' },
+  { label: '1Y', value: '1Y' },
+  { label: 'MAX', value: 'MAX' },
+];
+
+const intervals: { label: string; value: ChartInterval }[] = [
   { label: '1m', value: '1Min' },
+  { label: '2m', value: '2Min' },
   { label: '5m', value: '5Min' },
+  { label: '10m', value: '10Min' },
   { label: '15m', value: '15Min' },
+  { label: '30m', value: '30Min' },
   { label: '1h', value: '1H' },
+  { label: '4h', value: '4Hour' },
   { label: '1d', value: '1D' },
+  { label: '1w', value: '1Week' },
 ];
 
 // Assign colors to indicators deterministically
@@ -65,23 +79,47 @@ export const ChartControls: Component<Props> = (props) => {
   onCleanup(() => document.removeEventListener('mousedown', handleClickOutside));
 
   return (
-    <div class="h-10 flex items-center gap-2 px-4 bg-surface-1 border-b border-border-default shrink-0 font-display">
-      {/* Timeframe selector */}
-      <div class="flex items-center gap-0.5">
-        <For each={timeframes}>
-          {(tf) => (
+    <div class="min-h-[56px] flex flex-wrap items-center gap-2 px-4 py-2 bg-surface-1 border-b border-border-default shrink-0 font-display">
+      <div class="flex items-center gap-1.5">
+        <span class="text-[9px] uppercase tracking-[0.16em] text-text-muted">Range</span>
+        <div class="flex items-center gap-0.5">
+          <For each={ranges}>
+            {(range) => (
+              <button
+                class={`px-2.5 py-1 text-[11px] rounded transition-colors ${
+                  market.range === range.value
+                    ? 'bg-accent text-white'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-3'
+                }`}
+                onClick={() => setChartRange(range.value)}
+              >
+                {range.label}
+              </button>
+            )}
+          </For>
+        </div>
+      </div>
+
+      <div class="w-px h-5 bg-border-default hidden md:block" />
+
+      <div class="flex items-center gap-1.5">
+        <span class="text-[9px] uppercase tracking-[0.16em] text-text-muted">Bars</span>
+        <div class="flex items-center gap-0.5">
+          <For each={intervals}>
+            {(tf) => (
             <button
               class={`px-2.5 py-1 text-[11px] rounded transition-colors ${
-                market.timeframe === tf.value
+                market.interval === tf.value
                   ? 'bg-accent text-white'
                   : 'text-text-secondary hover:text-text-primary hover:bg-surface-3'
               }`}
-              onClick={() => setTimeframe(tf.value)}
+              onClick={() => setChartInterval(tf.value)}
             >
               {tf.label}
             </button>
           )}
-        </For>
+          </For>
+        </div>
       </div>
 
       <div class="w-px h-5 bg-border-default" />

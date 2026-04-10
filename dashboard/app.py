@@ -177,6 +177,24 @@ async def websocket_endpoint(websocket: WebSocket):
         await manager.disconnect(websocket)
 
 
+async def _flow_engine_is_active() -> bool:
+    """Return whether the Rust engine is reachable and advertising a live source."""
+    try:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{cfg.FLOW_ENGINE_HTTP_URL}/stats",
+                timeout=aiohttp.ClientTimeout(total=cfg.FLOW_ENGINE_STATS_TIMEOUT),
+            ) as resp:
+                if resp.status != 200:
+                    return False
+                data = await resp.json()
+                return bool(data.get("engine_running")) and bool(data.get("data_source"))
+    except Exception:
+        return False
+
+
 @app.on_event("startup")
 async def startup_event():
     """
@@ -269,51 +287,26 @@ async def startup_event():
     except Exception:
         symbols = ["SPY"]
 
-    # Check if Rust engine is actively running AND receiving fresh data.
-    # If the engine has stale data (e.g. from a previous session), start Python stream.
-    engine_active = False
-    try:
-        import aiohttp
-        from datetime import datetime, timezone, timedelta
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{cfg.FLOW_ENGINE_HTTP_URL}/stats", timeout=aiohttp.ClientTimeout(total=cfg.FLOW_ENGINE_STATS_TIMEOUT)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    ticks = data.get("ticks_processed", 0)
-                    source = data.get("data_source", "")
-                    last_ts = data.get("timestamp", "")
-                    logger.info(f"Rust engine detected: source={source}, ticks={ticks}")
-
-                    # Engine is active only if it has a data source AND its last
-                    # heartbeat timestamp is recent (within configured stale threshold).  Old stats from a
-                    # previous trading session (stale last_price, millions of
-                    # ticks_processed) should NOT block the Python stream.
-                    if source:
-                        try:
-                            ts = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
-                            age = datetime.now(timezone.utc) - ts
-                            if age < timedelta(seconds=cfg.FLOW_ENGINE_HEARTBEAT_STALE):
-                                engine_active = True
-                            else:
-                                logger.warning(
-                                    f"Engine heartbeat is {age.total_seconds():.0f}s old — "
-                                    "treating as stale"
-                                )
-                        except Exception:
-                            # If we can't parse the timestamp, assume stale
-                            engine_active = ticks > 0 and source != ""
-    except Exception:
-        logger.info("Rust engine not detected on port 8081")
-
-    # Always start Python Alpaca stream — the dashboard WebSocket
-    # needs trade ticks for real-time chart updates. Rust engine handles
-    # order flow analysis separately on port 8081.
+    engine_active = await _flow_engine_is_active()
     if engine_active:
-        logger.info("Rust engine detected — starting Python SIP stream alongside for dashboard ticks")
+        logger.info("Rust engine detected — Python Alpaca SIP stream will stay disabled")
     else:
-        logger.info("No active Rust engine — starting Python Alpaca SIP stream...")
-    await alpaca_stream.start(symbols)
-    logger.info(f"Alpaca SIP stream started for: {symbols}")
+        logger.info("Rust engine not active at startup")
+
+    if cfg.PYTHON_ALPACA_WS_ENABLED and not engine_active:
+        logger.info("Python Alpaca SIP stream enabled — starting fallback stream...")
+        await alpaca_stream.start(symbols)
+        logger.info(f"Alpaca SIP stream started for: {symbols}")
+    elif cfg.PYTHON_ALPACA_WS_ENABLED:
+        logger.info(
+            "Python Alpaca SIP stream enabled but skipped because the Rust engine "
+            "already owns live market data"
+        )
+    else:
+        logger.info(
+            "Python Alpaca SIP stream disabled — relying on Rust engine + ThetaData "
+            "for live platform data"
+        )
 
     # ── ThetaData WebSocket streaming (opt-in via THETA_STREAM_ENABLED) ──
     if cfg.THETA_STREAM_ENABLED:
@@ -618,28 +611,77 @@ async def stream_subscribe(symbols: list[str]):
 
 @app.post("/api/theta/subscribe")
 async def theta_subscribe(body: dict):
-    """Subscribe to 0DTE options for a symbol via ThetaData."""
+    """Subscribe to 0DTE options for a symbol via ThetaData paths."""
     symbol = body.get("symbol", "SPY").upper()
+    rust_subscribed = False
+    python_subscribed = False
+    price = 0.0
+    rust_error = None
+
+    # Fetch current spot price once and reuse it for both paths.
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"https://data.alpaca.markets/v2/stocks/{symbol}/snapshot",
+                headers=cfg.ALPACA_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=3),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    price = data.get("latestTrade", {}).get("p", 0) or 0.0
+    except Exception:
+        pass
+
     if cfg.THETA_STREAM_ENABLED and theta_stream.connected:
         await theta_stream.auto_subscribe_0dte(symbol)
-        # Update underlying price for Greeks computation
-        try:
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"https://data.alpaca.markets/v2/stocks/{symbol}/snapshot",
-                    headers=cfg.ALPACA_HEADERS,
-                    timeout=aiohttp.ClientTimeout(total=3),
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        price = data.get("latestTrade", {}).get("p", 0)
-                        if price > 0:
-                            theta_stream.update_underlying_price(price)
-        except Exception:
-            pass
-        return {"subscribed": symbol}
-    return {"subscribed": None, "reason": "theta stream not connected"}
+        if price > 0:
+            theta_stream.update_underlying_price(price)
+        python_subscribed = True
+
+    # Best-effort bridge into the Rust ThetaDataDx path so the engine can start
+    # owning symbol-driven option subscriptions without breaking the current UI.
+    try:
+        import aiohttp
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        expiration = int(datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d"))
+        payload = {
+            "symbol": symbol,
+            "expiration": expiration,
+            "spot_price": price,
+            "strike_range": cfg.THETA_STRIKE_RANGE,
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{cfg.FLOW_ENGINE_HTTP_URL}/theta/options/subscribe",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=2),
+            ) as resp:
+                if resp.status == 200:
+                    rust_subscribed = True
+                else:
+                    rust_error = f"flow_engine_status_{resp.status}"
+    except Exception as e:
+        rust_error = str(e)
+
+    if python_subscribed or rust_subscribed:
+        return {
+            "subscribed": symbol,
+            "python_subscribed": python_subscribed,
+            "rust_subscribed": rust_subscribed,
+            "spot_price": price or None,
+            "rust_error": rust_error,
+        }
+
+    return {
+        "subscribed": None,
+        "reason": "theta stream not connected",
+        "python_subscribed": False,
+        "rust_subscribed": False,
+        "rust_error": rust_error,
+    }
 
 
 @app.post("/api/stream/unsubscribe")
@@ -654,6 +696,12 @@ async def stream_start():
     """Manually start the Alpaca SIP WebSocket stream (use when Rust engine is stopped)."""
     if alpaca_stream.running:
         return {"status": "already_running", "connected": alpaca_stream.connected}
+    if await _flow_engine_is_active():
+        return {
+            "status": "blocked",
+            "reason": "flow_engine_active",
+            "message": "Rust flow-engine is active; stop it before starting the Python Alpaca stream.",
+        }
     symbols_str = os.environ.get("TRADING_SYMBOLS", '["SPY"]')
     try:
         import json as _json

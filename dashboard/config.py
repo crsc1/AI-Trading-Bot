@@ -199,6 +199,7 @@ class Config:
         self.ALPACA_DATA_URL: str = "https://data.alpaca.markets"  # stable, no env needed
         self.ALPACA_DATA_FEED: str = _env("ALPACA_DATA_FEED", "iex")
         self.ALPACA_WS_URL: str = _env("ALPACA_WS_URL", "wss://stream.data.alpaca.markets/v2/sip")
+        self.PYTHON_ALPACA_WS_ENABLED: bool = _env_bool("PYTHON_ALPACA_WS_ENABLED", False)
 
         # Timeouts
         self.ALPACA_QUOTE_TIMEOUT: float = _env_float("ALPACA_QUOTE_TIMEOUT", 3.0)

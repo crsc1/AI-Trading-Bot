@@ -5,9 +5,9 @@
 //!
 //! All messages are protobuf-encoded MarketMessage, same as the WebSocket path.
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 use wtransport::{Endpoint, Identity, ServerConfig};
 
@@ -24,8 +24,16 @@ fn base64_encode(data: &[u8]) -> String {
         let n = (b0 << 16) | (b1 << 8) | b2;
         result.push(CHARS[(n >> 18 & 0x3F) as usize] as char);
         result.push(CHARS[(n >> 12 & 0x3F) as usize] as char);
-        if chunk.len() > 1 { result.push(CHARS[(n >> 6 & 0x3F) as usize] as char); } else { result.push('='); }
-        if chunk.len() > 2 { result.push(CHARS[(n & 0x3F) as usize] as char); } else { result.push('='); }
+        if chunk.len() > 1 {
+            result.push(CHARS[(n >> 6 & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(n & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
     }
     result
 }
@@ -33,6 +41,15 @@ fn base64_encode(data: &[u8]) -> String {
 /// Shared cert hash for the /cert-hash endpoint.
 /// Set once at WebTransport server startup.
 pub static CERT_HASH: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+static CLIENTS_CONNECTED: AtomicU32 = AtomicU32::new(0);
+
+pub fn client_count() -> u32 {
+    CLIENTS_CONNECTED.load(Ordering::Relaxed)
+}
+
+pub fn cert_hash_available() -> bool {
+    CERT_HASH.get().is_some()
+}
 
 /// Start the WebTransport server.
 pub async fn serve(
@@ -53,9 +70,15 @@ pub async fn serve(
     if let Some(cert) = certs.as_slice().first() {
         let hash = cert.hash();
         let hash_bytes = hash.as_ref().to_vec();
-        let hex = hash_bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        let hex = hash_bytes
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
         info!("WebTransport cert SHA-256: {hex}");
-        info!("WebTransport cert hash (base64): {}", base64_encode(&hash_bytes));
+        info!(
+            "WebTransport cert hash (base64): {}",
+            base64_encode(&hash_bytes)
+        );
         let _ = CERT_HASH.set(hash_bytes);
     }
 
@@ -84,16 +107,16 @@ pub async fn serve(
 
         tokio::spawn(async move {
             match incoming.await {
-                Ok(request) => {
-                    match request.accept().await {
-                        Ok(connection) => {
-                            info!("WebTransport client connected");
-                            handle_session(connection, flow_rx, ext_rx).await;
-                            info!("WebTransport client disconnected");
-                        }
-                        Err(e) => warn!("WebTransport: session accept failed: {e}"),
+                Ok(request) => match request.accept().await {
+                    Ok(connection) => {
+                        CLIENTS_CONNECTED.fetch_add(1, Ordering::Relaxed);
+                        info!("WebTransport client connected");
+                        handle_session(connection, flow_rx, ext_rx).await;
+                        CLIENTS_CONNECTED.fetch_sub(1, Ordering::Relaxed);
+                        info!("WebTransport client disconnected");
                     }
-                }
+                    Err(e) => warn!("WebTransport: session accept failed: {e}"),
+                },
                 Err(e) => warn!("WebTransport: incoming connection failed: {e}"),
             }
         });

@@ -8,7 +8,8 @@
  * - PixiJS renders GPU-accelerated volume bubbles
  * - Continuous render loop redraws at configured interval
  */
-import { type Component, onMount, onCleanup } from 'solid-js';
+import { type Component, createEffect, on, onCleanup, onMount } from 'solid-js';
+import * as Comlink from 'comlink';
 import { FlowBubbleRenderer } from '../../lib/flowRenderer';
 import {
   computeLayout,
@@ -18,9 +19,13 @@ import {
   type FlowCloudCell,
 } from '../../lib/flowCanvas';
 import { WSClient } from '../../lib/ws';
+import { getProtoWorker } from '../../workers/protobuf.api';
+import { api, type RecentOrderFlowTrade } from '../../lib/api';
+import { market } from '../../signals/market';
 
 const PRICE_TICK = 0.05;
 const MAX_TICKS = 50000;
+const MAX_SEEN_KEYS = 12000;
 
 interface RawTick {
   price: number;
@@ -37,14 +42,20 @@ export const OrderFlowChart: Component = () => {
   let animTimer: ReturnType<typeof setTimeout> | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let flowWS: WSClient | null = null;
+  let recentPollTimer: ReturnType<typeof setInterval> | null = null;
+  let protoBatchPending = false;
+  let msgBuffer: ArrayBuffer[] = [];
+  let recentTradesRequestId = 0;
 
   // Live tick buffer (matches original liveFlow.ticks)
   let ticks: RawTick[] = [];
+  let seenTickKeys = new Set<string>();
+  let seenTickQueue: string[] = [];
   let prevPrice = 0;
   let prevSide: 'buy' | 'sell' | 'neutral' = 'neutral';
 
   // Adaptive noise filter: recalculated from recent tick distribution
-  let minSize = 10; // starting default, will adapt
+  let minSize = 1; // start permissive so the chart doesn't look dead before adaptation kicks in
   let recentSizes: number[] = []; // last N raw tick sizes (before filtering)
   const ADAPT_SAMPLE = 500; // recalc threshold after this many raw ticks
   let adaptCounter = 0;
@@ -70,6 +81,77 @@ export const OrderFlowChart: Component = () => {
   let aggSeconds = 0.25;       // 250ms aggregation for smooth trail
   let visibleWindowMs = 2 * 60 * 1000;  // 2-minute sliding window
   let renderInterval = 80;     // ms between renders (~12fps)
+
+  function resetTickState(): void {
+    ticks = [];
+    seenTickKeys = new Set();
+    seenTickQueue = [];
+    prevPrice = 0;
+    prevSide = 'neutral';
+    minSize = 1;
+    recentSizes = [];
+    adaptCounter = 0;
+  }
+
+  function tickKey(price: number, size: number, side: string, ts: number): string {
+    return `${ts}|${price.toFixed(2)}|${size}|${side}`;
+  }
+
+  function rememberTick(key: string): boolean {
+    if (seenTickKeys.has(key)) return false;
+    seenTickKeys.add(key);
+    seenTickQueue.push(key);
+    if (seenTickQueue.length > MAX_SEEN_KEYS) {
+      const stale = seenTickQueue.splice(0, seenTickQueue.length - MAX_SEEN_KEYS);
+      for (const item of stale) seenTickKeys.delete(item);
+    }
+    return true;
+  }
+
+  function ingestTick(price: number, size: number, side: 'buy' | 'sell' | 'neutral', ts: number): void {
+    if (!isFinite(price) || price <= 0 || !isFinite(size) || size < 0 || !isFinite(ts) || ts <= 0) return;
+    const key = tickKey(price, size, side, ts);
+    if (!rememberTick(key)) return;
+
+    recentSizes.push(size);
+    adaptCounter++;
+    if (adaptCounter >= ADAPT_SAMPLE) recalcThreshold();
+    if (size < minSize) return;
+
+    ticks.push({
+      price: Math.round(price * 100) / 100,
+      size,
+      side,
+      ts,
+    });
+
+    if (ticks.length > MAX_TICKS) {
+      ticks = ticks.slice(-Math.floor(MAX_TICKS * 0.8));
+    }
+  }
+
+  async function syncRecentTrades(): Promise<void> {
+    const symbol = market.symbol;
+    const requestId = ++recentTradesRequestId;
+    try {
+      const data = await api.getRecentOrderFlowTrades(symbol, 1500, 5);
+      if (requestId !== recentTradesRequestId || symbol !== market.symbol) return;
+      const trades = Array.isArray(data.trades) ? [...data.trades] : [];
+      trades.sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+      for (const trade of trades) {
+        ingestRecentTrade(trade);
+      }
+      if (ticks.length > 0) render();
+    } catch (error) {
+      console.warn('[OrderFlowChart] Recent trades fallback failed:', error);
+    }
+  }
+
+  function ingestRecentTrade(trade: RecentOrderFlowTrade): void {
+    const ts = Date.parse(trade.t);
+    const side = trade.side === 'buy' || trade.side === 'sell' ? trade.side : 'neutral';
+    ingestTick(trade.p, trade.s, side, ts);
+  }
 
   function ensureCanvas(): boolean {
     if (!containerRef) return false;
@@ -206,7 +288,7 @@ export const OrderFlowChart: Component = () => {
 
   // ── Handle raw ticks from Rust engine WS ─────────────────────────────
 
-  function handleMessage(data: any): void {
+  function handleDecodedMessage(data: any): void {
     if (data.type === 'tick' || data.type === 'Tick') {
       const price = data.price ?? data.p;
       const size = data.size ?? data.s ?? 1;
@@ -230,25 +312,41 @@ export const OrderFlowChart: Component = () => {
         ? new Date(data.timestamp).getTime()
         : Date.now();
 
-      // Feed ALL ticks into the adaptive threshold calculator
-      recentSizes.push(size);
-      adaptCounter++;
-      if (adaptCounter >= ADAPT_SAMPLE) recalcThreshold();
+      ingestTick(price, size, side, ts);
+    }
+  }
 
-      // Adaptive noise filter: drops the bottom 25% of volume (odd lots, fractional fills)
-      // Threshold auto-adjusts to market conditions (higher at open, lower midday)
-      if (size < minSize) return;
+  function handleRawMessage(raw: any, protoWorker: any): void {
+    if (raw instanceof ArrayBuffer) {
+      msgBuffer.push(raw);
+      if (protoBatchPending) return;
 
-      ticks.push({
-        price: Math.round(price * 100) / 100,
-        size,
-        side,
-        ts,
+      protoBatchPending = true;
+      requestAnimationFrame(async () => {
+        protoBatchPending = false;
+        const batch = msgBuffer;
+        msgBuffer = [];
+        if (batch.length === 0) return;
+
+        try {
+          const decoded = await protoWorker.decodeBatch(
+            Comlink.transfer(batch, batch)
+          );
+          for (const message of decoded) {
+            handleDecodedMessage(message);
+          }
+        } catch (error) {
+          console.warn('[OrderFlowChart] Proto decode error:', error);
+        }
       });
+      return;
+    }
 
-      // Cap memory
-      if (ticks.length > MAX_TICKS) {
-        ticks = ticks.slice(-Math.floor(MAX_TICKS * 0.8));
+    if (typeof raw === 'string') {
+      try {
+        handleDecodedMessage(JSON.parse(raw));
+      } catch (error) {
+        console.warn('[OrderFlowChart] JSON parse error:', error);
       }
     }
   }
@@ -258,6 +356,7 @@ export const OrderFlowChart: Component = () => {
   onMount(async () => {
     if (!containerRef) return;
     containerRef.style.position = 'relative';
+    const protoWorker = getProtoWorker();
 
     // Initialize PixiJS
     bubbleRenderer = new FlowBubbleRenderer();
@@ -268,34 +367,51 @@ export const OrderFlowChart: Component = () => {
     resizeObserver.observe(containerRef);
 
     // Connect to Rust engine WS for raw ticks
-    const wsHost = window.location.hostname || 'localhost';
-    flowWS = new WSClient({
-      url: `ws://${wsHost}:8081/ws`,
-      onMessage: handleMessage,
-    });
-    flowWS.connect();
+    if (window.location.protocol !== 'https:') {
+      const wsHost = window.location.hostname || 'localhost';
+      flowWS = new WSClient({
+        url: `ws://${wsHost}:8081/ws`,
+        encoding: 'auto',
+        onMessage: (raw) => handleRawMessage(raw, protoWorker),
+      });
+      flowWS.connect();
+    }
+
+    await syncRecentTrades();
+    recentPollTimer = setInterval(() => {
+      void syncRecentTrades();
+    }, 5000);
 
     // Start continuous render loop
     startAnimLoop();
   });
 
+  createEffect(on(() => market.symbol, () => {
+    resetTickState();
+    void syncRecentTrades();
+  }, { defer: true }));
+
   onCleanup(() => {
     stopAnimLoop();
+    if (recentPollTimer) clearInterval(recentPollTimer);
     if (resizeObserver) resizeObserver.disconnect();
     if (bubbleRenderer) bubbleRenderer.destroy();
     if (flowWS) flowWS.destroy();
     bubbleRenderer = null;
     flowWS = null;
+    recentPollTimer = null;
+    msgBuffer = [];
+    protoBatchPending = false;
     canvas = undefined;
     ctx = null;
-    ticks = [];
+    resetTickState();
   });
 
   return (
     <div
       ref={containerRef}
       class="w-full h-full relative"
-      style={{ 'min-height': '150px' }}
+      style={{ 'min-height': '360px' }}
     />
   );
 };

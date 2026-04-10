@@ -13,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 import os
 import sys
+import tempfile
 
 # Ensure project is in path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,6 +23,10 @@ os.environ.setdefault("ALPACA_API_KEY", "test_key")
 os.environ.setdefault("ALPACA_SECRET_KEY", "test_secret")
 os.environ.setdefault("APCA_API_BASE_URL", "https://paper-api.alpaca.markets")
 os.environ.setdefault("NEWSAPI_KEY", "test_newsapi")
+signal_db_path = os.path.join(tempfile.gettempdir(), f"ai_trading_bot_test_signals_{os.getpid()}.db")
+if os.path.exists(signal_db_path):
+    os.remove(signal_db_path)
+os.environ.setdefault("SIGNAL_DB_PATH", signal_db_path)
 
 
 @pytest_asyncio.fixture

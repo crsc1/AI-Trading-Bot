@@ -206,7 +206,9 @@ mod tests {
 
         let events = cvd.process_tick(&make_tick(562.35, 1000, TradeSide::Buy));
 
-        let has_large = events.iter().any(|e| matches!(e, FlowEvent::LargeTrade { .. }));
+        let has_large = events
+            .iter()
+            .any(|e| matches!(e, FlowEvent::LargeTrade { .. }));
         assert!(has_large, "Should detect large trade of 1000 shares");
     }
 
@@ -221,8 +223,13 @@ mod tests {
         // Push CVD negative (flip)
         let events = cvd.process_tick(&make_tick(562.30, 1000, TradeSide::Sell));
 
-        let has_flip = events.iter().any(|e| matches!(e, FlowEvent::DeltaFlip { .. }));
-        assert!(has_flip, "Should detect delta flip from positive to negative");
+        let has_flip = events
+            .iter()
+            .any(|e| matches!(e, FlowEvent::DeltaFlip { .. }));
+        assert!(
+            has_flip,
+            "Should detect delta flip from positive to negative"
+        );
     }
 
     #[test]

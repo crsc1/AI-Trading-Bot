@@ -1,4 +1,4 @@
-import { type Component, createSignal, Show, For, onCleanup } from 'solid-js';
+import { type Component, createSignal, Show, For, createEffect, onCleanup } from 'solid-js';
 import { market } from '../../signals/market';
 import { switchSymbol } from '../../lib/data';
 
@@ -42,14 +42,18 @@ export const TickerSelector: Component = () => {
     }
   };
 
-  if (typeof document !== 'undefined') {
+  createEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (!open()) return;
+
     document.addEventListener('mousedown', handleClickOutside);
     onCleanup(() => document.removeEventListener('mousedown', handleClickOutside));
-  }
+  });
 
   return (
     <div ref={containerRef} class="relative">
       <button
+        data-testid="ticker-selector"
         class="font-display text-[14px] font-medium px-2 py-0.5 rounded hover:bg-surface-2 transition-colors cursor-pointer"
         onClick={() => { setOpen(!open()); setTimeout(() => inputRef?.focus(), 10); }}
       >
@@ -62,6 +66,7 @@ export const TickerSelector: Component = () => {
           {/* Search input */}
           <div class="p-2 border-b border-border-default">
             <input
+              data-testid="ticker-input"
               ref={inputRef}
               type="text"
               placeholder="Type symbol..."
@@ -78,6 +83,7 @@ export const TickerSelector: Component = () => {
             <For each={filtered()}>
               {(sym) => (
                 <button
+                  data-testid={`ticker-option-${sym}`}
                   class={`px-2.5 py-1 rounded text-[11px] font-display font-medium transition-colors cursor-pointer ${
                     sym === market.symbol
                       ? 'bg-accent/20 text-accent border border-accent/30'

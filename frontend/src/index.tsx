@@ -2,23 +2,25 @@
 import { render } from 'solid-js/web';
 import { Router, Route } from '@solidjs/router';
 import { Layout } from './components/shared/Layout';
+import { Dashboard } from './components/pages/Dashboard';
+import { Charts } from './components/pages/Charts';
+import { Flow } from './components/pages/Flow';
+import { Agent } from './components/pages/Agent';
+import { Reference } from './components/pages/Reference';
+import { Scanner } from './components/pages/Scanner';
 import './styles/globals.css';
 
 const root = document.getElementById('root');
 
-// Layout renders all pages permanently (no mount/unmount).
-// Routes exist only so useLocation() returns the current path.
-const Noop = () => null;
-
 render(
   () => (
     <Router root={Layout}>
-      <Route path="/" component={Noop} />
-      <Route path="/charts" component={Noop} />
-      <Route path="/flow" component={Noop} />
-      <Route path="/agent" component={Noop} />
-      <Route path="/reference" component={Noop} />
-      <Route path="/scanner" component={Noop} />
+      <Route path="/" component={Dashboard} />
+      <Route path="/charts" component={Charts} />
+      <Route path="/flow" component={Flow} />
+      <Route path="/agent" component={Agent} />
+      <Route path="/reference" component={Reference} />
+      <Route path="/scanner" component={Scanner} />
     </Router>
   ),
   root!

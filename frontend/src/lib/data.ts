@@ -1,20 +1,15 @@
 /**
- * Data layer — dual-transport (WebTransport + WebSocket fallback) to Rust engine + REST to Python.
+ * Data layer — Rust engine live transport + Python REST APIs.
  *
- * Architecture:
- *   Rust engine = unified broadcaster
- *     - WebTransport (QUIC datagrams, port 4433) for Chrome/Firefox — no HoL blocking
- *     - WebSocket (TCP, port 8081) for Safari fallback
- *     - Both send protobuf binary OR JSON text (auto-detected)
- *   Web Worker decodes protobuf off main thread via Comlink
- *   RAF gating: messages buffered, decoded in batch, applied at screen refresh rate
- *   Python backend (port 8000) = REST-only for AI, signals, positions, candles
+ * The frontend currently consumes:
+ *   - Rust engine WebTransport with WebSocket fallback for live protobuf data
+ *   - Python REST endpoints for candles, quotes, signals, and options metadata
  *
+ * Web Worker decoding keeps the protobuf hot path off the main thread.
  * Call `initDataLayer()` once on app mount.
  */
-import { WSClient } from './ws';
-import { createTransport, type TransportClient } from './transport';
 import { api } from './api';
+import { createTransport, type TransportClient } from './transport';
 import * as Comlink from 'comlink';
 import { getProtoWorker } from '../workers/protobuf.api';
 import {
@@ -25,12 +20,31 @@ import {
   updateFromTick,
   updateQuote,
   appendCandle,
-  setConnected,
-} from '../signals/market';
+  replaceCurrentCandle,
+    setConnected,
+    setTransport,
+    setDataSource,
+    setLastEngineMessageAt,
+    setLastQuoteUpdateAt,
+    setQuoteSource,
+  } from '../signals/market';
 import { addOptionTrade, resetOptionsFlow, type OptionTrade } from '../signals/optionsFlow';
 import { updateChainFromTrade, resetChain } from '../signals/chain';
 import { updateCvd } from '../signals/flow';
-import type { Tick, Candle } from '../types/market';
+import { resetReferenceForSymbol } from '../signals/reference';
+import type { Tick, Candle, ChartInterval, ChartRange } from '../types/market';
+
+function normalizeBarTime(raw: unknown): number {
+  if (typeof raw === 'number' && isFinite(raw)) return raw;
+  if (typeof raw === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      return Math.floor(Date.parse(`${raw}T12:00:00Z`) / 1000);
+    }
+    const parsed = Date.parse(raw);
+    if (Number.isFinite(parsed)) return Math.floor(parsed / 1000);
+  }
+  return 0;
+}
 
 /**
  * Get today's midnight in Eastern Time as epoch ms.
@@ -50,9 +64,14 @@ function getTodayETMidnightMs(): number {
   return result;
 }
 
-let ws: WSClient | null = null;
-let transport: TransportClient | null = null;
+let engineTransport: TransportClient | null = null;
 let _barPollInterval: ReturnType<typeof setInterval> | null = null;
+let _quotePollInterval: ReturnType<typeof setInterval> | null = null;
+let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let _visibilityHandler: (() => void) | null = null;
+let _destroyed = false;
+let _connecting: Promise<void> | null = null;
+let _lastLiveTickAt = 0;
 
 // RAF-gated message buffer: accumulate binary frames, decode in batch at refresh rate
 let msgBuffer: ArrayBuffer[] = [];
@@ -81,16 +100,49 @@ function throttledTick(tick: Tick) {
   }
 }
 
+function barsNeededForRange(interval: ChartInterval, range: ChartRange): number {
+  const intervalSeconds: Record<ChartInterval, number> = {
+    '1Min': 60,
+    '2Min': 120,
+    '5Min': 300,
+    '10Min': 600,
+    '15Min': 900,
+    '30Min': 1800,
+    '1H': 3600,
+    '4Hour': 14400,
+    '1D': 86400,
+    '1Week': 604800,
+  };
+  const tradingDays: Record<ChartRange, number> = {
+    '1D': 1,
+    '1W': 5,
+    '1M': 21,
+    '3M': 63,
+    '1Y': 252,
+    'MAX': 520,
+  };
+  const seconds = intervalSeconds[interval];
+  if (seconds >= 604800) {
+    return Math.min(520, Math.max(26, Math.round(tradingDays[range] / 5) + 8));
+  }
+  if (seconds >= 86400) {
+    return Math.min(5000, Math.max(60, tradingDays[range] + 20));
+  }
+  const sessionSeconds = tradingDays[range] * 6.5 * 3600;
+  return Math.min(5000, Math.max(120, Math.round(sessionSeconds / seconds) + 30));
+}
+
 /**
  * Load historical candle data from REST API (Python backend).
  */
 export async function loadCandles(retries = 5) {
+  const limit = barsNeededForRange(market.interval, market.range);
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const data = await api.getBars(market.symbol, market.timeframe);
-      if (data.bars && data.bars.length > 0) {
+      const data = await api.getBars(market.symbol, market.interval, limit);
+      if (Array.isArray(data.bars) && data.bars.length > 0) {
         const candles: Candle[] = data.bars.map((b: any) => ({
-          time: b.time ?? b.t,
+          time: normalizeBarTime(b.time ?? b.t),
           open: b.open ?? b.o,
           high: b.high ?? b.h,
           low: b.low ?? b.l,
@@ -98,6 +150,10 @@ export async function loadCandles(retries = 5) {
           volume: b.volume ?? b.v ?? 0,
         }));
         setCandles(candles);
+        return;
+      }
+      if (Array.isArray(data.bars) && data.bars.length === 0) {
+        setCandles([]);
         return;
       }
     } catch (e) {
@@ -112,7 +168,33 @@ export async function loadCandles(retries = 5) {
 async function loadQuote() {
   try {
     const data = await api.getQuote(market.symbol);
-    if (data.last) setMarket('lastPrice', data.last);
+    setLastQuoteUpdateAt(Date.now());
+    if (data.source) {
+      setQuoteSource(data.source);
+    }
+    if (data.bid || data.ask) {
+      updateQuote({
+        bid: data.bid ?? 0,
+        ask: data.ask ?? 0,
+        bid_size: 0,
+        ask_size: 0,
+        timestamp_ms: Date.now(),
+      });
+    }
+    if (data.last) {
+      setMarket('lastPrice', data.last);
+
+      // When the engine transport is connected but not receiving fresh stock ticks,
+      // keep the active candle visually alive from the latest quote REST fallback.
+      if (Date.now() - _lastLiveTickAt > 3000) {
+        throttledTick({
+          price: data.last,
+          size: 0,
+          side: 'unknown',
+          timestamp_ms: Date.now(),
+        });
+      }
+    }
   } catch (e) {
     console.warn('[Data] Failed to load quote:', e);
   }
@@ -122,11 +204,14 @@ export async function switchSymbol(symbol: string) {
   const sym = symbol.toUpperCase().trim();
   if (!sym || sym === market.symbol) return;
 
+  resetReferenceForSymbol(sym);
   setSymbol(sym);
   setCandles([]);
   setMarket('currentCandle', null);
   setMarket('lastPrice', 0);
   setMarket('quote', null);
+  setQuoteSource(null);
+  setLastQuoteUpdateAt(null);
   resetOptionsFlow();
   resetChain();
 
@@ -141,6 +226,7 @@ export async function switchSymbol(symbol: string) {
 /** Handle a single decoded message — same logic as before, just extracted */
 function handleDecodedMessage(data: any) {
   if (!data || !data.type) return;
+  setLastEngineMessageAt(Date.now());
   const type = data.type;
 
   switch (type) {
@@ -148,6 +234,7 @@ function handleDecodedMessage(data: any) {
     case 'Tick':
     case 'trade': {
       if (data.symbol && data.symbol !== market.symbol) break;
+      _lastLiveTickAt = Date.now();
       // Throttle ticks to 60fps — high-frequency data would freeze the chart otherwise
       throttledTick({
         price: data.price ?? data.p,
@@ -159,6 +246,7 @@ function handleDecodedMessage(data: any) {
     }
     case 'quote': {
       if (data.symbol && data.symbol !== market.symbol) break;
+      _lastLiveTickAt = Date.now();
       updateQuote({
         bid: data.bid ?? data.bp ?? 0,
         ask: data.ask ?? data.ap ?? 0,
@@ -203,7 +291,7 @@ function handleDecodedMessage(data: any) {
     case 'bar_update': {
       if (data.symbol && data.symbol !== market.symbol) break;
       const candle: Candle = {
-        time: data.t ?? data.timestamp,
+        time: normalizeBarTime(data.t ?? data.timestamp),
         open: data.o ?? data.open,
         high: data.h ?? data.high,
         low: data.l ?? data.low,
@@ -211,7 +299,7 @@ function handleDecodedMessage(data: any) {
         volume: data.v ?? data.volume ?? 0,
       };
       if (type === 'bar') appendCandle(candle);
-      else setMarket('currentCandle', candle);
+      else replaceCurrentCandle(candle);
       break;
     }
     case 'cvd': {
@@ -226,7 +314,11 @@ function handleDecodedMessage(data: any) {
     case 'absorption':
     case 'delta_flip':
     case 'large_trade':
+      break;
     case 'heartbeat':
+      if (data.data_source) {
+        setDataSource(data.data_source);
+      }
       break;
   }
 }
@@ -280,46 +372,86 @@ function handleRawMessage(raw: any, protoWorker: any) {
 }
 
 export function initDataLayer() {
-  if (ws) return;
+  if (engineTransport || _connecting) return;
+
+  _destroyed = false;
 
   const protoWorker = getProtoWorker();
   const wsHost = window.location.hostname || 'localhost';
 
-  // WebSocket connection to Rust engine (WebTransport upgrade planned)
-  ws = new WSClient({
-    name: 'Engine',
-    url: `ws://${wsHost}:8081/ws`,
-    encoding: 'auto',
-    onMessage: (raw: any) => {
-      handleRawMessage(raw, protoWorker);
-    },
-    onConnect: () => {
-      setConnected(true);
-      loadQuote();
-    },
-    onDisconnect: () => setConnected(false),
-  });
+  const connect = async () => {
+    if (_destroyed || engineTransport || _connecting) return;
 
-  ws.connect();
+    _connecting = (async () => {
+      try {
+        const transport = await createTransport(wsHost);
+        if (_destroyed) {
+          transport.close();
+          return;
+        }
+
+        engineTransport = transport;
+        setConnected(true);
+        setTransport(transport.transport);
+        transport.onMessage((raw) => {
+          handleRawMessage(raw, protoWorker);
+        });
+        transport.onClose(() => {
+          if (engineTransport !== transport) return;
+          engineTransport = null;
+          setConnected(false);
+          setTransport('disconnected');
+          if (!_destroyed) {
+            _reconnectTimer = setTimeout(() => {
+              void connect();
+            }, 1500);
+          }
+        });
+        loadQuote();
+      } catch (e) {
+        console.warn('[Data] Failed to connect to engine transport:', e);
+        setConnected(false);
+        setTransport('disconnected');
+        if (!_destroyed) {
+          _reconnectTimer = setTimeout(() => {
+            void connect();
+          }, 3000);
+        }
+      } finally {
+        _connecting = null;
+      }
+    })();
+
+    await _connecting;
+  };
+
+  void connect();
 
   // Load initial data via REST (Python backend)
   loadCandles();
   loadQuote();
 
   // Refresh quote when tab becomes visible
-  document.addEventListener('visibilitychange', () => {
+  _visibilityHandler = () => {
     if (document.visibilityState === 'visible') loadQuote();
-  });
+  };
+  document.addEventListener('visibilitychange', _visibilityHandler);
 
-  // Poll for fresh bars every 15s as fallback
+  // Quote poll keeps the chart moving when the engine is connected but the
+  // current stock tick source is stale or replay-only.
+  _quotePollInterval = setInterval(() => {
+    void loadQuote();
+  }, 5000);
+
+  // Poll for fresh bars as fallback to advance the active candle/bar window.
   _barPollInterval = setInterval(async () => {
     try {
-      const tf = market.timeframe || '5Min';
+      const tf = market.interval || '5Min';
       const data = await api.get<{ bars: any[] }>(`/api/bars?symbol=${market.symbol}&timeframe=${tf}&limit=3`);
       if (data?.bars?.length) {
         const latest = data.bars[data.bars.length - 1];
         const candle: Candle = {
-          time: latest.time ?? latest.t,
+          time: normalizeBarTime(latest.time ?? latest.t),
           open: latest.open ?? latest.o,
           high: latest.high ?? latest.h,
           low: latest.low ?? latest.l,
@@ -330,7 +462,7 @@ export function initDataLayer() {
         if (existing.length > 0) {
           const lastTime = existing[existing.length - 1].time;
           if (candle.time > lastTime) appendCandle(candle);
-          else if (candle.time === lastTime) setMarket('currentCandle', candle);
+          else if (candle.time === lastTime) replaceCurrentCandle(candle);
         }
       }
     } catch {}
@@ -338,10 +470,27 @@ export function initDataLayer() {
 }
 
 export function destroyDataLayer() {
-  ws?.destroy();
+  _destroyed = true;
+  if (_reconnectTimer) clearTimeout(_reconnectTimer);
   if (_barPollInterval) clearInterval(_barPollInterval);
-  ws = null;
+  if (_quotePollInterval) clearInterval(_quotePollInterval);
+  if (_visibilityHandler) {
+    document.removeEventListener('visibilitychange', _visibilityHandler);
+  }
+  engineTransport?.close();
+  engineTransport = null;
   _barPollInterval = null;
+  _quotePollInterval = null;
+  _reconnectTimer = null;
+  _visibilityHandler = null;
+  _connecting = null;
+  _lastLiveTickAt = 0;
+  setConnected(false);
+  setTransport('disconnected');
+  setDataSource(null);
+  setQuoteSource(null);
+  setLastEngineMessageAt(null);
+  setLastQuoteUpdateAt(null);
   msgBuffer = [];
   rafPending = false;
 }

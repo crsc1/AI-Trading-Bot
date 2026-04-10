@@ -141,7 +141,6 @@ export const OptionsHeatmap: Component = () => {
             const bearWidth = () => Math.min(100, (row.bearishP / maxPremium()) * 100);
             const isATM = () => Math.abs(row.strike - currentPrice()) < 0.5;
             const isNearMoney = () => Math.abs(row.strike - currentPrice()) <= 3;
-            const totalContracts = row.callContracts + row.putContracts;
 
             return (
               <div

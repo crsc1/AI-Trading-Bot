@@ -1,35 +1,13 @@
 import { type Component, For, Show, onMount, onCleanup } from 'solid-js';
-import { signals, setPositions, setDailyPerformance } from '../../signals/signals';
-import { api } from '../../lib/api';
+import { signals } from '../../signals/signals';
+import { subscribePositionSummary, unsubscribePositionSummary } from '../../runtime/signalsRuntime';
 
 export const PositionPanel: Component = () => {
-  let pollInterval: ReturnType<typeof setInterval>;
-
-  async function loadPositions() {
-    try {
-      const [posData, statusData] = await Promise.all([
-        api.getPositions().catch(() => ({ positions: [] })),
-        api.getStatus().catch(() => null),
-      ]);
-      if (posData?.positions) setPositions(posData.positions);
-      if (statusData) {
-        setDailyPerformance({
-          total_pnl: statusData.daily_pnl || 0,
-          win_count: statusData.wins || 0,
-          loss_count: statusData.losses || 0,
-          win_rate: statusData.win_rate || 0,
-          trades_today: statusData.trades_today || 0,
-        });
-      }
-    } catch (_) { /* noop */ }
-  }
-
   onMount(() => {
-    loadPositions();
-    pollInterval = setInterval(loadPositions, 5000);
+    subscribePositionSummary();
   });
 
-  onCleanup(() => clearInterval(pollInterval));
+  onCleanup(() => unsubscribePositionSummary());
 
   const pnlColor = (v: number) => v >= 0 ? 'text-positive' : 'text-negative';
   const pnlSign = (v: number) => v >= 0 ? '+' : '';

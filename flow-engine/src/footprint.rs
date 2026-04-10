@@ -8,7 +8,9 @@
 //! On each tick, the current bar is updated and the full bar state
 //! is available for publishing to agents.
 
-use crate::events::{price_to_level, ClassifiedTick, FlowEvent, FootprintLevel, PriceLevel, TradeSide};
+use crate::events::{
+    price_to_level, ClassifiedTick, FlowEvent, FootprintLevel, PriceLevel, TradeSide,
+};
 use chrono::{DateTime, Utc};
 use std::collections::BTreeMap;
 
@@ -181,7 +183,12 @@ mod tests {
     use super::*;
     use crate::events::TickSource;
 
-    fn make_classified(price: f64, size: u64, side: TradeSide, ts: DateTime<Utc>) -> ClassifiedTick {
+    fn make_classified(
+        price: f64,
+        size: u64,
+        side: TradeSide,
+        ts: DateTime<Utc>,
+    ) -> ClassifiedTick {
         ClassifiedTick {
             price,
             size,

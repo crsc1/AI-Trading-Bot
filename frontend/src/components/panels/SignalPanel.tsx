@@ -1,7 +1,6 @@
 import { type Component, For, Show, onMount, onCleanup } from 'solid-js';
-import { signals, setLatestSignal, setSignalHistory } from '../../signals/signals';
-import { api } from '../../lib/api';
-import type { Signal } from '../../types/signal';
+import { signals } from '../../signals/signals';
+import { subscribeSignalFeed, unsubscribeSignalFeed } from '../../runtime/signalsRuntime';
 
 const tierColors: Record<string, string> = {
   TEXTBOOK: 'bg-positive/20 text-positive border-positive/30',
@@ -17,25 +16,11 @@ const actionColors: Record<string, string> = {
 };
 
 export const SignalPanel: Component = () => {
-  let pollInterval: ReturnType<typeof setInterval>;
-
-  async function loadSignals() {
-    try {
-      const [latest, history] = await Promise.all([
-        api.getLatestSignal().catch(() => null),
-        api.getSignalHistory().catch(() => ({ signals: [] })),
-      ]);
-      if (latest && latest.signal) setLatestSignal(latest as Signal);
-      if (history?.signals) setSignalHistory(history.signals as Signal[]);
-    } catch (_) { /* noop */ }
-  }
-
   onMount(() => {
-    loadSignals();
-    pollInterval = setInterval(loadSignals, 10000);
+    subscribeSignalFeed();
   });
 
-  onCleanup(() => clearInterval(pollInterval));
+  onCleanup(() => unsubscribeSignalFeed());
 
   const formatTime = (ts: string) => {
     try {

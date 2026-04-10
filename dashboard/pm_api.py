@@ -216,8 +216,11 @@ async def get_settings():
         "data": {
             "theta_enabled": getattr(cfg, 'THETA_ENABLED', True),
             "theta_base_url": getattr(cfg, 'THETA_BASE_URL', 'http://localhost:25510'),
+            "theta_ws_url": getattr(cfg, 'THETA_WS_URL', 'ws://localhost:25520/v1/events'),
+            "theta_stream_enabled": getattr(cfg, 'THETA_STREAM_ENABLED', True),
             "alpaca_data_feed": getattr(cfg, 'ALPACA_DATA_FEED', 'sip'),
-            "flow_engine_url": getattr(cfg, 'FLOW_ENGINE_URL_HTTP', 'http://localhost:4001'),
+            "python_alpaca_ws_enabled": getattr(cfg, 'PYTHON_ALPACA_WS_ENABLED', False),
+            "flow_engine_url": getattr(cfg, 'FLOW_ENGINE_HTTP_URL', 'http://localhost:8081'),
         },
     }
 
