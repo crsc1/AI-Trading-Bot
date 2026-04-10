@@ -851,6 +851,20 @@ export const OptionsBubbleChart: Component = () => {
             {m === 'demo' ? 'Demo' : m === 'snake' ? 'Snake' : 'Grid'}
           </button>
         ))}
+        {mode() === 'demo' && (
+          <button
+            class="px-2 py-1 text-[10px] font-display rounded-md text-text-muted hover:text-warning ml-0.5"
+            onClick={() => {
+              stopSim();
+              ticks = []; snakePoints = []; smoothedPressure = 0; frozenPositions = new Map();
+              simPrice = 550; simTrend = 0; simPhase = Math.random() * Math.PI * 2;
+              startSim();
+            }}
+            title="Restart simulation"
+          >
+            ↻
+          </button>
+        )}
       </div>
     </div>
   );
