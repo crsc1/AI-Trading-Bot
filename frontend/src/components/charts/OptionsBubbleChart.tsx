@@ -501,11 +501,8 @@ export const OptionsBubbleChart: Component = () => {
       return minR * 3.5 + Math.min(1, (vol - p95) / (p95 * 2 || 1)) * (maxR - minR * 3.5);
     }
 
-    // Only place NEW bubbles on the spline. Past bubbles keep their frozen position.
-    // This is correct: a call or put that printed 3 minutes ago is historical fact.
-    // The "recency threshold" defines how fresh a cell must be to still be positioned
-    // on the live spline (last 3 seconds). Everything older uses its frozen position.
-    const recencyThresholdMs = 3000;
+    // A trade is final the instant it prints. Once placed, it never moves.
+    // Only bubbles that have never been seen before get positioned on the spline.
 
     // Purge frozen positions that scrolled off the visible window
     for (const [key, _] of frozenPositions) {
@@ -523,15 +520,13 @@ export const OptionsBubbleChart: Component = () => {
 
       let bx: number;
       let by: number;
-      const isRecent = (now - cellMs) < recencyThresholdMs;
 
-      if (frozenPositions.has(cellKey) && !isRecent) {
-        // Past data: use frozen position (does not move)
-        const frozen = frozenPositions.get(cellKey)!;
-        bx = frozen.x;
-        by = frozen.y;
+      const cached = frozenPositions.get(cellKey);
+      if (cached) {
+        bx = cached.x;
+        by = cached.y;
       } else {
-        // New/recent data: position on the live spline, then freeze
+        // First time seeing this cell — place it on the spline and freeze forever
         const t = (cellMs - cutoff) / visibleWindowMs;
         const pt = spline.getPointAt(Math.max(0, Math.min(1, t)));
         bx = pt.x;
