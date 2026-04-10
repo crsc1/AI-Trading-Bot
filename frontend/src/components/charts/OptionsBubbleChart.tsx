@@ -215,7 +215,7 @@ export const OptionsBubbleChart: Component = () => {
 
       // EMA smoothing
       smoothedPressure = smoothedPressure * (1 - SNAKE_PRESSURE_SMOOTHING) + rawPressure * SNAKE_PRESSURE_SMOOTHING;
-      cumPressure += smoothedPressure * 0.3; // accumulate for path curvature
+      cumPressure += smoothedPressure * 0.6; // accumulate for path curvature (higher = more dramatic swings)
 
       points.push({
         timeMs: cutoff + i * bucketMs + bucketMs / 2,
@@ -359,28 +359,50 @@ export const OptionsBubbleChart: Component = () => {
     const plotH = H - marginT - marginB;
     const centerY = marginT + plotH / 2;
 
-    // ── Draw background grid ──
+    // ── Background grid with proper axes ──
 
     ctx.save();
+
+    // Horizontal grid lines (5 levels: strong buy, buy, neutral, sell, strong sell)
+    const gridLevels = [
+      { frac: 0.1, label: 'Strong Buy', color: '#00C805' },
+      { frac: 0.3, label: 'Buy', color: '#00C80580' },
+      { frac: 0.5, label: 'Neutral', color: '#505070' },
+      { frac: 0.7, label: 'Sell', color: '#FF500080' },
+      { frac: 0.9, label: 'Strong Sell', color: '#FF5000' },
+    ];
+    for (const lv of gridLevels) {
+      const y = marginT + plotH * lv.frac;
+      ctx.strokeStyle = lv.frac === 0.5 ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = lv.frac === 0.5 ? 1.5 : 1;
+      ctx.beginPath(); ctx.moveTo(marginL, y); ctx.lineTo(marginL + plotW, y); ctx.stroke();
+      // Y-axis label
+      ctx.fillStyle = lv.color;
+      ctx.font = `${8 * dpr}px "Geist Mono", monospace`;
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(lv.label, marginL - 6 * dpr, y);
+    }
+
+    // Time axis ticks (every 30 seconds)
+    const cutoffTime = now - visibleWindowMs;
+    ctx.fillStyle = '#8080a0';
     ctx.strokeStyle = 'rgba(255,255,255,0.04)';
     ctx.lineWidth = 1;
-    // Horizontal center line
-    ctx.beginPath(); ctx.moveTo(marginL, centerY); ctx.lineTo(marginL + plotW, centerY); ctx.stroke();
-    // Faint grid lines at 25% and 75%
-    for (const frac of [0.25, 0.75]) {
-      const y = marginT + plotH * frac;
-      ctx.beginPath(); ctx.moveTo(marginL, y); ctx.lineTo(marginL + plotW, y); ctx.stroke();
+    ctx.font = `${8 * dpr}px "Geist Mono", monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const tickIntervalMs = 30_000; // 30s ticks
+    const firstTick = Math.ceil(cutoffTime / tickIntervalMs) * tickIntervalMs;
+    for (let t = firstTick; t <= now; t += tickIntervalMs) {
+      const xFrac = (t - cutoffTime) / visibleWindowMs;
+      const x = marginL + xFrac * plotW;
+      // Vertical grid line
+      ctx.beginPath(); ctx.moveTo(x, marginT); ctx.lineTo(x, marginT + plotH); ctx.stroke();
+      // Time label
+      const d = new Date(t);
+      const label = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+      ctx.fillText(label, x, marginT + plotH + 4 * dpr);
     }
-    ctx.restore();
 
-    // ── Labels ──
-    ctx.save();
-    ctx.fillStyle = '#8080a0';
-    ctx.font = `${9 * dpr}px "Geist", sans-serif`;
-    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillText('BUY', marginL - 8 * dpr, marginT + plotH * 0.15);
-    ctx.fillText('SELL', marginL - 8 * dpr, marginT + plotH * 0.85);
-    ctx.fillStyle = '#505070'; ctx.fillText('NET 0', marginL - 8 * dpr, centerY);
     ctx.restore();
 
     // ── Build spline from control points ──
@@ -389,7 +411,8 @@ export const OptionsBubbleChart: Component = () => {
       const xFrac = i / (snakePoints.length - 1);
       const x = marginL + xFrac * plotW;
       // Pressure drives Y: positive = up (buy), negative = down (sell)
-      const pressureY = -cp.pressure * (plotH * 0.4); // ±40% of plot height
+      // Use tanh to compress extremes while amplifying mid-range movement
+      const pressureY = -Math.tanh(cp.pressure * 2.5) * (plotH * 0.42);
       // Add organic wobble on the tail (older points wobble more)
       const age = 1 - xFrac; // 1 = oldest, 0 = newest
       const wobble = noise1d(i * SNAKE_NOISE_SPEED + now * 0.0003) * SNAKE_NOISE_AMP * plotH * age;
@@ -403,30 +426,34 @@ export const OptionsBubbleChart: Component = () => {
 
     const trailSamples = 200;
     ctx.save();
-    ctx.lineWidth = Math.max(3 * dpr, 4);
+    ctx.lineWidth = Math.max(3.5 * dpr, 5);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // Draw trail with pressure-based color gradient
+    // Draw trail with slope-based coloring: green = rising (buy), red = falling (sell)
     for (let i = 1; i < trailSamples; i++) {
       const t0 = (i - 1) / (trailSamples - 1);
       const t1 = i / (trailSamples - 1);
       const p0 = spline.getPointAt(t0);
       const p1 = spline.getPointAt(t1);
 
-      // Color: interpolate based on local slope (rising = green, falling = red)
-      const slope = p1.y - p0.y; // negative slope = upward = buying
-      const slopeNorm = Math.min(1, Math.abs(slope) / (2 * dpr));
+      const slope = p1.y - p0.y; // negative = going up = buy pressure
+      const slopeStrength = Math.min(1, Math.abs(slope) / (1.5 * dpr));
 
-      // Alpha: fade older parts of trail
-      const freshness = 0.08 + t1 * 0.25; // 0.08 at oldest, 0.33 at newest
+      // Freshness: newest part of trail is bright, oldest fades
+      const freshness = 0.15 + t1 * 0.55;
 
-      if (slope < -0.5) {
-        ctx.strokeStyle = `rgba(0, 200, 5, ${freshness * slopeNorm + freshness * 0.3})`;
-      } else if (slope > 0.5) {
-        ctx.strokeStyle = `rgba(255, 80, 0, ${freshness * slopeNorm + freshness * 0.3})`;
+      if (slope < -0.3) {
+        // Moving UP = buy pressure = green
+        const alpha = freshness * (0.4 + slopeStrength * 0.6);
+        ctx.strokeStyle = `rgba(0, 200, 5, ${alpha})`;
+      } else if (slope > 0.3) {
+        // Moving DOWN = sell pressure = red
+        const alpha = freshness * (0.4 + slopeStrength * 0.6);
+        ctx.strokeStyle = `rgba(255, 80, 0, ${alpha})`;
       } else {
-        ctx.strokeStyle = `rgba(136, 136, 176, ${freshness * 0.4})`;
+        // Flat = neutral
+        ctx.strokeStyle = `rgba(136, 136, 176, ${freshness * 0.35})`;
       }
 
       ctx.beginPath();
