@@ -57,7 +57,7 @@ interface SnakeControlPoint {
 }
 
 const SNAKE_CONTROL_COUNT = 60; // ~5s per point over 5-minute window
-const SNAKE_PRESSURE_SMOOTHING = 0.3; // EMA alpha — higher = more responsive to directional shifts
+const SNAKE_PRESSURE_SMOOTHING = 0.5; // EMA alpha — high = very responsive to directional shifts
 const SNAKE_NOISE_AMP = 0.008; // subtle wobble amplitude (fraction of plot height)
 const SNAKE_NOISE_SPEED = 0.4; // wobble frequency
 
@@ -220,7 +220,7 @@ export const OptionsBubbleChart: Component = () => {
 
       // EMA smoothing
       smoothedPressure = smoothedPressure * (1 - SNAKE_PRESSURE_SMOOTHING) + rawPressure * SNAKE_PRESSURE_SMOOTHING;
-      cumPressure += smoothedPressure * 0.6; // accumulate for path curvature (higher = more dramatic swings)
+      cumPressure += smoothedPressure * 1.0; // accumulate aggressively for dramatic visible swings
 
       points.push({
         timeMs: cutoff + i * bucketMs + bucketMs / 2,
@@ -714,21 +714,22 @@ export const OptionsBubbleChart: Component = () => {
     simTrend = 0;
     simPhase = Math.random() * Math.PI * 2;
 
-    // Seed full 5-minute window so the snake has a rich history with visible swings
+    // Light seed: 30s of history so the chart isn't empty but new flow dominates
     const now = Date.now();
-    for (let ms = now - visibleWindowMs; ms < now; ms += 80 + Math.random() * 120) {
+    for (let ms = now - 30_000; ms < now; ms += 50 + Math.random() * 80) {
       injectSimTrade(ms);
     }
     simSeeded = true;
 
-    // Continuous flow: 5-10 trades per tick at 200ms (25-50 trades/sec during spikes)
+    // Aggressive flow: 10-20 trades every 100ms (~100-200 trades/sec)
+    // Simulates a volatile 0DTE session with rapid directional shifts
     simInterval = setInterval(() => {
       const now = Date.now();
-      const burst = 4 + Math.floor(Math.random() * 7);
+      const burst = 10 + Math.floor(Math.random() * 11);
       for (let i = 0; i < burst; i++) {
-        injectSimTrade(now - Math.random() * 80);
+        injectSimTrade(now - Math.random() * 50);
       }
-    }, 200);
+    }, 100);
   }
 
   function stopSim() {
@@ -736,13 +737,13 @@ export const OptionsBubbleChart: Component = () => {
   }
 
   function injectSimTrade(ts: number) {
-    // Regime oscillation: creates visible buy/sell waves over ~30-60s cycles
-    simPhase += 0.0004 + Math.random() * 0.0002;
-    const regime = Math.sin(simPhase) * 0.7; // -0.7 to +0.7
+    // Fast regime oscillation: visible buy/sell waves every ~8-15 seconds
+    simPhase += 0.003 + Math.random() * 0.002;
+    const regime = Math.sin(simPhase) * 0.85; // -0.85 to +0.85
 
-    // Trend has strong momentum + regime-driven drift
-    simTrend += (Math.random() - 0.5) * 0.15 + regime * 0.02;
-    simTrend = Math.max(-1.0, Math.min(1.0, simTrend)) * 0.992;
+    // Strong momentum with sharp reversals
+    simTrend += (Math.random() - 0.5) * 0.2 + regime * 0.06;
+    simTrend = Math.max(-1.2, Math.min(1.2, simTrend)) * 0.985;
     simPrice += simTrend * 0.03 + (Math.random() - 0.5) * 0.04;
     simPrice = Math.max(540, Math.min(560, simPrice));
 
