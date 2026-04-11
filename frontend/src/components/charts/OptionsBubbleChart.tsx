@@ -502,49 +502,32 @@ export const OptionsBubbleChart: Component = () => {
       return minR * 3.5 + Math.min(1, (vol - p95) / (p95 * 2 || 1)) * (maxR - minR * 3.5);
     }
 
-    // A trade is final the instant it prints. Once placed, it never moves.
-    // Only bubbles that have never been seen before get positioned on the spline.
-
-    // Purge frozen positions that scrolled off the visible window
-    for (const [key, _] of frozenPositions) {
-      const keyMs = parseInt(key.split(':')[0], 10);
-      if (keyMs < cutoff) frozenPositions.delete(key);
-    }
+    // Snake/demo mode: recompute all positions each frame.
+    // The time axis scrolls as `now` advances, so pixel positions change.
+    // Past data doesn't change VALUE — a trade's buy/sell ratio is final —
+    // but its SCREEN POSITION shifts left as the window scrolls.
 
     for (const c of cells) {
       const cellMs = c._ms ?? Date.parse(c.time);
       if (cellMs < cutoff) continue;
 
-      const cellKey = `${cellMs}:${c.price.toFixed(2)}`;
+      const t = (cellMs - cutoff) / visibleWindowMs;
+      const pt = spline.getPointAt(Math.max(0, Math.min(1, t)));
+
+      // Slight vertical scatter by price hash to prevent bubble stacking
       const priceHash = ((c.price * 100) % 17) / 17 - 0.5;
       const scatter = priceHash * 12 * dpr;
-
-      let bx: number;
-      let by: number;
-
-      const cached = frozenPositions.get(cellKey);
-      if (cached) {
-        bx = cached.x;
-        by = cached.y;
-      } else {
-        // First time seeing this cell — place it on the spline and freeze forever
-        const t = (cellMs - cutoff) / visibleWindowMs;
-        const pt = spline.getPointAt(Math.max(0, Math.min(1, t)));
-        bx = pt.x;
-        by = pt.y + scatter;
-        frozenPositions.set(cellKey, { x: bx, y: by });
-      }
 
       const r = volToRadius(c.total_vol);
       const totalVol = c.buy_vol + c.sell_vol;
       const buyRatio = totalVol > 0 ? c.buy_vol / totalVol : 0.5;
       const deltaRatio = totalVol > 0 ? c.delta / totalVol : 0;
-      const age = (cellMs - cutoff) / visibleWindowMs;
+      const age = t; // 0 = oldest, 1 = newest
       const opacity = Math.max(0.15, Math.min(0.95, 0.15 + age * 0.8));
 
       bubblePoints.push({
-        x: bx,
-        y: by,
+        x: pt.x,
+        y: pt.y + scatter,
         r,
         tMs: cellMs,
         opacity,
