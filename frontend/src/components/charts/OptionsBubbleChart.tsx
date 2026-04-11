@@ -209,9 +209,10 @@ export const OptionsBubbleChart: Component = () => {
       b.total += t.size;
     }
 
-    // Build ordered control points
+    // Build ordered control points using direct smoothed pressure (not cumulative).
+    // Each point's pressure = EMA of buy/sell ratio at that time bucket.
+    // This creates oscillating curves that follow regime changes directly.
     const points: SnakeControlPoint[] = [];
-    let cumPressure = 0;
     for (let i = 0; i < SNAKE_CONTROL_COUNT; i++) {
       const b = buckets.get(i);
       const buyVol = b?.buy ?? 0;
@@ -221,22 +222,19 @@ export const OptionsBubbleChart: Component = () => {
       // Net pressure: -1 (all sell) to +1 (all buy)
       const rawPressure = totalVol > 0 ? (buyVol - sellVol) / totalVol : 0;
 
-      // EMA smoothing
+      // EMA smoothing: tracks direction changes, doesn't accumulate
       smoothedPressure = smoothedPressure * (1 - SNAKE_PRESSURE_SMOOTHING) + rawPressure * SNAKE_PRESSURE_SMOOTHING;
-      cumPressure += smoothedPressure * 1.0; // accumulate aggressively for dramatic visible swings
 
       points.push({
         timeMs: cutoff + i * bucketMs + bucketMs / 2,
         buyVol,
         sellVol,
         totalVol,
-        pressure: cumPressure,
+        pressure: smoothedPressure, // direct pressure, not cumulative
       });
     }
 
-    // Normalize pressure to [-1, 1] range
-    const maxAbs = Math.max(1, ...points.map(p => Math.abs(p.pressure)));
-    for (const p of points) p.pressure /= maxAbs;
+    // Already in [-1, 1] range from the ratio; no normalization needed
 
     return points;
   }
@@ -419,8 +417,8 @@ export const OptionsBubbleChart: Component = () => {
       const xFrac = i / (snakePoints.length - 1);
       const x = marginL + xFrac * plotW;
       // Pressure drives Y: positive = up (buy), negative = down (sell)
-      // Use tanh to compress extremes while amplifying mid-range movement
-      const pressureY = -Math.tanh(cp.pressure * 2.5) * (plotH * 0.42);
+      // Direct pressure is -1 to +1, map to ±45% of plot height
+      const pressureY = -cp.pressure * (plotH * 0.45);
       // Add organic wobble on the tail (older points wobble more)
       const age = 1 - xFrac; // 1 = oldest, 0 = newest
       const wobble = noise1d(i * SNAKE_NOISE_SPEED + now * 0.0003) * SNAKE_NOISE_AMP * plotH * age;
@@ -794,9 +792,11 @@ export const OptionsBubbleChart: Component = () => {
     simTrend = 0;
     simPhase = Math.random() * Math.PI * 2;
 
-    // Seed 60s of history — enough to show the snake with some shape
+    // Seed full 5-minute window so the snake has data across the entire chart.
+    // Use wider spacing (300-500ms per trade) so it doesn't overwhelm the tick buffer
+    // but still fills all 60 control point buckets.
     const now = Date.now();
-    for (let ms = now - 60_000; ms < now; ms += 100 + Math.random() * 150) {
+    for (let ms = now - visibleWindowMs; ms < now; ms += 300 + Math.random() * 200) {
       injectSimTrade(ms);
     }
     simSeeded = true;
