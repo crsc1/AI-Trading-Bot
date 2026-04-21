@@ -138,62 +138,98 @@ if near and last:
     bth = 1.2 / phase_mult if phase_mult > 0 else 1.2
     dt = 5000 * phase_mult
 
-    print(f"  AT: {near[0]} ${near[1]:.2f}")
+    # ── Signal scoring: 2 of 3 confirms = entry ──
+    # Bullish confirms: green candle, B/S > 1.0, 1m delta > 0
+    # Bearish confirms: red candle, B/S < 1.0, 1m delta < 0
+    bull_score = (1 if body > 0 else 0) + (1 if lbs > 1.0 else 0) + (1 if d1 > 0 else 0)
+    bear_score = (1 if body < 0 else 0) + (1 if lbs < 1.0 else 0) + (1 if d1 < 0 else 0)
 
-    def find_entry(chain, spot, right, max_dist=20):
-        """Find ATM option from properly mapped chain."""
-        spot_rounded = int(round(spot)) if right == "C" or right == "P" else int(round(spot / 5) * 5)
-        candidates = []
-        for strike, data in chain.items():
-            if right not in data: continue
-            d = data[right]
-            if d["bid"] <= 0 or d["ask"] <= 0.01: continue
-            if d["ask"] > 50: continue  # skip deep ITM
-            dist = abs(strike - (spot if "SPY" in str(strike) else spot * 10))
-            candidates.append((strike, d, dist))
-        # For SPX, adjust distance calc
-        return sorted(candidates, key=lambda x: x[2])
+    # Strength bonus for strong readings
+    if lbs > 1.5: bull_score += 0.5
+    if lbs < 0.6: bear_score += 0.5
+    if d1 > 10000: bull_score += 0.5
+    if d1 < -10000: bear_score += 0.5
 
-    if body < 0 and lbs < bt and d1 < -dt:
-        tgt = below[0] if below else None
+    # Phase adjustment
+    min_score = 1.5 * phase_mult  # normally 1.5, lunch needs 3.75
+
+    def print_entries(direction):
         spy_strike = int(round(s))
         spx_approx = int(round(s * 10))
+        right = "P" if direction == "PUTS" else "C"
+        tgt = below[0] if direction == "PUTS" else (above[0] if above else None)
+        stop_dir = 0.30 if direction == "PUTS" else -0.30
 
-        print(f"  ═══ PUTS ═══")
-        # SPY
-        if spy_strike in spy_chain and "P" in spy_chain[spy_strike]:
-            p = spy_chain[spy_strike]["P"]
-            if p["bid"] > 0: print(f"    SPY {spy_strike}P ${p['bid']:.2f}/${p['ask']:.2f}")
-        # SPXW — find nearest ATM
-        spx_puts = sorted(
-            [(k, v["P"]) for k, v in spx_chain.items() if "P" in v and v["P"]["bid"] > 0 and 0.10 < v["P"]["ask"] < 50 and abs(k - spx_approx) <= 30],
+        print(f"  ═══ {direction} ═══")
+        # SPY ATM
+        if spy_strike in spy_chain and right in spy_chain[spy_strike]:
+            e = spy_chain[spy_strike][right]
+            if 0.01 < e["ask"] < 20: print(f"    SPY {spy_strike}{right} ${e['bid']:.2f}/${e['ask']:.2f}")
+        # SPY 1 strike OTM
+        otm = spy_strike + (1 if direction == "CALLS" else -1)
+        if otm in spy_chain and right in spy_chain[otm]:
+            e = spy_chain[otm][right]
+            if 0.01 < e["ask"] < 20: print(f"    SPY {otm}{right} ${e['bid']:.2f}/${e['ask']:.2f}")
+        # SPXW nearest ATM
+        spx_entries = sorted(
+            [(k, v[right]) for k, v in spx_chain.items() if right in v and v[right]["bid"] > 0 and 0.10 < v[right]["ask"] < 50 and abs(k - spx_approx) <= 30],
             key=lambda x: abs(x[0] - spx_approx)
         )
-        for strike, p in spx_puts[:3]:
-            print(f"    SPXW {strike}P ${p['bid']:.2f}/${p['ask']:.2f}")
-        if tgt: print(f"    Target: {tgt[0]} ${tgt[1]:.2f}  Stop: ${near[1] + 0.30:.2f}  Time: 15m")
+        for strike, e in spx_entries[:3]:
+            print(f"    SPXW {strike}{right} ${e['bid']:.2f}/${e['ask']:.2f}")
+        if tgt:
+            stop = near[1] + stop_dir
+            print(f"    Target: {tgt[0]} ${tgt[1]:.2f}  Stop: ${stop:.2f}  Time: 15m")
 
-    elif body > 0 and lbs > bth and d1 > dt:
-        tgt = above[0] if above else None
-        spy_strike = int(round(s))
-        spx_approx = int(round(s * 10))
+    # ── Breakout signal: price above session high or below session low ──
+    breakout_up = s > hi - 0.05 and s > vwap and body > 0
+    breakdown = s < lo + 0.05 and s < vwap and body < 0
 
-        print(f"  ═══ CALLS ═══")
-        # SPY
-        if spy_strike in spy_chain and "C" in spy_chain[spy_strike]:
-            c = spy_chain[spy_strike]["C"]
-            if c["bid"] > 0: print(f"    SPY {spy_strike}C ${c['bid']:.2f}/${c['ask']:.2f}")
-        # SPXW
-        spx_calls = sorted(
-            [(k, v["C"]) for k, v in spx_chain.items() if "C" in v and v["C"]["bid"] > 0 and 0.10 < v["C"]["ask"] < 50 and abs(k - spx_approx) <= 30],
-            key=lambda x: abs(x[0] - spx_approx)
-        )
-        for strike, c in spx_calls[:3]:
-            print(f"    SPXW {strike}C ${c['bid']:.2f}/${c['ask']:.2f}")
-        if tgt: print(f"    Target: {tgt[0]} ${tgt[1]:.2f}  Stop: ${near[1] - 0.30:.2f}  Time: 15m")
+    if near:
+        print(f"  AT: {near[0]} ${near[1]:.2f}  [bull:{bull_score:.1f} bear:{bear_score:.1f} need:{min_score:.1f}]")
 
+    if breakout_up and bull_score >= 1.5:
+        print(f"  ** BREAKOUT ABOVE SESSION HIGH **")
+        print_entries("CALLS")
+    elif breakdown and bear_score >= 1.5:
+        print(f"  ** BREAKDOWN BELOW SESSION LOW **")
+        print_entries("PUTS")
+    elif near and bear_score >= min_score:
+        print(f"  REJECTION at {near[0]}")
+        print_entries("PUTS")
+    elif near and bull_score >= min_score:
+        print(f"  BOUNCE off {near[0]}")
+        print_entries("CALLS")
+    elif near:
+        # Show what's missing
+        if bull_score > bear_score:
+            missing = []
+            if body <= 0: missing.append("green candle")
+            if lbs <= 1.0: missing.append("B/S>1.0")
+            if d1 <= 0: missing.append("1m delta+")
+            print(f"  leaning calls but need: {', '.join(missing)}")
+        elif bear_score > bull_score:
+            missing = []
+            if body >= 0: missing.append("red candle")
+            if lbs >= 1.0: missing.append("B/S<1.0")
+            if d1 >= 0: missing.append("1m delta-")
+            print(f"  leaning puts but need: {', '.join(missing)}")
+        else:
+            print(f"  no lean — dead even")
     else:
-        print(f"  no confirmation (B/S:{lbs:.2f} {'G' if body > 0 else 'R'} 1m:{d1:+,})")
+        print(f"  no level nearby")
+
+    # ── VWAP band bounce/rejection (even if not at a named level) ──
+    if not near and not breakout_up and not breakdown:
+        if abs(s - vwap_l) < 0.20 and bull_score >= 1.5:
+            print(f"\n  VWAP LOWER BAND BOUNCE ${vwap_l:.2f}")
+            print_entries("CALLS")
+        elif abs(s - vwap_u) < 0.20 and bear_score >= 1.5:
+            print(f"\n  VWAP UPPER BAND REJECTION ${vwap_u:.2f}")
+            print_entries("PUTS")
+        elif above and below:
+            print(f"\n  Between {below[0][0]} ${below[0][1]:.2f} and {above[0][0]} ${above[0][1]:.2f}")
+
 elif above and below:
     print(f"  Between {below[0][0]} ${below[0][1]:.2f} and {above[0][0]} ${above[0][1]:.2f}")
 else:
