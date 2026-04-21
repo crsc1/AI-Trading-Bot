@@ -71,6 +71,8 @@ struct AppState {
     theta_dx_option_scope: Mutex<ThetaDxOptionScope>,
     /// Ring buffer of recent theta_trade JSON strings for frontend hydration on refresh.
     recent_theta_trades: RwLock<VecDeque<String>>,
+    /// Live open interest by strike key (e.g. "710.0C" -> OI value)
+    open_interest: RwLock<std::collections::HashMap<String, i32>>,
 }
 
 #[derive(Debug, Default)]
@@ -196,6 +198,7 @@ async fn main() {
         theta_dx_client: RwLock::new(None),
         theta_dx_option_scope: Mutex::new(ThetaDxOptionScope::default()),
         recent_theta_trades: RwLock::new(VecDeque::with_capacity(MAX_RECENT_THETA_TRADES)),
+        open_interest: RwLock::new(std::collections::HashMap::new()),
     });
 
     // Build ingestion config from environment
@@ -255,7 +258,7 @@ async fn main() {
             option_contracts: vec![], // Options subscribed dynamically via API
         };
 
-        match theta_dx::start_theta_dx(&config, 8192) {
+        match theta_dx::start_theta_dx(&config, 262_144) {
             theta_dx::ThetaDxStartOutcome::Connected {
                 mut rx,
                 client,
@@ -363,9 +366,34 @@ async fn main() {
                             })
                             .to_string()
                         }
+                        theta_dx::ThetaDxEvent::OptionOpenInterest {
+                            root,
+                            expiration,
+                            strike,
+                            right,
+                            open_interest,
+                            ms_of_day,
+                            date,
+                            ..
+                        } => {
+                            // Update OI map
+                            let key = format!("{}{}", strike, right.as_ref());
+                            tdx_state.open_interest.write().await.insert(key, *open_interest);
+                            serde_json::json!({
+                                "type": "theta_oi",
+                                "root": root.as_ref(),
+                                "expiration": expiration,
+                                "strike": strike,
+                                "right": right.as_ref(),
+                                "open_interest": open_interest,
+                                "ms_of_day": ms_of_day,
+                                "date": date,
+                            })
+                            .to_string()
+                        }
                     };
                     // Buffer theta_trade events for frontend hydration on refresh
-                    if json.starts_with("{\"type\":\"theta_trade\"") {
+                    if matches!(&event, theta_dx::ThetaDxEvent::OptionTrade { .. }) {
                         let mut buf = tdx_state.recent_theta_trades.write().await;
                         if buf.len() >= MAX_RECENT_THETA_TRADES {
                             buf.pop_front();
@@ -409,6 +437,7 @@ async fn main() {
         .route("/theta/options/subscribe", post(theta_dx_subscribe_handler))
         .route("/flow-state", get(flow_state_handler))
         .route("/theta/trades/recent", get(recent_theta_trades_handler))
+        .route("/theta/open-interest", get(open_interest_handler))
         .route("/cert-hash", get(cert_hash_handler))
         .layer(
             CorsLayer::new()
@@ -921,6 +950,9 @@ async fn theta_dx_subscribe_handler(
         if let Err(err) = client.unsubscribe_trades(contract) {
             unsubscribe_errors.push(format!("trade_unsub:{err}"));
         }
+        if let Err(err) = client.unsubscribe_open_interest(contract) {
+            unsubscribe_errors.push(format!("oi_unsub:{err}"));
+        }
     }
 
     let mut subscribe_errors = Vec::new();
@@ -930,6 +962,9 @@ async fn theta_dx_subscribe_handler(
         }
         if let Err(err) = client.subscribe_trades(contract) {
             subscribe_errors.push(format!("trade_sub:{err}"));
+        }
+        if let Err(err) = client.subscribe_open_interest(contract) {
+            subscribe_errors.push(format!("oi_sub:{err}"));
         }
     }
 
@@ -984,6 +1019,18 @@ async fn recent_theta_trades_handler(
     let trades: Vec<&str> = buf.iter().rev().take(limit).map(|s| s.as_str()).collect();
     // Build raw JSON array to avoid double-serialization
     let body = format!("[{}]", trades.join(","));
+    (
+        StatusCode::OK,
+        [("content-type", "application/json")],
+        body,
+    )
+}
+
+async fn open_interest_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let oi = state.open_interest.read().await;
+    let body = serde_json::to_string(&*oi).unwrap_or_else(|_| "{}".to_string());
     (
         StatusCode::OK,
         [("content-type", "application/json")],

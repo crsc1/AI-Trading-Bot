@@ -54,6 +54,16 @@ pub enum ThetaDxEvent {
         ms_of_day: i32,
         date: i32,
     },
+    OptionOpenInterest {
+        root: Arc<str>,
+        expiration: i32,
+        strike: f64,
+        right: Arc<str>,
+        contract_id: i32,
+        open_interest: i32,
+        ms_of_day: i32,
+        date: i32,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -259,6 +269,33 @@ pub fn start_theta_dx(config: &ThetaDxConfig, channel_size: usize) -> ThetaDxSta
                     None => {
                         warn!("ThetaDataDx: could not parse trade symbol {symbol}");
                     }
+                },
+                FpssEvent::Data(FpssData::OpenInterest {
+                    contract_id,
+                    symbol,
+                    open_interest,
+                    ms_of_day,
+                    date,
+                    ..
+                }) => match parse_fpss_symbol(symbol.as_ref()) {
+                    Some(ParsedFpssSymbol::Option {
+                        root,
+                        expiration,
+                        strike,
+                        right,
+                    }) => {
+                        let _ = tx_clone.try_send(ThetaDxEvent::OptionOpenInterest {
+                            root,
+                            expiration,
+                            strike,
+                            right,
+                            contract_id: *contract_id,
+                            open_interest: *open_interest,
+                            ms_of_day: *ms_of_day,
+                            date: *date,
+                        });
+                    }
+                    _ => {}
                 },
                 FpssEvent::Control(ctrl) => {
                     info!("ThetaDataDx control event: {:?}", ctrl);

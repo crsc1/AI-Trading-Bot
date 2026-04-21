@@ -543,6 +543,10 @@ export const OptionsBubbleChart: Component = () => {
     // Render bubbles: PixiJS + Canvas 2D fallback (always draw both for visibility)
     // Canvas 2D bubbles render on the grid canvas (z-index:1)
     // PixiJS bubbles render on the GPU canvas (z-index:2) — adds glow/spray effects
+    // Debug: log every 2 seconds
+    if (now % 2000 < 100) {
+      console.log('[Snake]', ticks.length, 'ticks,', cells.length, 'cells,', bubblePoints.length, 'bubbles, spline pts:', snakePoints.length);
+    }
     drawBubblesCanvas2D(ctx, bubblePoints, dpr, now);
 
     if (bubbleRenderer?.isReady) {
@@ -855,8 +859,9 @@ export const OptionsBubbleChart: Component = () => {
     running = true;
     function tick() {
       if (!running) return;
-      // Demo mode always renders (sim generates ticks continuously)
-      if (mode() === 'demo' || ticks.length > 0 || optionsFlow.tradeCount > lastTradeCount) render();
+      const m = mode();
+      const shouldRender = m === 'demo' || m === 'snake' || ticks.length > 0 || optionsFlow.tradeCount > lastTradeCount;
+      if (shouldRender) render();
       animTimer = setTimeout(tick, renderInterval);
     }
     animTimer = setTimeout(tick, renderInterval);
