@@ -123,6 +123,91 @@ if last:
     body = last["close"] - last["open"]
     print(f"\n  Candle: {ts} {last['open']:.2f}→{last['close']:.2f} H{last['high']:.2f} L{last['low']:.2f} B/S:{lbs:.2f} {'▲' if body > 0 else '▼'}")
 
+# ── MOMENTUM DETECTION: CVD recovery, volume spikes, consolidation ──
+momentum_signals = []
+momentum_score = 0  # adds to bull/bear score
+
+if isinstance(candles, list) and len(candles) >= 5:
+    last5 = candles[-5:]
+    last10 = candles[-10:] if len(candles) >= 10 else candles
+
+    # 1. CVD rate of change over last 5 candles
+    cvd_start = last5[0]["cvd"]
+    cvd_end = last5[-1]["cvd"]
+    cvd_roc = cvd_end - cvd_start
+    if cvd_roc > 30000:
+        momentum_signals.append(f"CVD RECOVERY +{cvd_roc:,} in {len(last5)} candles — accumulation")
+        momentum_score += 1
+    elif cvd_roc < -30000:
+        momentum_signals.append(f"CVD DUMP {cvd_roc:,} in {len(last5)} candles — distribution")
+        momentum_score -= 1
+
+    # 2. Volume spike detection (candle vol > 2x average of prior candles)
+    if len(candles) >= 6:
+        avg_vol = sum(c["volume"] for c in candles[-6:-1]) / 5
+        latest_vol = candles[-1]["volume"]
+        if latest_vol > avg_vol * 2 and avg_vol > 0:
+            spike_bs = candles[-1]["buy_volume"] / candles[-1]["sell_volume"] if candles[-1]["sell_volume"] else 99
+            if spike_bs > 1.2:
+                momentum_signals.append(f"BUY VOLUME SPIKE {latest_vol:,} vs avg {avg_vol:,.0f} (B/S:{spike_bs:.2f})")
+                momentum_score += 1
+            elif spike_bs < 0.8:
+                momentum_signals.append(f"SELL VOLUME SPIKE {latest_vol:,} vs avg {avg_vol:,.0f} (B/S:{spike_bs:.2f})")
+                momentum_score -= 1
+
+    # 3. Consolidation after push (bull flag / bear flag)
+    # Look for: 2+ candle push followed by 3+ candles of tight range that hold gains
+    if len(last10) >= 7:
+        # Check last 7 candles: first 2 = push, next 5 = consolidation
+        push = last10[-7:-5]
+        consol = last10[-5:]
+
+        # Bull flag: push up + consolidation holds above push open
+        push_move = push[-1]["close"] - push[0]["open"]
+        consol_low = min(c["low"] for c in consol)
+        consol_high = max(c["high"] for c in consol)
+        consol_range = consol_high - consol_low
+        push_range = max(c["high"] for c in push) - min(c["low"] for c in push)
+
+        if push_move > 0.20 and consol_low >= push[0]["open"] and consol_range < push_range * 0.7:
+            momentum_signals.append(f"BULL FLAG: +${push_move:.2f} push, consolidating ${consol_low:.2f}-${consol_high:.2f} (holding gains)")
+            momentum_score += 1.5
+
+        # Bear flag: push down + consolidation stays below push open
+        if push_move < -0.20 and consol_high <= push[0]["open"] and consol_range < abs(push_range) * 0.7:
+            momentum_signals.append(f"BEAR FLAG: ${push_move:.2f} push, consolidating ${consol_low:.2f}-${consol_high:.2f} (holding losses)")
+            momentum_score -= 1.5
+
+    # 4. Consecutive green/red candles with building B/S
+    greens = 0
+    reds = 0
+    for c in reversed(last5):
+        if c["close"] > c["open"]: greens += 1
+        else: break
+    for c in reversed(last5):
+        if c["close"] < c["open"]: reds += 1
+        else: break
+
+    if greens >= 3:
+        bs_improving = all(
+            (last5[-i]["buy_volume"] / last5[-i]["sell_volume"] if last5[-i]["sell_volume"] else 0) >=
+            (last5[-i-1]["buy_volume"] / last5[-i-1]["sell_volume"] if last5[-i-1]["sell_volume"] else 0)
+            for i in range(1, min(greens, 3))
+        )
+        momentum_signals.append(f"{greens} GREEN candles{' + B/S improving' if bs_improving else ''}")
+        momentum_score += 0.5
+
+    if reds >= 3:
+        momentum_signals.append(f"{reds} RED candles")
+        momentum_score -= 0.5
+
+if momentum_signals:
+    print(f"\n  MOMENTUM:")
+    for sig in momentum_signals:
+        direction = "▲" if "RECOVERY" in sig or "BUY" in sig or "BULL" in sig or "GREEN" in sig else ("▼" if "DUMP" in sig or "SELL" in sig or "BEAR" in sig or "RED" in sig else "·")
+        print(f"    {direction} {sig}")
+    print(f"    Score: {momentum_score:+.1f}")
+
 # ── ENTRY LOGIC ──
 NEAR = 0.20
 near = None
@@ -149,6 +234,10 @@ if near and last:
     if lbs < 0.6: bear_score += 0.5
     if d1 > 10000: bull_score += 0.5
     if d1 < -10000: bear_score += 0.5
+
+    # Momentum score from candle pattern analysis
+    if momentum_score > 0: bull_score += momentum_score
+    if momentum_score < 0: bear_score += abs(momentum_score)
 
     # Phase adjustment
     min_score = 1.5 * phase_mult  # normally 1.5, lunch needs 3.75
