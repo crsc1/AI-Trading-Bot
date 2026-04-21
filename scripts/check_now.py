@@ -19,6 +19,47 @@ def bs_gamma(S, K, T, iv):
     d1 = (math.log(S / K) + (0.5 * iv * iv) * T) / (iv * math.sqrt(T))
     return math.exp(-0.5 * d1 * d1) / (S * iv * math.sqrt(2 * math.pi * T))
 
+def get_multi_day_levels():
+    """Pull prior day and weekly levels from ThetaData EOD history."""
+    today = datetime.datetime.now()
+    start = (today - datetime.timedelta(days=7)).strftime("%Y%m%d")
+    end = today.strftime("%Y%m%d")
+    hist = fetch(f"{THETA}/v3/stock/history/eod?symbol=SPY&start_date={start}&end_date={end}")
+
+    lvls = {}
+    if "response" not in hist or not hist["response"]:
+        return lvls
+
+    rows = hist["response"]
+
+    # Previous day (last row that isn't today)
+    today_int = int(today.strftime("%Y%m%d"))
+    prior_days = [r for r in rows if r.get("date", 0) < today_int]
+
+    if prior_days:
+        prev = prior_days[-1]
+        lvls["Prev Close"] = prev["close"]
+        lvls["Prev High"] = prev["high"]
+        lvls["Prev Low"] = prev["low"]
+
+    # 2 days ago
+    if len(prior_days) >= 2:
+        d2 = prior_days[-2]
+        lvls["2D Low"] = d2["low"]
+        lvls["2D High"] = d2["high"]
+
+    # Week high/low
+    if len(prior_days) >= 3:
+        week_high = max(r["high"] for r in prior_days[-5:])
+        week_low = min(r["low"] for r in prior_days[-5:])
+        lvls["Week High"] = week_high
+        lvls["Week Low"] = week_low
+
+    # Round numbers near spot
+    # (added dynamically based on spot later)
+
+    return lvls
+
 def build_chain(symbol):
     """Build properly mapped chain: strike -> {C: {bid, ask, oi}, P: {bid, ask, oi}}"""
     strikes = fetch(f"{THETA}/v3/option/list/strikes?symbol={symbol}&expiration={TODAY}")
@@ -97,12 +138,27 @@ for strike, data in spy_chain.items():
 
 # ── 6. All levels ──
 levels = {"VWAP": vwap, "VWAP+σ": vwap_u, "VWAP-σ": vwap_l, "VPOC": vpoc, "Hi": hi, "Lo": lo}
+
+# GEX levels
 for strike, gex in gex_map.items():
     if abs(gex / 1e6) > 5 and abs(strike - s) <= 10:
         tag = "SUP" if gex > 0 else "RES"
         levels[f"GEX {tag} {strike}"] = float(strike)
+
+# OI walls
 for k, v in sorted(oi_walls.items(), key=lambda x: x[1], reverse=True)[:6]:
     levels[f"OI {v:,} {k}"] = float(int(k[:-1]))
+
+# Multi-day levels (prev close, prev high/low, week high/low)
+multi_day = get_multi_day_levels()
+for name, price in multi_day.items():
+    if abs(price - s) <= 15:  # only show if within $15
+        levels[name] = price
+
+# Round numbers near spot
+for rnd in range(int(s) - 10, int(s) + 11, 5):
+    if rnd % 5 == 0 and abs(rnd - s) <= 10:
+        levels[f"${rnd} round"] = float(rnd)
 
 above = sorted([(n, p) for n, p in levels.items() if p > s + 0.08], key=lambda x: x[1])
 below = sorted([(n, p) for n, p in levels.items() if p < s - 0.08], key=lambda x: x[1], reverse=True)
