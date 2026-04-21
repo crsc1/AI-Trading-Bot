@@ -41,6 +41,7 @@ use events::FlowEvent;
 use footprint::{FootprintBuilder, FootprintConfig};
 use futures::{SinkExt, StreamExt};
 use ingestion::{IngestionConfig, IngestionMode, TickIngestor};
+use chrono::Timelike;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thetadatadx::fpss::protocol::Contract;
@@ -115,9 +116,16 @@ struct FlowStateSnapshot {
     session_low: f64,
     // Indicators
     vwap: f64,
+    vwap_upper: f64,
+    vwap_lower: f64,
     rsi: f64,
     vpoc: f64,
     regime: String,
+    // Market phase
+    market_phase: String,
+    phase_note: String,
+    /// Confidence multiplier — higher = need stronger signal to enter
+    phase_confidence_mult: f64,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -265,6 +273,58 @@ fn classify_regime(
         "TREND_DOWN".to_string()
     } else {
         "MIXED".to_string()
+    }
+}
+
+/// Market phase based on ET time of day
+/// Returns (phase name, description, confidence threshold multiplier)
+fn market_phase() -> (String, String, f64) {
+    let now = chrono::Utc::now();
+    // Convert to ET (UTC-4 during EDT)
+    let et_hour = (now.hour() as i32 - 4).rem_euclid(24) as u32;
+    let et_min = now.minute();
+    let minutes_since_open = if et_hour >= 9 && (et_hour > 9 || et_min >= 30) {
+        ((et_hour as i32 - 9) * 60 + et_min as i32 - 30).max(0) as u32
+    } else {
+        0
+    };
+
+    match minutes_since_open {
+        0..=29 => (
+            "OPEN_VOLATILITY".to_string(),
+            "Opening 30min — wide ranges, fakeouts. Momentum trades only.".to_string(),
+            1.5, // need stronger confirmation
+        ),
+        30..=89 => (
+            "MORNING_TREND".to_string(),
+            "First trend establishes. VWAP setups work best.".to_string(),
+            1.0, // normal thresholds
+        ),
+        90..=209 => (
+            "LUNCH_CHOP".to_string(),
+            "Lunch dead zone. Ranges compress, theta eats premium. Avoid entries.".to_string(),
+            2.5, // very high bar to enter
+        ),
+        210..=269 => (
+            "AFTERNOON_TREND".to_string(),
+            "Institutional repositioning. New trends emerge.".to_string(),
+            1.0,
+        ),
+        270..=329 => (
+            "POWER_HOUR".to_string(),
+            "Gamma ramp. Moves accelerate. GEX levels become magnetic.".to_string(),
+            0.7, // easier to enter, moves are real
+        ),
+        330..=390 => (
+            "CLOSE_GAMMA".to_string(),
+            "Last 60min. Max gamma. Pin or squeeze. Fast moves.".to_string(),
+            0.5, // gamma does the work
+        ),
+        _ => (
+            "CLOSED".to_string(),
+            "Market closed.".to_string(),
+            99.0,
+        ),
     }
 }
 
@@ -1065,9 +1125,17 @@ async fn process_tick(
         }
         // Indicators
         fs.vwap = vwap_val;
+        let vwap_std = state.vwap.read().await.std_dev();
+        fs.vwap_upper = vwap_val + vwap_std;
+        fs.vwap_lower = vwap_val - vwap_std;
         fs.rsi = rsi_val;
         fs.vpoc = vpoc_val;
         fs.regime = classify_regime(fs.cvd, fs.last_price, vwap_val, fs.session_high, fs.session_low);
+        // Market phase
+        let (phase, note, mult) = market_phase();
+        fs.market_phase = phase;
+        fs.phase_note = note;
+        fs.phase_confidence_mult = mult;
     }
 }
 
