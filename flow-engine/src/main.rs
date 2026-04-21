@@ -75,6 +75,12 @@ struct AppState {
     open_interest: RwLock<std::collections::HashMap<String, i32>>,
     /// 1-minute OHLC candle buffer (390 = full trading day)
     candles: RwLock<CandleBuffer>,
+    /// Running VWAP from tick data
+    vwap: RwLock<VwapCalculator>,
+    /// RSI calculator (fed from 1-min candle closes)
+    rsi: RwLock<RsiCalculator>,
+    /// Volume profile for VPOC
+    volume_profile: RwLock<VolumeProfile>,
 }
 
 #[derive(Debug, Default)]
@@ -107,6 +113,159 @@ struct FlowStateSnapshot {
     data_source: String,
     session_high: f64,
     session_low: f64,
+    // Indicators
+    vwap: f64,
+    rsi: f64,
+    vpoc: f64,
+    regime: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Indicators: VWAP, RSI, VPOC, Regime
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Running VWAP from tick data (most accurate — not candle approximation)
+struct VwapCalculator {
+    cum_price_vol: f64,
+    cum_vol: f64,
+    /// For VWAP bands: sum of (price - vwap)^2 * volume
+    cum_var_vol: f64,
+}
+
+impl VwapCalculator {
+    fn new() -> Self {
+        Self { cum_price_vol: 0.0, cum_vol: 0.0, cum_var_vol: 0.0 }
+    }
+
+    fn update(&mut self, price: f64, volume: u64) {
+        let vol = volume as f64;
+        self.cum_price_vol += price * vol;
+        self.cum_vol += vol;
+        let vwap = self.vwap();
+        self.cum_var_vol += (price - vwap).powi(2) * vol;
+    }
+
+    fn vwap(&self) -> f64 {
+        if self.cum_vol > 0.0 { self.cum_price_vol / self.cum_vol } else { 0.0 }
+    }
+
+    fn std_dev(&self) -> f64 {
+        if self.cum_vol > 0.0 {
+            (self.cum_var_vol / self.cum_vol).sqrt()
+        } else {
+            0.0
+        }
+    }
+}
+
+/// RSI from 1-min candle closes using Wilder's smoothed moving average
+struct RsiCalculator {
+    period: usize,
+    closes: VecDeque<f64>,
+    avg_gain: f64,
+    avg_loss: f64,
+    initialized: bool,
+}
+
+impl RsiCalculator {
+    fn new(period: usize) -> Self {
+        Self {
+            period,
+            closes: VecDeque::with_capacity(period + 1),
+            avg_gain: 0.0,
+            avg_loss: 0.0,
+            initialized: false,
+        }
+    }
+
+    fn push_close(&mut self, close: f64) {
+        self.closes.push_back(close);
+
+        if self.closes.len() < 2 {
+            return;
+        }
+
+        let len = self.closes.len();
+        let change = self.closes[len - 1] - self.closes[len - 2];
+        let gain = if change > 0.0 { change } else { 0.0 };
+        let loss = if change < 0.0 { -change } else { 0.0 };
+
+        if !self.initialized && self.closes.len() > self.period {
+            // First calculation: simple average
+            let mut total_gain = 0.0;
+            let mut total_loss = 0.0;
+            let start = self.closes.len() - self.period - 1;
+            for i in (start + 1)..self.closes.len() {
+                let c = self.closes[i] - self.closes[i - 1];
+                if c > 0.0 { total_gain += c; } else { total_loss += -c; }
+            }
+            self.avg_gain = total_gain / self.period as f64;
+            self.avg_loss = total_loss / self.period as f64;
+            self.initialized = true;
+        } else if self.initialized {
+            // Wilder's smoothing
+            let p = self.period as f64;
+            self.avg_gain = (self.avg_gain * (p - 1.0) + gain) / p;
+            self.avg_loss = (self.avg_loss * (p - 1.0) + loss) / p;
+        }
+
+        // Keep buffer bounded
+        if self.closes.len() > self.period * 3 {
+            self.closes.pop_front();
+        }
+    }
+
+    fn rsi(&self) -> f64 {
+        if !self.initialized { return 50.0; }
+        if self.avg_loss == 0.0 { return 100.0; }
+        let rs = self.avg_gain / self.avg_loss;
+        100.0 - (100.0 / (1.0 + rs))
+    }
+}
+
+/// Volume profile — tracks volume at each $0.10 price bucket, reports VPOC
+struct VolumeProfile {
+    buckets: std::collections::HashMap<i64, u64>,
+}
+
+impl VolumeProfile {
+    fn new() -> Self {
+        Self { buckets: std::collections::HashMap::new() }
+    }
+
+    fn update(&mut self, price: f64, volume: u64) {
+        let bucket = (price * 10.0).round() as i64; // $0.10 buckets
+        *self.buckets.entry(bucket).or_insert(0) += volume;
+    }
+
+    /// Volume Point of Control — price with highest volume
+    fn vpoc(&self) -> f64 {
+        self.buckets
+            .iter()
+            .max_by_key(|(_, v)| *v)
+            .map(|(k, _)| *k as f64 / 10.0)
+            .unwrap_or(0.0)
+    }
+}
+
+/// Regime classification
+fn classify_regime(
+    cvd: i64,
+    spot: f64,
+    vwap: f64,
+    session_high: f64,
+    session_low: f64,
+) -> String {
+    let range = session_high - session_low;
+    if range < 2.0 && cvd.unsigned_abs() > 100_000 {
+        "RANGE".to_string()
+    } else if cvd > 100_000 && spot > vwap {
+        "TREND_UP".to_string()
+    } else if cvd < -100_000 && spot < vwap {
+        "TREND_DOWN".to_string()
+    } else {
+        "MIXED".to_string()
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -295,6 +454,9 @@ async fn main() {
         recent_theta_trades: RwLock::new(VecDeque::with_capacity(MAX_RECENT_THETA_TRADES)),
         open_interest: RwLock::new(std::collections::HashMap::new()),
         candles: RwLock::new(CandleBuffer::new(390)),
+        vwap: RwLock::new(VwapCalculator::new()),
+        rsi: RwLock::new(RsiCalculator::new(14)),
+        volume_profile: RwLock::new(VolumeProfile::new()),
     });
 
     // Build ingestion config from environment
@@ -848,8 +1010,40 @@ async fn process_tick(
         stats.last_price = classified.price;
     }
 
-    // Update flow state snapshot for Python signal bridge
+    // Update VWAP + volume profile (tick-level, most accurate)
     {
+        let mut vwap = state.vwap.write().await;
+        vwap.update(classified.price, classified.size);
+    }
+    {
+        let mut vp = state.volume_profile.write().await;
+        vp.update(classified.price, classified.size);
+    }
+
+    // Update candle buffer + RSI (on candle close)
+    {
+        let is_buy = classified.side == events::TradeSide::Buy;
+        let cvd_val = latest_cvd.map(|(c, _, _)| c).unwrap_or(0);
+        let mut candles = state.candles.write().await;
+        let prev_count = candles.candles.len();
+        candles.update(classified.price, classified.size, is_buy, cvd_val);
+        // Feed RSI when a candle closes (new candle started = previous one closed)
+        if candles.candles.len() > prev_count {
+            if let Some(closed) = candles.candles.back() {
+                let close = closed.close;
+                drop(candles);
+                let mut rsi = state.rsi.write().await;
+                rsi.push_close(close);
+            }
+        }
+    }
+
+    // Update flow state snapshot with all indicators
+    {
+        let vwap_val = state.vwap.read().await.vwap();
+        let rsi_val = state.rsi.read().await.rsi();
+        let vpoc_val = state.volume_profile.read().await.vpoc();
+
         let mut fs = state.flow_state.write().await;
         fs.last_price = classified.price;
         fs.ticks_processed += 1;
@@ -869,14 +1063,11 @@ async fn process_tick(
             fs.total_buy_vol = buy_vol;
             fs.total_sell_vol = sell_vol;
         }
-    }
-
-    // Update candle buffer
-    {
-        let is_buy = classified.side == events::TradeSide::Buy;
-        let cvd_val = latest_cvd.map(|(c, _, _)| c).unwrap_or(0);
-        let mut candles = state.candles.write().await;
-        candles.update(classified.price, classified.size, is_buy, cvd_val);
+        // Indicators
+        fs.vwap = vwap_val;
+        fs.rsi = rsi_val;
+        fs.vpoc = vpoc_val;
+        fs.regime = classify_regime(fs.cvd, fs.last_price, vwap_val, fs.session_high, fs.session_low);
     }
 }
 
