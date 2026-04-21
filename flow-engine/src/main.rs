@@ -73,6 +73,8 @@ struct AppState {
     recent_theta_trades: RwLock<VecDeque<String>>,
     /// Live open interest by strike key (e.g. "710.0C" -> OI value)
     open_interest: RwLock<std::collections::HashMap<String, i32>>,
+    /// 1-minute OHLC candle buffer (390 = full trading day)
+    candles: RwLock<CandleBuffer>,
 }
 
 #[derive(Debug, Default)]
@@ -103,6 +105,99 @@ struct FlowStateSnapshot {
     recent_absorptions: Vec<serde_json::Value>,
     recent_imbalances: Vec<serde_json::Value>,
     data_source: String,
+    session_high: f64,
+    session_low: f64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1-minute OHLC candle buffer for intraday price history
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+struct Candle {
+    /// Minute timestamp (epoch seconds, floored to minute)
+    ts: i64,
+    open: f64,
+    high: f64,
+    low: f64,
+    close: f64,
+    volume: u64,
+    buy_volume: u64,
+    sell_volume: u64,
+    /// CVD at candle close
+    cvd: i64,
+}
+
+struct CandleBuffer {
+    candles: VecDeque<Candle>,
+    current: Option<Candle>,
+    max_candles: usize,
+}
+
+impl CandleBuffer {
+    fn new(max_candles: usize) -> Self {
+        Self {
+            candles: VecDeque::with_capacity(max_candles),
+            current: None,
+            max_candles,
+        }
+    }
+
+    fn update(&mut self, price: f64, volume: u64, is_buy: bool, cvd: i64) {
+        let now = chrono::Utc::now().timestamp();
+        let minute_ts = now - (now % 60);
+
+        match &mut self.current {
+            Some(c) if c.ts == minute_ts => {
+                if price > c.high { c.high = price; }
+                if price < c.low { c.low = price; }
+                c.close = price;
+                c.volume += volume;
+                if is_buy { c.buy_volume += volume; } else { c.sell_volume += volume; }
+                c.cvd = cvd;
+            }
+            Some(_) => {
+                // New minute — close current candle and start fresh
+                let finished = self.current.take().unwrap();
+                if self.candles.len() >= self.max_candles {
+                    self.candles.pop_front();
+                }
+                self.candles.push_back(finished);
+                self.current = Some(Candle {
+                    ts: minute_ts,
+                    open: price,
+                    high: price,
+                    low: price,
+                    close: price,
+                    volume,
+                    buy_volume: if is_buy { volume } else { 0 },
+                    sell_volume: if is_buy { 0 } else { volume },
+                    cvd,
+                });
+            }
+            None => {
+                self.current = Some(Candle {
+                    ts: minute_ts,
+                    open: price,
+                    high: price,
+                    low: price,
+                    close: price,
+                    volume,
+                    buy_volume: if is_buy { volume } else { 0 },
+                    sell_volume: if is_buy { 0 } else { volume },
+                    cvd,
+                });
+            }
+        }
+    }
+
+    fn all_candles(&self) -> Vec<Candle> {
+        let mut result: Vec<Candle> = self.candles.iter().cloned().collect();
+        if let Some(c) = &self.current {
+            result.push(c.clone());
+        }
+        result
+    }
 }
 
 #[derive(Debug, Default)]
@@ -199,6 +294,7 @@ async fn main() {
         theta_dx_option_scope: Mutex::new(ThetaDxOptionScope::default()),
         recent_theta_trades: RwLock::new(VecDeque::with_capacity(MAX_RECENT_THETA_TRADES)),
         open_interest: RwLock::new(std::collections::HashMap::new()),
+        candles: RwLock::new(CandleBuffer::new(390)),
     });
 
     // Build ingestion config from environment
@@ -438,6 +534,7 @@ async fn main() {
         .route("/flow-state", get(flow_state_handler))
         .route("/theta/trades/recent", get(recent_theta_trades_handler))
         .route("/theta/open-interest", get(open_interest_handler))
+        .route("/candles", get(candles_handler))
         .route("/cert-hash", get(cert_hash_handler))
         .layer(
             CorsLayer::new()
@@ -756,6 +853,13 @@ async fn process_tick(
         let mut fs = state.flow_state.write().await;
         fs.last_price = classified.price;
         fs.ticks_processed += 1;
+        // Track session high/low
+        if classified.price > fs.session_high || fs.session_high == 0.0 {
+            fs.session_high = classified.price;
+        }
+        if classified.price < fs.session_low || fs.session_low == 0.0 {
+            fs.session_low = classified.price;
+        }
         if let Some((cvd, d1m, d5m)) = latest_cvd {
             fs.cvd = cvd;
             fs.delta_1m = d1m;
@@ -765,6 +869,14 @@ async fn process_tick(
             fs.total_buy_vol = buy_vol;
             fs.total_sell_vol = sell_vol;
         }
+    }
+
+    // Update candle buffer
+    {
+        let is_buy = classified.side == events::TradeSide::Buy;
+        let cvd_val = latest_cvd.map(|(c, _, _)| c).unwrap_or(0);
+        let mut candles = state.candles.write().await;
+        candles.update(classified.price, classified.size, is_buy, cvd_val);
     }
 }
 
@@ -1031,6 +1143,29 @@ async fn open_interest_handler(
 ) -> impl IntoResponse {
     let oi = state.open_interest.read().await;
     let body = serde_json::to_string(&*oi).unwrap_or_else(|_| "{}".to_string());
+    (
+        StatusCode::OK,
+        [("content-type", "application/json")],
+        body,
+    )
+}
+
+#[derive(Debug, Deserialize)]
+struct CandlesQuery {
+    last: Option<usize>,
+}
+
+async fn candles_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<CandlesQuery>,
+) -> impl IntoResponse {
+    let candles = state.candles.read().await;
+    let mut all = candles.all_candles();
+    if let Some(last) = q.last {
+        let skip = all.len().saturating_sub(last);
+        all = all.into_iter().skip(skip).collect();
+    }
+    let body = serde_json::to_string(&all).unwrap_or_else(|_| "[]".to_string());
     (
         StatusCode::OK,
         [("content-type", "application/json")],
