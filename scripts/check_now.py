@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Full market check — all data sources, all levels, correct quote mapping."""
 
-import json, urllib.request, math, datetime, sys
+import json, urllib.request, math, datetime, sys, os
 
 TODAY = datetime.datetime.now().strftime("%Y%m%d")
 FLOW = "http://localhost:8081"
 THETA = "http://localhost:25503"
+POSITIONS_FILE = os.path.expanduser("~/.gstack/trading/positions.json")
+IV_HISTORY_FILE = os.path.expanduser("~/.gstack/trading/iv_history.json")
 
 def fetch(url):
     try:
@@ -18,6 +20,166 @@ def bs_gamma(S, K, T, iv):
     if T <= 0 or iv <= 0 or S <= 0: return 0.0
     d1 = (math.log(S / K) + (0.5 * iv * iv) * T) / (iv * math.sqrt(T))
     return math.exp(-0.5 * d1 * d1) / (S * iv * math.sqrt(2 * math.pi * T))
+
+# ── Position + IV tracking ──
+
+def load_positions():
+    try:
+        with open(POSITIONS_FILE) as f:
+            return json.load(f)
+    except: return []
+
+def save_positions(positions):
+    os.makedirs(os.path.dirname(POSITIONS_FILE), exist_ok=True)
+    with open(POSITIONS_FILE, "w") as f:
+        json.dump(positions, f, indent=2)
+
+def load_iv_history():
+    try:
+        with open(IV_HISTORY_FILE) as f:
+            return json.load(f)
+    except: return {}
+
+def save_iv_history(history):
+    os.makedirs(os.path.dirname(IV_HISTORY_FILE), exist_ok=True)
+    with open(IV_HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=2)
+
+def get_greeks_direct(symbol, expiration, strike, right):
+    """Pull greeks for a specific contract via direct query."""
+    r = fetch(f"{THETA}/v3/option/snapshot/greeks/first_order?symbol={symbol}&expiration={expiration}&strike={strike}&right={right}")
+    if "response" in r and r["response"]:
+        g = r["response"][0]
+        return {
+            "iv": g.get("implied_volatility", 0),
+            "delta": g.get("delta", 0),
+            "gamma": g.get("gamma", 0),
+            "theta": g.get("theta", 0),
+            "vega": g.get("vega", 0),
+        }
+    return None
+
+def get_quote_direct(symbol, expiration, strike, right):
+    """Pull quote for a specific contract via direct query."""
+    r = fetch(f"{THETA}/v3/option/snapshot/quote?symbol={symbol}&expiration={expiration}&strike={strike}&right={right}")
+    if "response" in r and r["response"]:
+        q = r["response"][0]
+        return {"bid": q.get("bid", 0), "ask": q.get("ask", 0)}
+    return None
+
+def track_iv(key, iv, timestamp):
+    """Record IV snapshot for a contract. Returns IV history + analysis."""
+    history = load_iv_history()
+    if key not in history:
+        history[key] = []
+
+    history[key].append({"ts": timestamp, "iv": iv})
+    # Keep last 60 snapshots
+    history[key] = history[key][-60:]
+    save_iv_history(history)
+
+    readings = history[key]
+    result = {"current": iv, "readings": len(readings)}
+
+    if len(readings) >= 2:
+        prev = readings[-2]["iv"]
+        result["prev"] = prev
+        result["change"] = iv - prev
+        result["pct_change"] = ((iv - prev) / prev * 100) if prev > 0 else 0
+
+    if len(readings) >= 5:
+        recent5 = [r["iv"] for r in readings[-5:]]
+        result["min5"] = min(recent5)
+        result["max5"] = max(recent5)
+        result["trend5"] = recent5[-1] - recent5[0]
+
+    if len(readings) >= 3:
+        # Detect IV expansion vs compression
+        ivs = [r["iv"] for r in readings[-3:]]
+        if all(ivs[i] > ivs[i-1] for i in range(1, len(ivs))):
+            result["state"] = "EXPANDING"
+        elif all(ivs[i] < ivs[i-1] for i in range(1, len(ivs))):
+            result["state"] = "COMPRESSING"
+        else:
+            result["state"] = "MIXED"
+    else:
+        result["state"] = "UNKNOWN"
+
+    return result
+
+def check_positions(spot):
+    """Check all tracked positions with greeks + IV tracking."""
+    positions = load_positions()
+    if not positions:
+        return
+
+    ts = datetime.datetime.now().isoformat()
+    active = []
+
+    print(f"\n  {'='*50}")
+    print(f"  OPEN POSITIONS")
+    print(f"  {'='*50}")
+
+    for pos in positions:
+        sym = pos.get("symbol", "SPY")
+        strike = pos.get("strike")
+        right = pos.get("right", "call")
+        entry = pos.get("entry_price", 0)
+        right_param = "call" if right.upper() in ["C", "CALL"] else "put"
+
+        # Get current quote
+        quote = get_quote_direct(sym, TODAY, strike, right_param)
+        if not quote or quote["bid"] <= 0:
+            print(f"  {sym} {strike}{'C' if right_param=='call' else 'P'}: no quote (expired?)")
+            continue
+
+        bid = quote["bid"]
+        pnl = bid - entry
+        pnl_pct = (pnl / entry * 100) if entry > 0 else 0
+
+        # Get greeks
+        greeks = get_greeks_direct(sym, TODAY, strike, right_param)
+
+        # Track IV
+        key = f"{sym}_{strike}_{right_param}_{TODAY}"
+        iv_info = None
+        if greeks and greeks["iv"] > 0:
+            iv_info = track_iv(key, greeks["iv"], ts)
+
+        # Print
+        r_label = "C" if right_param == "call" else "P"
+        print(f"\n  {sym} {strike}{r_label} @ ${entry:.2f} → bid ${bid:.2f}  P/L: ${pnl:+.2f} ({pnl_pct:+.0f}%)")
+
+        if greeks:
+            intrinsic = max(spot - strike, 0) if right_param == "call" else max(strike - spot, 0)
+            extrinsic = bid - intrinsic
+            print(f"    IV: {greeks['iv']*100:.1f}%  Δ:{greeks['delta']:.3f}  θ:${greeks['theta']:.2f}/min  ν:${greeks['vega']:.3f}/1%IV")
+            print(f"    Intrinsic: ${intrinsic:.2f}  Extrinsic: ${extrinsic:.2f}")
+
+        if iv_info:
+            state_icon = "📈" if iv_info["state"] == "EXPANDING" else ("📉" if iv_info["state"] == "COMPRESSING" else "〰")
+            print(f"    IV {iv_info['state']} {state_icon} ({iv_info['current']*100:.1f}%", end="")
+            if "change" in iv_info:
+                print(f", chg: {iv_info['change']*100:+.1f}%", end="")
+            if "trend5" in iv_info:
+                print(f", 5-check trend: {iv_info['trend5']*100:+.1f}%", end="")
+            print(")")
+
+            # Vega impact analysis
+            if greeks and "change" in iv_info and greeks["vega"] > 0:
+                vega_impact = iv_info["change"] * 100 * greeks["vega"]
+                print(f"    Vega P/L impact: ${vega_impact:+.2f} from IV move")
+
+            # Alert on big IV moves
+            if iv_info.get("pct_change", 0) > 10:
+                print(f"    ** IV SPIKE +{iv_info['pct_change']:.0f}% — vega working FOR you **")
+            elif iv_info.get("pct_change", 0) < -10:
+                print(f"    ** IV CRUSH {iv_info['pct_change']:.0f}% — vega working AGAINST you **")
+
+        active.append(pos)
+
+    # Clean up expired
+    save_positions(active)
 
 def get_multi_day_levels():
     """Pull prior day and weekly levels from ThetaData EOD history."""
@@ -115,6 +277,46 @@ T = hrs / (252 * 6.5) if hrs > 0 else 0.001
 # ── 2. Candles ──
 candles = fetch(f"{FLOW}/candles?last=5")
 last = candles[-1] if isinstance(candles, list) and candles else None
+
+# ── 2.5 Position + IV tracking ──
+check_positions(s)
+
+# ── 2.6 ATM IV monitor (track IV near spot even without a position) ──
+atm_strike = int(round(s))
+ts_now = datetime.datetime.now().isoformat()
+iv_readings = {}
+for offset in [-1, 0, 1]:
+    strike = atm_strike + offset
+    for right in ["call", "put"]:
+        g = get_greeks_direct("SPY", TODAY, strike, right)
+        if g and g["iv"] > 0:
+            key = f"SPY_{strike}_{right}_{TODAY}"
+            iv_info = track_iv(key, g["iv"], ts_now)
+            label = f"{strike}{'C' if right=='call' else 'P'}"
+            iv_readings[label] = iv_info
+
+# Print IV environment
+expanding = sum(1 for v in iv_readings.values() if v.get("state") == "EXPANDING")
+compressing = sum(1 for v in iv_readings.values() if v.get("state") == "COMPRESSING")
+if iv_readings:
+    if expanding > compressing + 2:
+        print(f"\n  IV ENVIRONMENT: EXPANDING ({expanding} expanding, {compressing} compressing)")
+        print(f"  Vega is your friend — options gain value from IV alone")
+    elif compressing > expanding + 2:
+        print(f"\n  IV ENVIRONMENT: COMPRESSING ({compressing} compressing, {expanding} expanding)")
+        print(f"  Vega crush — options lose value even if direction is right")
+    else:
+        # Show ATM IV level
+        atm_ivs = [v["current"] for v in iv_readings.values() if "current" in v]
+        if atm_ivs:
+            avg_iv = sum(atm_ivs) / len(atm_ivs) * 100
+            print(f"\n  IV: {avg_iv:.1f}% avg ATM", end="")
+            trends = [v.get("trend5", 0) for v in iv_readings.values() if "trend5" in v]
+            if trends:
+                avg_trend = sum(trends) / len(trends) * 100
+                if abs(avg_trend) > 0.5:
+                    print(f" (trending {avg_trend:+.1f}%)", end="")
+            print()
 
 # ── 3. SPY chain (correct mapping) ──
 spy_chain, spy_strikes = build_chain("SPY")
